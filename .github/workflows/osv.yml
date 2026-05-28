@@ -1,0 +1,27 @@
+name: osv
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '15 11 * * 2'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  security-events: write
+  contents: read
+
+jobs:
+  scan:
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      fail-on-vuln: false
+      scan-args: |-
+        --recursive
+        ./
+    permissions:
+      actions: read
+      security-events: write
+      contents: read

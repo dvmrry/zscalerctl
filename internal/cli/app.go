@@ -1,0 +1,584 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/dvmrry/zscalerctl/internal/config"
+	"github.com/dvmrry/zscalerctl/internal/dump"
+	"github.com/dvmrry/zscalerctl/internal/output"
+	"github.com/dvmrry/zscalerctl/internal/redact"
+	"github.com/dvmrry/zscalerctl/internal/resources"
+	"github.com/dvmrry/zscalerctl/internal/zscaler"
+)
+
+var ErrUsage = errors.New("usage error")
+
+type UsageError struct {
+	Message string
+}
+
+func (e UsageError) Error() string {
+	return e.Message
+}
+
+func (e UsageError) Unwrap() error {
+	return ErrUsage
+}
+
+type App struct {
+	out       io.Writer
+	err       io.Writer
+	env       []string
+	stdoutTTY bool
+	reader    ResourceReader
+}
+
+func New(out, err io.Writer, env []string) *App {
+	return NewWithOptions(out, err, env, Options{
+		StdoutTTY: output.IsTerminal(out),
+	})
+}
+
+type ResourceReader interface {
+	List(context.Context, resources.Product, string) ([]resources.SourceRecord, error)
+	Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error)
+}
+
+type Options struct {
+	StdoutTTY bool
+	Reader    ResourceReader
+}
+
+func NewWithOptions(out, err io.Writer, env []string, opts Options) *App {
+	envCopy := append([]string(nil), env...)
+	return &App{out: out, err: err, env: envCopy, stdoutTTY: opts.StdoutTTY, reader: opts.Reader}
+}
+
+func (a *App) Run(ctx context.Context, args []string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	opts, rest, err := parseGlobal(args)
+	if err != nil {
+		return err
+	}
+	if len(rest) == 0 {
+		a.writeUsage(a.err)
+		return UsageError{Message: "missing command"}
+	}
+	switch rest[0] {
+	case "help", "-h", "--help":
+		a.writeUsage(a.out)
+		return nil
+	case "completion":
+		return a.runCompletion(rest[1:])
+	case "doctor", "auth", "config", "schema", "dump", "zia", "zpa":
+	default:
+		a.writeUsage(a.err)
+		return UsageError{Message: fmt.Sprintf("unknown command %q", rest[0])}
+	}
+
+	cfg, err := config.LoadEnv(a.env)
+	if err != nil {
+		return err
+	}
+	applyOptions(&cfg, opts)
+
+	switch rest[0] {
+	case "doctor":
+		return a.runDoctor(ctx, cfg, opts, rest[1:])
+	case "auth":
+		return a.runAuth(ctx, cfg, opts, rest[1:])
+	case "config":
+		return a.runConfig(ctx, cfg, opts, rest[1:])
+	case "schema":
+		return a.runSchema(ctx, cfg, opts, rest[1:])
+	case "dump":
+		return a.runDump(ctx, cfg, opts, rest[1:])
+	case "zia", "zpa":
+		return a.runProduct(ctx, cfg, opts, rest[0], rest[1:])
+	default:
+		a.writeUsage(a.err)
+		return UsageError{Message: fmt.Sprintf("unknown command %q", rest[0])}
+	}
+}
+
+type globalOptions struct {
+	profile      string
+	format       output.Format
+	output       string
+	timeout      time.Duration
+	redaction    redact.Mode
+	redactionSet bool
+	noCache      bool
+	colorMode    output.ColorMode
+}
+
+func parseGlobal(args []string) (globalOptions, []string, error) {
+	fs := flag.NewFlagSet("zscalerctl", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	profile := fs.String("profile", "", "profile name")
+	format := fs.String("format", string(output.FormatTable), "output format: table, json, yaml, ndjson")
+	outputPath := fs.String("output", "", "output path")
+	timeout := fs.Duration("timeout", 30*time.Second, "request timeout")
+	redactionFlag := fs.String("redaction", "", "redaction mode: standard, share, paranoid")
+	noCache := fs.Bool("no-cache", false, "bypass API cache where supported")
+	colorFlag := fs.String("color", string(output.ColorAuto), "color output: auto, always, never")
+	noColor := fs.Bool("no-color", false, "disable color output")
+	if err := fs.Parse(args); err != nil {
+		return globalOptions{}, nil, UsageError{Message: err.Error()}
+	}
+	parsedFormat, err := output.ParseFormat(*format)
+	if err != nil {
+		return globalOptions{}, nil, UsageError{Message: err.Error()}
+	}
+	var parsedRedaction redact.Mode
+	redactionSet := *redactionFlag != ""
+	if redactionSet {
+		var err error
+		parsedRedaction, err = redact.ParseMode(*redactionFlag)
+		if err != nil {
+			return globalOptions{}, nil, UsageError{Message: err.Error()}
+		}
+	}
+	if *timeout <= 0 {
+		return globalOptions{}, nil, UsageError{Message: "timeout must be positive"}
+	}
+	colorMode, err := output.ParseColorMode(*colorFlag)
+	if err != nil {
+		return globalOptions{}, nil, UsageError{Message: err.Error()}
+	}
+	if *noColor {
+		colorMode = output.ColorNever
+	}
+	return globalOptions{
+		profile:      *profile,
+		format:       parsedFormat,
+		output:       *outputPath,
+		timeout:      *timeout,
+		redaction:    parsedRedaction,
+		redactionSet: redactionSet,
+		noCache:      *noCache,
+		colorMode:    colorMode,
+	}, fs.Args(), nil
+}
+
+func applyOptions(cfg *config.Config, opts globalOptions) {
+	if opts.profile != "" {
+		cfg.Profile = opts.profile
+	}
+	if opts.redactionSet {
+		cfg.Defaults.Redaction = opts.redaction
+	}
+	if opts.noCache {
+		cfg.Defaults.NoCache = true
+	}
+}
+
+func (a *App) runDoctor(ctx context.Context, cfg config.Config, opts globalOptions, args []string) error {
+	if err := requireNoArgs("doctor", args); err != nil {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("doctor cancelled: %w", ctx.Err())
+	default:
+	}
+	body := output.RenderKeyValues([]output.KV{
+		{Key: "Status", Value: "OK", Kind: "ok"},
+		{Key: "Mode", Value: "read-only", Kind: "mode"},
+		{Key: "Profile", Value: cfg.Profile},
+		{Key: "Redaction", Value: string(cfg.Defaults.Redaction)},
+		{Key: "Timeout", Value: opts.timeout.String()},
+		{Key: "Cache", Value: cacheStatus(cfg.Defaults.NoCache)},
+		{Key: "Credentials", Value: credentialStatus(cfg)},
+		{Key: "Live API", Value: liveAPIStatus(cfg)},
+	}, a.style(opts))
+	return a.renderer(cfg, opts).WriteText(a.out, body)
+}
+
+func (a *App) runAuth(_ context.Context, cfg config.Config, opts globalOptions, args []string) error {
+	if len(args) != 1 || args[0] != "status" {
+		return UsageError{Message: "usage: zscalerctl auth status"}
+	}
+	body := output.RenderKeyValues([]output.KV{
+		{Key: "Credentials", Value: credentialStatus(cfg)},
+		{Key: "Token", Value: "not requested"},
+		{Key: "Live API", Value: liveAPIStatus(cfg)},
+	}, a.style(opts))
+	return a.renderer(cfg, opts).WriteText(a.out, body)
+}
+
+func (a *App) runConfig(_ context.Context, cfg config.Config, opts globalOptions, args []string) error {
+	if len(args) != 1 || args[0] != "show" {
+		return UsageError{Message: "usage: zscalerctl config show"}
+	}
+	if opts.format == output.FormatJSON {
+		return a.renderer(cfg, opts).WriteJSON(a.out, cfg.Safe())
+	}
+	if opts.format != output.FormatTable {
+		return fmt.Errorf("config show does not support %s output yet", opts.format)
+	}
+	safe := cfg.Safe()
+	body := output.RenderKeyValues([]output.KV{
+		{Key: "Profile", Value: safe.Profile},
+		{Key: "Vanity Domain", Value: setStatus(safe.VanityDomainSet)},
+		{Key: "Cloud", Value: valueOrUnset(safe.Cloud)},
+		{Key: "Client ID", Value: setStatus(safe.Credentials.ClientIDSet)},
+		{Key: "Client Secret", Value: setStatus(safe.Credentials.ClientSecretSet || safe.Credentials.ClientSecretFileSet)},
+		{Key: "Redaction", Value: safe.Defaults.Redaction},
+		{Key: "Cache", Value: cacheStatus(safe.Defaults.NoCache)},
+	}, a.style(opts))
+	return a.renderer(cfg, opts).WriteText(a.out, body)
+}
+
+func (a *App) runSchema(_ context.Context, cfg config.Config, opts globalOptions, args []string) error {
+	if len(args) != 1 || args[0] != "list" {
+		return UsageError{Message: "usage: zscalerctl schema list"}
+	}
+	catalog := resources.Catalog()
+	if err := resources.AssertReadOnly(catalog...); err != nil {
+		return err
+	}
+	if opts.format == output.FormatJSON {
+		return a.renderer(cfg, opts).WriteJSON(a.out, catalog)
+	}
+	if opts.format != output.FormatTable {
+		return fmt.Errorf("schema list does not support %s output yet", opts.format)
+	}
+	if len(catalog) == 0 {
+		return a.renderer(cfg, opts).WriteText(a.out, output.NewSafeText("no resources enabled yet\n"))
+	}
+	var body strings.Builder
+	for _, spec := range catalog {
+		fmt.Fprintf(&body, "%s\t%s\n", spec.Product, spec.Name)
+	}
+	return a.renderer(cfg, opts).WriteText(a.out, output.NewSafeText(body.String()))
+}
+
+func (a *App) runProduct(ctx context.Context, cfg config.Config, opts globalOptions, productName string, args []string) error {
+	if len(args) < 2 {
+		return UsageError{Message: fmt.Sprintf("usage: zscalerctl %s <resource> list|get", productName)}
+	}
+	product := resources.Product(productName)
+	resource := args[0]
+	op := args[1]
+	if op == "list" && len(args) != 2 {
+		return UsageError{Message: fmt.Sprintf("usage: zscalerctl %s <resource> list", productName)}
+	}
+	if op == "get" && len(args) != 3 {
+		return UsageError{Message: fmt.Sprintf("usage: zscalerctl %s <resource> get <id>", productName)}
+	}
+	if op != "list" && op != "get" {
+		return UsageError{Message: fmt.Sprintf("usage: zscalerctl %s <resource> list|get", productName)}
+	}
+	spec, ok := resources.FindSpec(product, resource)
+	if !ok {
+		return UsageError{Message: fmt.Sprintf("unsupported resource %s/%s", product, resource)}
+	}
+	if err := resources.AssertReadOnly(spec); err != nil {
+		return err
+	}
+	reader, err := a.resourceReader(cfg, opts)
+	if err != nil {
+		return err
+	}
+	if op == "get" {
+		record, err := reader.Get(ctx, product, resource, args[2])
+		if err != nil {
+			return err
+		}
+		projected, report, err := resources.ProjectRecord(spec, cfg.Defaults.Redaction, record)
+		if err != nil {
+			return err
+		}
+		if err := resources.AssertRenderedSubset(spec, cfg.Defaults.Redaction, projected.Fields()); err != nil {
+			return err
+		}
+		_ = report
+		return a.writeProjectedRecord(cfg, opts, spec, projected)
+	}
+	records, err := reader.List(ctx, product, resource)
+	if err != nil {
+		return err
+	}
+	projected, reports, err := resources.ProjectRecords(spec, cfg.Defaults.Redaction, records)
+	if err != nil {
+		return err
+	}
+	for _, record := range projected.Records() {
+		if err := resources.AssertRenderedSubset(spec, cfg.Defaults.Redaction, record.Fields()); err != nil {
+			return err
+		}
+	}
+	_ = reports
+	return a.writeProjectedRecords(cfg, opts, spec, projected)
+}
+
+func (a *App) runDump(ctx context.Context, cfg config.Config, opts globalOptions, args []string) error {
+	fs := flag.NewFlagSet("dump", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	outDir := fs.String("out", "", "dump output directory")
+	productsFlag := fs.String("products", "", "comma-separated products: zia,zpa")
+	if err := fs.Parse(args); err != nil {
+		return UsageError{Message: err.Error()}
+	}
+	if fs.NArg() != 0 {
+		return UsageError{Message: "usage: zscalerctl dump --out <dir> [--products zia,zpa]"}
+	}
+	if *outDir == "" {
+		*outDir = opts.output
+	}
+	if *outDir == "" {
+		return UsageError{Message: "usage: zscalerctl dump --out <dir> [--products zia,zpa]"}
+	}
+	products, err := parseProducts(*productsFlag)
+	if err != nil {
+		return err
+	}
+	entries, err := a.collectDump(ctx, cfg, opts, products)
+	if err != nil {
+		return err
+	}
+	if err := dump.Write(*outDir, cfg.Defaults.Redaction, entries); err != nil {
+		return err
+	}
+	return a.renderer(cfg, opts).WriteText(a.out, output.NewSafeText(fmt.Sprintf("dump written: %s\n", *outDir)))
+}
+
+func (a *App) resourceReader(cfg config.Config, opts globalOptions) (ResourceReader, error) {
+	if a.reader != nil {
+		return a.reader, nil
+	}
+	return zscaler.NewReader(zscaler.ReaderConfig{
+		ClientID:     cfg.Credentials.ClientID,
+		ClientSecret: cfg.Credentials.ClientSecret,
+		VanityDomain: cfg.VanityDomain,
+		Cloud:        cfg.Cloud,
+		Timeout:      opts.timeout,
+		NoCache:      cfg.Defaults.NoCache,
+	})
+}
+
+func (a *App) collectDump(
+	ctx context.Context,
+	cfg config.Config,
+	opts globalOptions,
+	products map[resources.Product]bool,
+) ([]dump.ResourceDump, error) {
+	var entries []dump.ResourceDump
+	catalog := resources.Catalog()
+	if err := resources.AssertReadOnly(catalog...); err != nil {
+		return nil, err
+	}
+	for _, spec := range catalog {
+		if !products[spec.Product] {
+			continue
+		}
+		reader, err := a.resourceReader(cfg, opts)
+		if err != nil {
+			return nil, err
+		}
+		records, err := reader.List(ctx, spec.Product, spec.Name)
+		if err != nil {
+			return nil, err
+		}
+		projected, reports, err := resources.ProjectRecords(spec, cfg.Defaults.Redaction, records)
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range projected.Records() {
+			if err := resources.AssertRenderedSubset(spec, cfg.Defaults.Redaction, record.Fields()); err != nil {
+				return nil, err
+			}
+		}
+		entries = append(entries, dump.ResourceDump{
+			Spec:    spec,
+			Records: projected,
+			Reports: reports,
+		})
+	}
+	return entries, nil
+}
+
+func (a *App) writeProjectedRecord(
+	cfg config.Config,
+	opts globalOptions,
+	spec resources.ResourceSpec,
+	record resources.ProjectedRecord,
+) error {
+	if opts.format == output.FormatJSON {
+		return a.renderer(cfg, opts).WriteJSON(a.out, record)
+	}
+	if opts.format != output.FormatTable {
+		return fmt.Errorf("%s output is not supported for resource get yet", opts.format)
+	}
+	return a.renderer(cfg, opts).WriteText(a.out, renderRecordsTable(spec, cfg.Defaults.Redaction, resources.NewProjectedRecords([]resources.ProjectedRecord{record}), a.style(opts)))
+}
+
+func (a *App) writeProjectedRecords(
+	cfg config.Config,
+	opts globalOptions,
+	spec resources.ResourceSpec,
+	records resources.ProjectedRecords,
+) error {
+	if opts.format == output.FormatJSON {
+		return a.renderer(cfg, opts).WriteJSON(a.out, records)
+	}
+	if opts.format != output.FormatTable {
+		return fmt.Errorf("%s output is not supported for resource list yet", opts.format)
+	}
+	return a.renderer(cfg, opts).WriteText(a.out, renderRecordsTable(spec, cfg.Defaults.Redaction, records, a.style(opts)))
+}
+
+func (a *App) writeUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage: zscalerctl [global flags] <command> [args]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "commands:")
+	fmt.Fprintln(w, "  doctor")
+	fmt.Fprintln(w, "  auth status")
+	fmt.Fprintln(w, "  config show")
+	fmt.Fprintln(w, "  schema list")
+	fmt.Fprintln(w, "  dump --out <dir>")
+	fmt.Fprintln(w, "  completion bash|zsh|fish")
+	fmt.Fprintln(w, "  zia <resource> list|get")
+	fmt.Fprintln(w, "  zpa <resource> list|get")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "global flags:")
+	fmt.Fprintln(w, "  --profile <name>")
+	fmt.Fprintln(w, "  --format table|json|yaml|ndjson")
+	fmt.Fprintln(w, "  --output <path>")
+	fmt.Fprintln(w, "  --timeout <duration>")
+	fmt.Fprintln(w, "  --redaction standard|share|paranoid")
+	fmt.Fprintln(w, "  --color auto|always|never")
+	fmt.Fprintln(w, "  --no-color")
+	fmt.Fprintln(w, "  --no-cache")
+}
+
+func (a *App) renderer(cfg config.Config, _ globalOptions) output.Renderer {
+	return output.NewRenderer(redact.New(cfg.Defaults.Redaction))
+}
+
+func renderRecordsTable(
+	spec resources.ResourceSpec,
+	mode redact.Mode,
+	records resources.ProjectedRecords,
+	style output.Style,
+) output.SafeText {
+	fields := spec.FieldOrder(mode)
+	var body strings.Builder
+	for i, field := range fields {
+		if i > 0 {
+			body.WriteByte('\t')
+		}
+		body.WriteString(style.Key(field))
+	}
+	body.WriteByte('\n')
+	for _, record := range records.Records() {
+		values := record.Fields()
+		for i, field := range fields {
+			if i > 0 {
+				body.WriteByte('\t')
+			}
+			body.WriteString(style.Value(field, formatTableValue(values[field])))
+		}
+		body.WriteByte('\n')
+	}
+	return output.NewSafeText(body.String())
+}
+
+func formatTableValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case []string:
+		return strings.Join(v, ",")
+	case []any:
+		parts := make([]string, len(v))
+		for i, item := range v {
+			parts[i] = formatTableValue(item)
+		}
+		return strings.Join(parts, ",")
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func (a *App) style(opts globalOptions) output.Style {
+	color := output.ShouldColor(opts.colorMode, a.env, a.stdoutTTY)
+	return output.NewStyle(color, output.Supports256Color(a.env))
+}
+
+func requireNoArgs(command string, args []string) error {
+	if len(args) != 0 {
+		return UsageError{Message: fmt.Sprintf("usage: zscalerctl %s", command)}
+	}
+	return nil
+}
+
+func credentialStatus(cfg config.Config) string {
+	if cfg.Credentials.ClientID.IsSet() && cfg.Credentials.ClientSecret.IsSet() && cfg.VanityDomain != "" {
+		return "configured"
+	}
+	if cfg.Credentials.ClientID.IsSet() || cfg.Credentials.ClientSecret.IsSet() || cfg.Credentials.ClientSecretFile != "" || cfg.VanityDomain != "" {
+		return "partial"
+	}
+	return "not configured"
+}
+
+func liveAPIStatus(cfg config.Config) string {
+	if credentialStatus(cfg) == "configured" {
+		return "available for read-only commands"
+	}
+	return "requires ZSCALERCTL_CLIENT_ID, ZSCALERCTL_CLIENT_SECRET, and ZSCALERCTL_VANITY_DOMAIN"
+}
+
+func setStatus(set bool) string {
+	if set {
+		return "set"
+	}
+	return "unset"
+}
+
+func cacheStatus(noCache bool) string {
+	if noCache {
+		return "bypass"
+	}
+	return "default"
+}
+
+func valueOrUnset(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unset"
+	}
+	return value
+}
+
+func parseProducts(value string) (map[resources.Product]bool, error) {
+	if strings.TrimSpace(value) == "" {
+		return map[resources.Product]bool{
+			resources.ProductZIA: true,
+			resources.ProductZPA: true,
+		}, nil
+	}
+	products := map[resources.Product]bool{}
+	for _, item := range strings.Split(value, ",") {
+		product := resources.Product(strings.TrimSpace(strings.ToLower(item)))
+		switch product {
+		case resources.ProductZIA, resources.ProductZPA:
+			products[product] = true
+		default:
+			return nil, UsageError{Message: fmt.Sprintf("unsupported product %q", item)}
+		}
+	}
+	return products, nil
+}
