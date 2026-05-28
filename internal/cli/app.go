@@ -194,6 +194,7 @@ func (a *App) runDoctor(ctx context.Context, cfg config.Config, opts globalOptio
 		{Key: "Status", Value: "OK", Kind: "ok"},
 		{Key: "Mode", Value: "read-only", Kind: "mode"},
 		{Key: "Profile", Value: cfg.Profile},
+		{Key: "Auth Mode", Value: string(cfg.EffectiveAuthMode())},
 		{Key: "Redaction", Value: string(cfg.Defaults.Redaction)},
 		{Key: "Timeout", Value: opts.timeout.String()},
 		{Key: "Cache", Value: cacheStatus(cfg.Defaults.NoCache)},
@@ -228,10 +229,15 @@ func (a *App) runConfig(_ context.Context, cfg config.Config, opts globalOptions
 	safe := cfg.Safe()
 	body := output.RenderKeyValues([]output.KV{
 		{Key: "Profile", Value: safe.Profile},
+		{Key: "Auth Mode", Value: safe.AuthMode},
 		{Key: "Vanity Domain", Value: setStatus(safe.VanityDomainSet)},
 		{Key: "Cloud", Value: valueOrUnset(safe.Cloud)},
 		{Key: "Client ID", Value: setStatus(safe.Credentials.ClientIDSet)},
 		{Key: "Client Secret", Value: setStatus(safe.Credentials.ClientSecretSet || safe.Credentials.ClientSecretFileSet)},
+		{Key: "ZIA Username", Value: setStatus(safe.ZIALegacy.UsernameSet)},
+		{Key: "ZIA Password", Value: setStatus(safe.ZIALegacy.PasswordSet || safe.ZIALegacy.PasswordFileSet)},
+		{Key: "ZIA API Key", Value: setStatus(safe.ZIALegacy.APIKeySet || safe.ZIALegacy.APIKeyFileSet)},
+		{Key: "ZIA Cloud", Value: setStatus(safe.ZIALegacy.CloudSet)},
 		{Key: "Redaction", Value: safe.Defaults.Redaction},
 		{Key: "Cache", Value: cacheStatus(safe.Defaults.NoCache)},
 	}, a.style(opts))
@@ -361,8 +367,15 @@ func (a *App) resourceReader(cfg config.Config, opts globalOptions) (ResourceRea
 		ClientSecret: cfg.Credentials.ClientSecret,
 		VanityDomain: cfg.VanityDomain,
 		Cloud:        cfg.Cloud,
-		Timeout:      opts.timeout,
-		NoCache:      cfg.Defaults.NoCache,
+		AuthMode:     zscaler.AuthMode(cfg.EffectiveAuthMode()),
+		ZIALegacy: zscaler.ZIALegacyConfig{
+			Username: cfg.ZIALegacy.Username,
+			Password: cfg.ZIALegacy.Password,
+			APIKey:   cfg.ZIALegacy.APIKey,
+			Cloud:    cfg.ZIALegacy.Cloud,
+		},
+		Timeout: opts.timeout,
+		NoCache: cfg.Defaults.NoCache,
 	})
 }
 
@@ -525,18 +538,32 @@ func requireNoArgs(command string, args []string) error {
 }
 
 func credentialStatus(cfg config.Config) string {
-	if cfg.Credentials.ClientID.IsSet() && cfg.Credentials.ClientSecret.IsSet() && cfg.VanityDomain != "" {
-		return "configured"
+	switch cfg.EffectiveAuthMode() {
+	case config.AuthModeZIALegacy:
+		if cfg.ZIALegacy.Configured() {
+			return "configured"
+		}
+		if cfg.ZIALegacy.AnySet() {
+			return "partial"
+		}
+		return "not configured"
+	default:
+		if cfg.Credentials.Configured(cfg.VanityDomain) {
+			return "configured"
+		}
+		if cfg.Credentials.AnySet() || cfg.VanityDomain != "" {
+			return "partial"
+		}
+		return "not configured"
 	}
-	if cfg.Credentials.ClientID.IsSet() || cfg.Credentials.ClientSecret.IsSet() || cfg.Credentials.ClientSecretFile != "" || cfg.VanityDomain != "" {
-		return "partial"
-	}
-	return "not configured"
 }
 
 func liveAPIStatus(cfg config.Config) string {
 	if credentialStatus(cfg) == "configured" {
 		return "available for read-only commands"
+	}
+	if cfg.EffectiveAuthMode() == config.AuthModeZIALegacy {
+		return "requires ZSCALERCTL_ZIA_USERNAME, ZSCALERCTL_ZIA_PASSWORD, ZSCALERCTL_ZIA_API_KEY, and ZSCALERCTL_ZIA_CLOUD"
 	}
 	return "requires ZSCALERCTL_CLIENT_ID, ZSCALERCTL_CLIENT_SECRET, and ZSCALERCTL_VANITY_DOMAIN"
 }

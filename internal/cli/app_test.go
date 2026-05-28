@@ -87,6 +87,41 @@ func TestAuthStatusDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	}
 }
 
+func TestAuthStatusReportsZIALegacyWithoutExposingSecrets(t *testing.T) {
+	t.Parallel()
+
+	const (
+		username = "admin@example.invalid"
+		password = "legacy-password-value"
+		apiKey   = "legacy-api-key-value"
+		cloud    = "zscalerthree"
+	)
+	var out, errOut bytes.Buffer
+	app := cli.New(&out, &errOut, []string{
+		config.EnvAuthMode + "=" + string(config.AuthModeZIALegacy),
+		config.EnvZIAUsername + "=" + username,
+		config.EnvZIAPassword + "=" + password,
+		config.EnvZIAAPIKey + "=" + apiKey,
+		config.EnvZIACloud + "=" + cloud,
+	})
+
+	err := app.Run(context.Background(), []string{"auth", "status"})
+	if err != nil {
+		t.Fatalf("App.Run(auth status ZIA legacy) error = %v, want nil", err)
+	}
+	if !strings.Contains(out.String(), "available for read-only commands") {
+		t.Errorf("App.Run(auth status ZIA legacy) output = %q, want live API available", out.String())
+	}
+	for _, forbidden := range []string{username, password, apiKey, cloud} {
+		if strings.Contains(out.String(), forbidden) {
+			t.Errorf("App.Run(auth status ZIA legacy) output = %q, want no %q", out.String(), forbidden)
+		}
+		if strings.Contains(errOut.String(), forbidden) {
+			t.Errorf("App.Run(auth status ZIA legacy) stderr = %q, want no %q", errOut.String(), forbidden)
+		}
+	}
+}
+
 func TestDoctorReportsReadOnlyMode(t *testing.T) {
 	t.Parallel()
 
@@ -290,6 +325,10 @@ func TestResourceListDoesNotUseSDKEnvironmentNames(t *testing.T) {
 	t.Setenv("ZSCALER_VANITY_DOMAIN", "sdk-vanity")
 	t.Setenv("ZSCALER_SDK_LOG", "true")
 	t.Setenv("ZSCALER_SDK_VERBOSE", "true")
+	t.Setenv("ZIA_USERNAME", "legacy-admin@example.invalid")
+	t.Setenv("ZIA_PASSWORD", "legacy-password-value")
+	t.Setenv("ZIA_API_KEY", "legacy-api-key-value")
+	t.Setenv("ZIA_CLOUD", "legacy-cloud")
 
 	var out, errOut bytes.Buffer
 	app := cli.New(&out, &errOut, nil)
@@ -298,7 +337,7 @@ func TestResourceListDoesNotUseSDKEnvironmentNames(t *testing.T) {
 	if !errors.Is(err, zscaler.ErrMissingCredentials) {
 		t.Fatalf("App.Run(zia locations list with SDK env) error = %v, want ErrMissingCredentials", err)
 	}
-	for _, forbidden := range []string{"sdk-client-id", "sdk-client-secret", "sdk-vanity"} {
+	for _, forbidden := range []string{"sdk-client-id", "sdk-client-secret", "sdk-vanity", "legacy-admin@example.invalid", "legacy-password-value", "legacy-api-key-value", "legacy-cloud"} {
 		if strings.Contains(out.String(), forbidden) {
 			t.Errorf("App.Run(zia locations list with SDK env) stdout = %q, want no %q", out.String(), forbidden)
 		}

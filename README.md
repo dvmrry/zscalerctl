@@ -49,15 +49,31 @@ safety rails before adding Zscaler API resources:
 
 The initial live reader supports a small read-only ZIA resource set through the
 official Go SDK. It requires explicit `ZSCALERCTL_*` configuration and does not
-consume the SDK's own environment variable names, local SDK config files, or
-ambient proxy variables. SDK response caching is disabled.
+consume the SDK's own environment variable names, local SDK config files, SDK log
+flags, or ambient proxy variables. SDK response caching is disabled.
+
+OneAPI credentials are the default:
 
 ```sh
 export ZSCALERCTL_CLIENT_ID=...
 export ZSCALERCTL_CLIENT_SECRET_FILE=/path/to/owner-only/secret-file
 export ZSCALERCTL_VANITY_DOMAIN=...
 export ZSCALERCTL_CLOUD=PRODUCTION # optional
+```
 
+ZIA legacy credentials are supported for read-only ZIA resources through
+explicit `ZSCALERCTL_ZIA_*` variables. Raw SDK names such as `ZIA_USERNAME` are
+intentionally ignored.
+
+```sh
+export ZSCALERCTL_AUTH_MODE=zia-legacy
+export ZSCALERCTL_ZIA_USERNAME=...
+export ZSCALERCTL_ZIA_PASSWORD_FILE=/path/to/owner-only/password-file
+export ZSCALERCTL_ZIA_API_KEY_FILE=/path/to/owner-only/api-key-file
+export ZSCALERCTL_ZIA_CLOUD=zscalerthree
+```
+
+```sh
 zscalerctl zia locations list
 zscalerctl zia rule-labels list
 zscalerctl completion zsh

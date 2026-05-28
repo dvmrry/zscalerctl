@@ -13,3 +13,7 @@ rules:
           func newSDKConfiguration(...) $RET {
             ...
           }
+      - pattern-not-inside: |
+          func newLegacyZIAConfiguration(...) $RET {
+            ...
+          }

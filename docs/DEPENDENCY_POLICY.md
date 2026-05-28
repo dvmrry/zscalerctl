@@ -47,9 +47,9 @@ version bump:
    stays active.
 3. Confirm the adapter still builds the SDK configuration manually and does not
    call `zscaler.NewConfiguration`.
-4. Confirm `NewOneAPIClient` does not read environment variables, local config
-   files, SDK log flags, proxy settings, or cache settings from ambient state
-   when supplied a manually constructed configuration.
+4. Confirm OneAPI and ZIA legacy adapters do not read environment variables,
+   local config files, SDK log flags, proxy settings, or cache settings from
+   ambient state when supplied manually constructed configuration.
 5. Confirm live reader errors remain normalized before reaching CLI output.
 6. Run the required checks above.
 

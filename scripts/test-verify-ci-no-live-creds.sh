@@ -13,6 +13,7 @@ mkdir -p \
 	"$tmp_dir/bad-zpa-secret/workflows" \
 	"$tmp_dir/bad-oneapi-env/workflows" \
 	"$tmp_dir/bad-oneapi-secret/workflows" \
+	"$tmp_dir/bad-zscalerctl-zia-env/workflows" \
 	"$tmp_dir/bad-composite-action/actions/live-smoke"
 
 cat >"$tmp_dir/good/workflows/ci.yml" <<'YAML'
@@ -100,6 +101,22 @@ jobs:
           CLIENT_SECRET: ${{ secrets.PROD_ONEAPI_CLIENT_SECRET }}
 YAML
 
+cat >"$tmp_dir/bad-zscalerctl-zia-env/workflows/ci.yml" <<'YAML'
+name: ci
+on: [push]
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      ZSCALERCTL_AUTH_MODE: zia-legacy
+      ZSCALERCTL_ZIA_USERNAME: analyst@example.com
+      ZSCALERCTL_ZIA_PASSWORD: ${{ secrets.LEGACY_ZIA_PASSWORD }}
+      ZSCALERCTL_ZIA_API_KEY: ${{ secrets.LEGACY_ZIA_API_KEY }}
+      ZSCALERCTL_ZIA_CLOUD: zscalerthree
+    steps:
+      - run: zscalerctl zia locations list
+YAML
+
 cat >"$tmp_dir/bad-composite-action/actions/live-smoke/action.yml" <<'YAML'
 name: live smoke
 runs:
@@ -114,7 +131,7 @@ YAML
 ZSCALERCTL_GITHUB_DIR="$tmp_dir/good" \
 	"$repo_root/scripts/verify-ci-no-live-creds.sh"
 
-for bad_dir in "$tmp_dir/bad-env" "$tmp_dir/bad-secret" "$tmp_dir/bad-zia-env" "$tmp_dir/bad-zpa-secret" "$tmp_dir/bad-oneapi-env" "$tmp_dir/bad-oneapi-secret" "$tmp_dir/bad-composite-action"; do
+for bad_dir in "$tmp_dir/bad-env" "$tmp_dir/bad-secret" "$tmp_dir/bad-zia-env" "$tmp_dir/bad-zpa-secret" "$tmp_dir/bad-oneapi-env" "$tmp_dir/bad-oneapi-secret" "$tmp_dir/bad-zscalerctl-zia-env" "$tmp_dir/bad-composite-action"; do
 	if ZSCALERCTL_GITHUB_DIR="$bad_dir" \
 		"$repo_root/scripts/verify-ci-no-live-creds.sh" >"$tmp_dir/out" 2>"$tmp_dir/err"; then
 		echo "verify-ci-no-live-creds accepted a workflow with live credential inputs: $bad_dir" >&2

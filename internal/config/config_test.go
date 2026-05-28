@@ -45,6 +45,69 @@ func TestLoadEnvSafeConfigDoesNotExposeSecrets(t *testing.T) {
 	}
 }
 
+func TestLoadEnvZIALegacySafeConfigDoesNotExposeSecrets(t *testing.T) {
+	t.Parallel()
+
+	const (
+		username = "admin@example.invalid"
+		password = "legacy-password-value"
+		apiKey   = "legacy-api-key-value"
+		cloud    = "zscalerthree"
+	)
+	cfg, err := config.LoadEnv([]string{
+		config.EnvAuthMode + "=" + string(config.AuthModeZIALegacy),
+		config.EnvZIAUsername + "=" + username,
+		config.EnvZIAPassword + "=" + password,
+		config.EnvZIAAPIKey + "=" + apiKey,
+		config.EnvZIACloud + "=" + cloud,
+	})
+	if err != nil {
+		t.Fatalf("LoadEnv(ZIA legacy) error = %v, want nil", err)
+	}
+	if cfg.EffectiveAuthMode() != config.AuthModeZIALegacy {
+		t.Errorf("Config.EffectiveAuthMode() = %q, want %q", cfg.EffectiveAuthMode(), config.AuthModeZIALegacy)
+	}
+
+	body, err := json.Marshal(cfg.Safe())
+	if err != nil {
+		t.Fatalf("json.Marshal(Config.Safe()) error = %v, want nil", err)
+	}
+	got := string(body)
+	for _, forbidden := range []string{username, password, apiKey, cloud} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("json.Marshal(Config.Safe()) = %s, want no %q", got, forbidden)
+		}
+	}
+	if !cfg.Safe().ZIALegacy.UsernameSet || !cfg.Safe().ZIALegacy.PasswordSet || !cfg.Safe().ZIALegacy.APIKeySet || !cfg.Safe().ZIALegacy.CloudSet {
+		t.Errorf("Config.Safe().ZIALegacy = %+v, want legacy fields marked set", cfg.Safe().ZIALegacy)
+	}
+}
+
+func TestLoadEnvInfersZIALegacyWhenOnlyLegacyCredentialsAreSet(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.LoadEnv([]string{
+		config.EnvZIAUsername + "=admin@example.invalid",
+		config.EnvZIAPassword + "=legacy-password-value",
+		config.EnvZIAAPIKey + "=legacy-api-key-value",
+		config.EnvZIACloud + "=zscalerthree",
+	})
+	if err != nil {
+		t.Fatalf("LoadEnv(infer ZIA legacy) error = %v, want nil", err)
+	}
+	if cfg.EffectiveAuthMode() != config.AuthModeZIALegacy {
+		t.Errorf("Config.EffectiveAuthMode() = %q, want %q", cfg.EffectiveAuthMode(), config.AuthModeZIALegacy)
+	}
+}
+
+func TestLoadEnvRejectsInvalidAuthMode(t *testing.T) {
+	t.Parallel()
+
+	if _, err := config.LoadEnv([]string{config.EnvAuthMode + "=legacy"}); err == nil {
+		t.Errorf("LoadEnv(%s=legacy) error = nil, want error", config.EnvAuthMode)
+	}
+}
+
 func TestLoadEnvRejectsRedactionOff(t *testing.T) {
 	t.Parallel()
 
@@ -70,6 +133,34 @@ func TestLoadEnvLoadsOwnerOnlySecretFile(t *testing.T) {
 	}
 }
 
+func TestLoadEnvLoadsOwnerOnlyZIALegacySecretFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	passwordPath := filepath.Join(dir, "zia-password.txt")
+	apiKeyPath := filepath.Join(dir, "zia-api-key.txt")
+	if err := os.WriteFile(passwordPath, []byte("legacy-password\n"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v, want nil", passwordPath, err)
+	}
+	if err := os.WriteFile(apiKeyPath, []byte("legacy-api-key\n"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v, want nil", apiKeyPath, err)
+	}
+
+	cfg, err := config.LoadEnv([]string{
+		config.EnvZIAPasswordFile + "=" + passwordPath,
+		config.EnvZIAAPIKeyFile + "=" + apiKeyPath,
+	})
+	if err != nil {
+		t.Fatalf("LoadEnv(ZIA legacy files) error = %v, want nil", err)
+	}
+	if cfg.ZIALegacy.Password.Reveal() != "legacy-password" {
+		t.Errorf("LoadEnv(ZIA legacy files).ZIALegacy.Password = %q, want legacy-password", cfg.ZIALegacy.Password.Reveal())
+	}
+	if cfg.ZIALegacy.APIKey.Reveal() != "legacy-api-key" {
+		t.Errorf("LoadEnv(ZIA legacy files).ZIALegacy.APIKey = %q, want legacy-api-key", cfg.ZIALegacy.APIKey.Reveal())
+	}
+}
+
 func TestLoadEnvRejectsUnsafeSecretFile(t *testing.T) {
 	t.Parallel()
 
@@ -80,5 +171,18 @@ func TestLoadEnvRejectsUnsafeSecretFile(t *testing.T) {
 
 	if _, err := config.LoadEnv([]string{config.EnvClientSecretFile + "=" + path}); err == nil {
 		t.Errorf("LoadEnv(unsafe secret file) error = nil, want error")
+	}
+}
+
+func TestLoadEnvRejectsUnsafeZIALegacySecretFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "zia-api-key.txt")
+	if err := os.WriteFile(path, []byte("legacy-api-key\n"), 0o644); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v, want nil", path, err)
+	}
+
+	if _, err := config.LoadEnv([]string{config.EnvZIAAPIKeyFile + "=" + path}); err == nil {
+		t.Errorf("LoadEnv(unsafe ZIA legacy secret file) error = nil, want error")
 	}
 }

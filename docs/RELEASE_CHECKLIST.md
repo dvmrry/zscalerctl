@@ -21,7 +21,7 @@ satisfied for the exact release commit.
 | Redaction and projection invariants survive fuzz/property seed inputs. | `go test -mod=vendor ./...` runs `FuzzRedactorPreservesValidJSON`, `FuzzScanFreeTextRedactsBareHighEntropyCanary`, and `FuzzProjectRecordSubsetAndCanaryRedaction` seed corpora. `.github/workflows/fuzz.yml` restores/saves each target's Go fuzz corpus with `actions/cache`, and local `make fuzz-smoke` runs a short advisory fuzz check. |
 | `config show`, `doctor`, and `auth status` do not reveal credential values. | `go test -mod=vendor ./internal/cli` tests `TestConfigShowDoesNotExposeEnvironmentSecrets`, `TestDoctorDoesNotExposeEnvironmentSecrets`, and `TestAuthStatusDoesNotExposeEnvironmentSecrets`. |
 | `completion bash|zsh|fish` and `help` do not read credential files, construct readers, or contact Zscaler. | `go test -mod=vendor ./internal/cli` tests `TestCompletionScriptsDoNotReadCredentialFilesOrUseReader` and `TestHelpDoesNotReadCredentialFile`. |
-| GitHub Actions workflows and local composite actions do not reference live Zscaler credential variables, OneAPI/SDK env families (`ZSCALER_*`, `ONEAPI_*`), legacy product env families (`ZIA_*`, `ZPA_*`, etc.), or Zscaler-named repository secrets. | CI and local `bash scripts/verify-ci-no-live-creds.sh` plus `bash scripts/test-verify-ci-no-live-creds.sh`. |
+| GitHub Actions workflows and local composite actions do not reference live Zscaler credential variables, OneAPI/SDK env families (`ZSCALER_*`, `ONEAPI_*`), legacy product env families (`ZIA_*`, `ZPA_*`, etc.), explicit legacy `ZSCALERCTL_ZIA_*` variables, or Zscaler-named repository secrets. | CI and local `bash scripts/verify-ci-no-live-creds.sh` plus `bash scripts/test-verify-ci-no-live-creds.sh`. |
 | Dump writer refuses unsafe overwrites before writing files. | `go test -mod=vendor ./internal/cli` test `TestDumpRefusesOverwriteBeforeWritingNewFiles`. |
 | Live reads fail closed when required `ZSCALERCTL_*` credentials are missing. | `go test -mod=vendor ./internal/cli` test `TestResourceListDefaultReaderRequiresExplicitCredentials` enumerates current ZIA list resources from the catalog. |
 | SDK boundary does not drift into SDK env/file/log/proxy discovery. | CI and local `bash scripts/verify-sdk-boundary.sh` plus `bash scripts/test-verify-sdk-boundary.sh`. |
@@ -49,7 +49,7 @@ in required modules require a written review note before release.
 ## Required Live Smoke
 
 Before public release, run a live smoke against a non-sensitive tenant or
-profile using read-only credentials:
+profile using read-only OneAPI credentials or explicit ZIA legacy credentials:
 
 ```sh
 zscalerctl --format json zia locations list

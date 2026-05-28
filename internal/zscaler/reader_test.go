@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,24 @@ func TestNewReaderIgnoresSDKEnvironmentNames(t *testing.T) {
 
 	if _, err := NewReader(ReaderConfig{}); !errors.Is(err, ErrMissingCredentials) {
 		t.Fatalf("NewReader(empty with SDK env) error = %v, want ErrMissingCredentials", err)
+	}
+}
+
+func TestNewReaderAcceptsZIALegacyCredentials(t *testing.T) {
+	t.Parallel()
+
+	if _, err := NewReader(validLegacyReaderConfig()); err != nil {
+		t.Fatalf("NewReader(valid ZIA legacy) error = %v, want nil", err)
+	}
+}
+
+func TestNewReaderRequiresZIALegacyCredentials(t *testing.T) {
+	t.Parallel()
+
+	cfg := validLegacyReaderConfig()
+	cfg.ZIALegacy.APIKey = secret.Secret{}
+	if _, err := NewReader(cfg); !errors.Is(err, ErrMissingCredentials) {
+		t.Fatalf("NewReader(missing ZIA legacy API key) error = %v, want ErrMissingCredentials", err)
 	}
 }
 
@@ -75,6 +94,71 @@ func TestNewSDKConfigurationDoesNotUseSDKDiscoveryOrLogging(t *testing.T) {
 	}
 	if transport.Proxy != nil {
 		t.Errorf("newSDKConfiguration().HTTPClient.Transport.Proxy is non-nil, want nil")
+	}
+}
+
+func TestNewLegacyZIAConfigurationDoesNotUseSDKDiscoveryOrProxy(t *testing.T) {
+	t.Setenv("ZIA_USERNAME", "sdk-legacy-admin@example.invalid")
+	t.Setenv("ZIA_PASSWORD", "sdk-legacy-password")
+	t.Setenv("ZIA_API_KEY", "sdk-legacy-api-key")
+	t.Setenv("ZIA_CLOUD", "sdk-legacy-cloud")
+	t.Setenv("ZIA_CLIENT_PROXY_HOST", "sdk-proxy.example.invalid")
+	t.Setenv("ZSCALER_SDK_LOG", "true")
+	t.Setenv("ZSCALER_SDK_VERBOSE", "true")
+	t.Setenv("HTTPS_PROXY", "http://standard-proxy.example.invalid:8080")
+
+	cfg, err := newLegacyZIAConfiguration(context.Background(), validLegacyReaderConfig())
+	if err != nil {
+		t.Fatalf("newLegacyZIAConfiguration() error = %v, want nil", err)
+	}
+	if got := cfg.ZIA.Client.ZIAUsername; got != "zscalerctl-zia-admin@example.invalid" {
+		t.Errorf("newLegacyZIAConfiguration().ZIAUsername = %q, want zscalerctl-zia-admin@example.invalid", got)
+	}
+	if got := cfg.ZIA.Client.ZIAPassword; got != "zscalerctl-zia-password" {
+		t.Errorf("newLegacyZIAConfiguration().ZIAPassword = %q, want zscalerctl-zia-password", got)
+	}
+	if got := cfg.ZIA.Client.ZIAApiKey; got != "zscalerctl-zia-api-key" {
+		t.Errorf("newLegacyZIAConfiguration().ZIAApiKey = %q, want zscalerctl-zia-api-key", got)
+	}
+	if got := cfg.ZIA.Client.ZIACloud; got != "zscalerthree" {
+		t.Errorf("newLegacyZIAConfiguration().ZIACloud = %q, want zscalerthree", got)
+	}
+	if cfg.ZIA.Client.Proxy.Host != "" {
+		t.Errorf("newLegacyZIAConfiguration().Proxy.Host = %q, want empty", cfg.ZIA.Client.Proxy.Host)
+	}
+	if cfg.ZIA.Client.Cache.Enabled {
+		t.Errorf("newLegacyZIAConfiguration().Cache.Enabled = true, want false")
+	}
+	if cfg.BaseURL.String() != "https://zsapi.zscalerthree.net" {
+		t.Errorf("newLegacyZIAConfiguration().BaseURL = %q, want https://zsapi.zscalerthree.net", cfg.BaseURL)
+	}
+	transport, ok := cfg.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("newLegacyZIAConfiguration().HTTPClient.Transport = %T, want *http.Transport", cfg.HTTPClient.Transport)
+	}
+	if transport.Proxy != nil {
+		t.Errorf("newLegacyZIAConfiguration().HTTPClient.Transport.Proxy is non-nil, want nil")
+	}
+}
+
+func TestNewLegacyZIAClientSuppressesSDKLogEnvironment(t *testing.T) {
+	t.Setenv("ZSCALER_SDK_LOG", "true")
+	t.Setenv("ZSCALER_SDK_VERBOSE", "true")
+
+	cfg, err := newLegacyZIAConfiguration(context.Background(), validLegacyReaderConfig())
+	if err != nil {
+		t.Fatalf("newLegacyZIAConfiguration() error = %v, want nil", err)
+	}
+	client, err := newLegacyZIAClient(cfg)
+	if err != nil {
+		t.Fatalf("newLegacyZIAClient() error = %v, want nil", err)
+	}
+	client.Close()
+	if got := os.Getenv("ZSCALER_SDK_LOG"); got != "true" {
+		t.Errorf("newLegacyZIAClient() restored ZSCALER_SDK_LOG = %q, want true", got)
+	}
+	if got := os.Getenv("ZSCALER_SDK_VERBOSE"); got != "true" {
+		t.Errorf("newLegacyZIAClient() restored ZSCALER_SDK_VERBOSE = %q, want true", got)
 	}
 }
 
@@ -312,6 +396,19 @@ func validReaderConfig() ReaderConfig {
 		ClientSecret: secret.New("zscalerctl-client-secret"),
 		VanityDomain: "zscalerctl-vanity",
 		Timeout:      time.Second,
+	}
+}
+
+func validLegacyReaderConfig() ReaderConfig {
+	return ReaderConfig{
+		AuthMode: AuthModeZIALegacy,
+		ZIALegacy: ZIALegacyConfig{
+			Username: secret.New("zscalerctl-zia-admin@example.invalid"),
+			Password: secret.New("zscalerctl-zia-password"),
+			APIKey:   secret.New("zscalerctl-zia-api-key"),
+			Cloud:    "zscalerthree",
+		},
+		Timeout: time.Second,
 	}
 }
 

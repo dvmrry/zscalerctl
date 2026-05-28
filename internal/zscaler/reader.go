@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +14,7 @@ import (
 	sdkcache "github.com/zscaler/zscaler-sdk-go/v3/cache"
 	sdklogger "github.com/zscaler/zscaler-sdk-go/v3/logger"
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
+	sdkzia "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
@@ -34,13 +37,29 @@ const (
 	resourceRuleLabels = "rule-labels"
 )
 
+type AuthMode string
+
+const (
+	AuthModeOneAPI    AuthMode = "oneapi"
+	AuthModeZIALegacy AuthMode = "zia-legacy"
+)
+
 type ReaderConfig struct {
 	ClientID     secret.Secret
 	ClientSecret secret.Secret
 	VanityDomain string
 	Cloud        string
+	AuthMode     AuthMode
+	ZIALegacy    ZIALegacyConfig
 	Timeout      time.Duration
 	NoCache      bool
+}
+
+type ZIALegacyConfig struct {
+	Username secret.Secret
+	Password secret.Secret
+	APIKey   secret.Secret
+	Cloud    string
 }
 
 type SDKReader struct {
@@ -74,8 +93,10 @@ var (
 )
 
 func NewReader(cfg ReaderConfig) (*SDKReader, error) {
+	cfg.AuthMode = effectiveAuthMode(cfg.AuthMode)
 	cfg.VanityDomain = strings.TrimSpace(cfg.VanityDomain)
 	cfg.Cloud = strings.TrimSpace(cfg.Cloud)
+	cfg.ZIALegacy.Cloud = strings.TrimSpace(cfg.ZIALegacy.Cloud)
 	cfg.Timeout = effectiveTimeout(cfg.Timeout)
 	if err := validateReaderConfig(cfg); err != nil {
 		return nil, err
@@ -251,6 +272,9 @@ func (c sdkZIARuleLabelsClient) GetRuleLabel(ctx context.Context, id int) (*rule
 }
 
 func (c sdkZIAClient) service(ctx context.Context) (*zsdk.Service, func(), error) {
+	if c.cfg.AuthMode == AuthModeZIALegacy {
+		return c.legacyService(ctx)
+	}
 	cfg := newSDKConfiguration(ctx, c.cfg)
 	// Do not replace this with zsdk.NewConfiguration. That SDK constructor
 	// reads ZSCALER_* environment variables and ~/.zscaler/zscaler.yaml before
@@ -267,10 +291,47 @@ func (c sdkZIAClient) service(ctx context.Context) (*zsdk.Service, func(), error
 	return service, cleanup, nil
 }
 
-func newSDKConfiguration(ctx context.Context, cfg ReaderConfig) *zsdk.Configuration {
-	if ctx == nil {
-		ctx = context.Background()
+func (c sdkZIAClient) legacyService(ctx context.Context) (*zsdk.Service, func(), error) {
+	ziaCfg, err := newLegacyZIAConfiguration(ctx, c.cfg)
+	if err != nil {
+		return nil, nil, err
 	}
+	legacyClient, err := newLegacyZIAClient(ziaCfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	cfg := &zsdk.Configuration{
+		Logger:          sdklogger.NewNopLogger(),
+		DefaultHeader:   make(map[string]string),
+		UserAgent:       "zscalerctl zscaler-sdk-go/v3",
+		Context:         effectiveContext(ctx),
+		CacheManager:    sdkcache.NewNopCache(),
+		UseLegacyClient: true,
+		LegacyClient: &zsdk.LegacyClient{
+			ZiaClient: legacyClient,
+		},
+	}
+	service, err := zsdk.NewOneAPIClient(cfg)
+	if err != nil {
+		legacyClient.Close()
+		return nil, nil, err
+	}
+	cleanup := func() {
+		if service.Client != nil {
+			service.Client.Close()
+		}
+		legacyClient.Close()
+	}
+	return service, cleanup, nil
+}
+
+func newLegacyZIAClient(cfg *sdkzia.Configuration) (*sdkzia.Client, error) {
+	restore := suppressSDKLogEnv()
+	defer restore()
+	return sdkzia.NewClient(cfg)
+}
+
+func newSDKConfiguration(ctx context.Context, cfg ReaderConfig) *zsdk.Configuration {
 	timeout := effectiveTimeout(cfg.Timeout)
 	httpClient := &http.Client{
 		Timeout:   timeout,
@@ -286,7 +347,7 @@ func newSDKConfiguration(ctx context.Context, cfg ReaderConfig) *zsdk.Configurat
 		ZDXHTTPClient: httpClient,
 		DefaultHeader: make(map[string]string),
 		UserAgent:     "zscalerctl zscaler-sdk-go/v3",
-		Context:       ctx,
+		Context:       effectiveContext(ctx),
 		CacheManager:  sdkcache.NewNopCache(),
 	}
 	sdkCfg.Zscaler.Client.ClientID = cfg.ClientID.Reveal()
@@ -306,6 +367,60 @@ func newSDKConfiguration(ctx context.Context, cfg ReaderConfig) *zsdk.Configurat
 	return sdkCfg
 }
 
+func newLegacyZIAConfiguration(ctx context.Context, cfg ReaderConfig) (*sdkzia.Configuration, error) {
+	timeout := effectiveTimeout(cfg.Timeout)
+	baseURL, err := legacyZIABaseURL(cfg.ZIALegacy.Cloud)
+	if err != nil {
+		return nil, err
+	}
+	httpClient := &http.Client{
+		Timeout:   timeout,
+		Transport: directTransport(),
+	}
+	ziaCfg := &sdkzia.Configuration{
+		Logger:        sdklogger.NewNopLogger(),
+		HTTPClient:    httpClient,
+		BaseURL:       baseURL,
+		DefaultHeader: make(map[string]string),
+		UserAgent:     "zscalerctl zscaler-sdk-go/v3",
+		Context:       effectiveContext(ctx),
+		CacheManager:  sdkcache.NewNopCache(),
+	}
+	ziaCfg.ZIA.Client.ZIAUsername = cfg.ZIALegacy.Username.Reveal()
+	ziaCfg.ZIA.Client.ZIAPassword = cfg.ZIALegacy.Password.Reveal()
+	ziaCfg.ZIA.Client.ZIAApiKey = cfg.ZIALegacy.APIKey.Reveal()
+	ziaCfg.ZIA.Client.ZIACloud = cfg.ZIALegacy.Cloud
+	ziaCfg.ZIA.Client.RequestTimeout = timeout
+	ziaCfg.ZIA.Client.RateLimit.MaxRetries = 2
+	ziaCfg.ZIA.Client.RateLimit.RetryWaitMin = time.Second
+	ziaCfg.ZIA.Client.RateLimit.RetryWaitMax = 3 * time.Second
+	ziaCfg.ZIA.Client.Cache.Enabled = false
+	return ziaCfg, nil
+}
+
+func legacyZIABaseURL(cloud string) (*url.URL, error) {
+	cloud = strings.TrimSpace(cloud)
+	if cloud == "" {
+		return nil, fmt.Errorf("%w: ZSCALERCTL_ZIA_CLOUD is required", ErrMissingCredentials)
+	}
+	hostPrefix := "zsapi"
+	if strings.EqualFold(cloud, "zspreview") {
+		hostPrefix = "admin"
+	}
+	baseURL, err := url.Parse(fmt.Sprintf("https://%s.%s.net", hostPrefix, cloud))
+	if err != nil {
+		return nil, fmt.Errorf("parse ZIA legacy cloud: %w", err)
+	}
+	return baseURL, nil
+}
+
+func effectiveContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
 func directTransport() http.RoundTripper {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
@@ -313,16 +428,41 @@ func directTransport() http.RoundTripper {
 }
 
 func validateReaderConfig(cfg ReaderConfig) error {
-	switch {
-	case !cfg.ClientID.IsSet():
-		return fmt.Errorf("%w: ZSCALERCTL_CLIENT_ID is required", ErrMissingCredentials)
-	case !cfg.ClientSecret.IsSet():
-		return fmt.Errorf("%w: ZSCALERCTL_CLIENT_SECRET is required", ErrMissingCredentials)
-	case cfg.VanityDomain == "":
-		return fmt.Errorf("%w: ZSCALERCTL_VANITY_DOMAIN is required", ErrMissingCredentials)
+	switch effectiveAuthMode(cfg.AuthMode) {
+	case AuthModeZIALegacy:
+		switch {
+		case !cfg.ZIALegacy.Username.IsSet():
+			return fmt.Errorf("%w: ZSCALERCTL_ZIA_USERNAME is required", ErrMissingCredentials)
+		case !cfg.ZIALegacy.Password.IsSet():
+			return fmt.Errorf("%w: ZSCALERCTL_ZIA_PASSWORD is required", ErrMissingCredentials)
+		case !cfg.ZIALegacy.APIKey.IsSet():
+			return fmt.Errorf("%w: ZSCALERCTL_ZIA_API_KEY is required", ErrMissingCredentials)
+		case strings.TrimSpace(cfg.ZIALegacy.Cloud) == "":
+			return fmt.Errorf("%w: ZSCALERCTL_ZIA_CLOUD is required", ErrMissingCredentials)
+		default:
+			return nil
+		}
+	case AuthModeOneAPI:
+		switch {
+		case !cfg.ClientID.IsSet():
+			return fmt.Errorf("%w: ZSCALERCTL_CLIENT_ID is required", ErrMissingCredentials)
+		case !cfg.ClientSecret.IsSet():
+			return fmt.Errorf("%w: ZSCALERCTL_CLIENT_SECRET is required", ErrMissingCredentials)
+		case cfg.VanityDomain == "":
+			return fmt.Errorf("%w: ZSCALERCTL_VANITY_DOMAIN is required", ErrMissingCredentials)
+		default:
+			return nil
+		}
 	default:
-		return nil
+		return fmt.Errorf("%w: unsupported auth mode %q", ErrMissingCredentials, cfg.AuthMode)
 	}
+}
+
+func effectiveAuthMode(mode AuthMode) AuthMode {
+	if mode == "" {
+		return AuthModeOneAPI
+	}
+	return mode
 }
 
 func effectiveTimeout(timeout time.Duration) time.Duration {
@@ -330,6 +470,29 @@ func effectiveTimeout(timeout time.Duration) time.Duration {
 		return defaultTimeout
 	}
 	return timeout
+}
+
+func suppressSDKLogEnv() func() {
+	keys := []string{"ZSCALER_SDK_LOG", "ZSCALER_SDK_VERBOSE"}
+	previous := make(map[string]string, len(keys))
+	present := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		value, ok := os.LookupEnv(key)
+		if ok {
+			previous[key] = value
+			present[key] = true
+		}
+		_ = os.Unsetenv(key)
+	}
+	return func() {
+		for _, key := range keys {
+			if present[key] {
+				_ = os.Setenv(key, previous[key])
+				continue
+			}
+			_ = os.Unsetenv(key)
+		}
+	}
 }
 
 func locationSourceRecord(location locationmanagement.Locations) resources.SourceRecord {
