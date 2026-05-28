@@ -1,0 +1,19 @@
+rules:
+  - id: zscalerctl.secret-reveal-outside-sdk-boundary
+    languages:
+      - go
+    severity: ERROR
+    message: secret.Secret.Reveal() may only be used at the SDK configuration boundary.
+    paths:
+      exclude:
+        - "**/*_test.go"
+    patterns:
+      - pattern: $SECRET.Reveal()
+      - pattern-not-inside: |
+          func newSDKConfiguration(...) $RET {
+            ...
+          }
+      - pattern-not-inside: |
+          func newLegacyZIAConfiguration(...) $RET {
+            ...
+          }

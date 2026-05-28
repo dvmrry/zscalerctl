@@ -1,0 +1,63 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    "helpers:githubDigestChangelogs"
+  ],
+  "dependencyDashboard": true,
+  "labels": [
+    "dependencies"
+  ],
+  "timezone": "America/New_York",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "automerge": false,
+  "rangeStrategy": "bump",
+  "postUpdateOptions": [
+    "gomodTidy",
+    "gomodVendor"
+  ],
+  "packageRules": [
+    {
+      "description": "SDK bumps change the credentialed trust boundary and require the upgrade runbook.",
+      "matchPackageNames": [
+        "github.com/zscaler/zscaler-sdk-go/v3"
+      ],
+      "dependencyDashboardApproval": true,
+      "labels": [
+        "dependencies",
+        "sdk-boundary"
+      ],
+      "prBodyNotes": [
+        "Zscaler SDK bumps require docs/DEPENDENCY_POLICY.md#sdk-upgrade-runbook before merge.",
+        "Do not combine this SDK bump with new resources unless the review explicitly covers both changes."
+      ]
+    },
+    {
+      "description": "Keep GitHub Actions SHA-pinned; inline version comments allow Renovate to update the digest.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "labels": [
+        "dependencies",
+        "ci"
+      ]
+    },
+    {
+      "description": "Group low-risk Go dependency updates, excluding the Zscaler SDK boundary package.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "!github.com/zscaler/zscaler-sdk-go/v3"
+      ],
+      "groupName": "go dependencies",
+      "labels": [
+        "dependencies",
+        "go"
+      ]
+    }
+  ]
+}
