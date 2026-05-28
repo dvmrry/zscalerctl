@@ -304,7 +304,9 @@ the command layer.
 - First supported products and resources.
 - OneAPI-first versus legacy-auth support in version 1.
 - Exact `ZSCALERCTL_*` credential variable names.
-- Whether additional free-text fields are emitted in `standard` mode.
+- Which future free-text fields, beyond currently modeled descriptions, may be
+  emitted in `standard` mode. New free-text fields must retain scanner backstop
+  coverage and catalog-driven canaries.
 - Whether `paranoid` mode supports diffs in version 1.
 - Required CI gates before public release.
 - License.

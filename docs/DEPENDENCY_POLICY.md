@@ -51,7 +51,10 @@ version bump:
    local config files, SDK log flags, proxy settings, or cache settings from
    ambient state when supplied manually constructed configuration.
 5. Confirm live reader errors remain normalized before reaching CLI output.
-6. Run the required checks above.
+6. Re-check whether legacy ZIA client cleanup can safely call the SDK `Close`
+   method. Version 3.8.37 can deadlock on `Close`, so the current adapter avoids
+   that call for short-lived CLI operations.
+7. Run the required checks above.
 
 Do not add a new resource in the same change as an SDK bump unless the SDK bump
 is required for that resource and the review explicitly covers both changes.

@@ -162,7 +162,9 @@ There is no `off` mode.
 
 - Exact resource catalog for the first release.
 - Whether `paranoid` mode supports cross-dump diffs in version 1.
-- Whether additional free-text fields are ever emitted in `standard` mode.
+- Which future free-text fields, beyond currently modeled descriptions, may be
+  emitted in `standard` mode. New free-text fields must keep the scanner
+  backstop and catalog-driven canary coverage.
 
 ## Mandatory CI Checks
 
