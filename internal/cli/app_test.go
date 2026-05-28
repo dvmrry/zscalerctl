@@ -992,6 +992,41 @@ func TestDumpContinueOnErrorTreatsContextCancellationAsFatal(t *testing.T) {
 	}
 }
 
+func TestDumpContinueOnErrorTreatsSessionFailureAsFatal(t *testing.T) {
+	t.Parallel()
+
+	reader := &sessionErrorResourceReader{err: zscaler.ErrMissingCredentials}
+	var out, errOut bytes.Buffer
+	outDir := filepath.Join(t.TempDir(), "dump")
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+
+	err := app.Run(context.Background(), []string{
+		"dump",
+		"--products", "zia",
+		"--resources", "locations",
+		"--continue-on-error",
+		"--out", outDir,
+	})
+	if !errors.Is(err, zscaler.ErrMissingCredentials) {
+		t.Fatalf("App.Run(dump session failure --continue-on-error) error = %v, want ErrMissingCredentials", err)
+	}
+	if _, statErr := os.Stat(outDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", outDir, statErr)
+	}
+	if reader.sessionCalls != 1 {
+		t.Errorf("sessionErrorResourceReader.Session calls = %d, want 1", reader.sessionCalls)
+	}
+	if reader.directListCalls != 0 {
+		t.Errorf("sessionErrorResourceReader.List calls = %d, want 0", reader.directListCalls)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(dump session failure --continue-on-error) stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(dump session failure --continue-on-error) stderr = %q, want empty", errOut.String())
+	}
+}
+
 func TestDumpFallsBackWhenReaderDoesNotSupportProductSession(t *testing.T) {
 	t.Parallel()
 
@@ -1184,6 +1219,26 @@ func (f *sessionProviderResourceReader) List(context.Context, resources.Product,
 }
 
 func (f *sessionProviderResourceReader) Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, errors.New("direct get must not be called")
+}
+
+type sessionErrorResourceReader struct {
+	err             error
+	sessionCalls    int
+	directListCalls int
+}
+
+func (f *sessionErrorResourceReader) Session(context.Context, resources.Product) (zscaler.ResourceSession, error) {
+	f.sessionCalls++
+	return nil, f.err
+}
+
+func (f *sessionErrorResourceReader) List(context.Context, resources.Product, string) ([]resources.SourceRecord, error) {
+	f.directListCalls++
+	return nil, errors.New("direct list must not be called")
+}
+
+func (f *sessionErrorResourceReader) Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error) {
 	return resources.SourceRecord{}, errors.New("direct get must not be called")
 }
 
