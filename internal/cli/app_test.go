@@ -225,7 +225,7 @@ func TestCompletionScriptsDoNotReadCredentialFilesOrUseReader(t *testing.T) {
 			if err != nil {
 				t.Fatalf("App.Run(completion %s) error = %v, want nil", shell, err)
 			}
-			for _, want := range []string{"zscalerctl", "locations", "location-groups", "rule-labels", "static-ips", "gre-tunnels", "list get"} {
+			for _, want := range []string{"zscalerctl", "locations", "location-groups", "rule-labels", "static-ips", "gre-tunnels", "--resources", "list get"} {
 				if !strings.Contains(out.String(), want) {
 					t.Errorf("App.Run(completion %s) stdout = %q, want %q", shell, out.String(), want)
 				}
@@ -635,6 +635,150 @@ func TestDumpUsesSingleReaderSessionForAllZIAResources(t *testing.T) {
 	}
 	if errOut.Len() != 0 {
 		t.Errorf("App.Run(dump --products zia --out) stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestDumpResourceFilterWritesOnlySelectedResources(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeResourceReader{
+		list: []resources.SourceRecord{resources.NewSourceRecord(map[string]any{
+			"id":          "123",
+			"name":        "HQ",
+			"description": "",
+		})},
+	}
+	var out, errOut bytes.Buffer
+	outDir := filepath.Join(t.TempDir(), "dump")
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+
+	err := app.Run(context.Background(), []string{
+		"dump",
+		"--products", "zia",
+		"--resources", "locations,rule-labels",
+		"--out", outDir,
+	})
+	if err != nil {
+		t.Fatalf("App.Run(dump --resources locations,rule-labels) error = %v, want nil", err)
+	}
+
+	for _, name := range []string{"locations", "rule-labels"} {
+		path := filepath.Join(outDir, "resources", "zia", name+".json")
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("os.Stat(%q) error = %v, want nil", path, err)
+		}
+	}
+	for _, spec := range ziaListResourceSpecs(t) {
+		if spec.Name == "locations" || spec.Name == "rule-labels" {
+			continue
+		}
+		path := filepath.Join(outDir, "resources", string(spec.Product), spec.Name+".json")
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", path, err)
+		}
+	}
+
+	var manifest struct {
+		Resources []struct {
+			Product string `json:"product"`
+			Name    string `json:"name"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(outDir, "manifest.json"))), &manifest); err != nil {
+		t.Fatalf("json.Unmarshal(filtered dump manifest) error = %v, want nil", err)
+	}
+	if got, want := len(manifest.Resources), 2; got != want {
+		t.Fatalf("filtered dump manifest resources length = %d, want %d", got, want)
+	}
+	gotNames := map[string]bool{}
+	for _, resource := range manifest.Resources {
+		gotNames[resource.Product+"/"+resource.Name] = true
+	}
+	for _, want := range []string{"zia/locations", "zia/rule-labels"} {
+		if !gotNames[want] {
+			t.Errorf("filtered dump manifest resources = %#v, want %s", gotNames, want)
+		}
+	}
+	if !strings.Contains(out.String(), "dump written: "+outDir) {
+		t.Errorf("App.Run(dump --resources) stdout = %q, want dump written line", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(dump --resources) stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestDumpResourceFilterSupportsQualifiedResourceName(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeResourceReader{
+		list: []resources.SourceRecord{resources.NewSourceRecord(map[string]any{
+			"id":   "123",
+			"name": "HQ",
+		})},
+	}
+	var out, errOut bytes.Buffer
+	outDir := filepath.Join(t.TempDir(), "dump")
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+
+	err := app.Run(context.Background(), []string{"dump", "--resources", "zia/locations", "--out", outDir})
+	if err != nil {
+		t.Fatalf("App.Run(dump --resources zia/locations) error = %v, want nil", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "resources", "zia", "locations.json")); err != nil {
+		t.Errorf("os.Stat(filtered locations dump) error = %v, want nil", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "resources", "zia", "rule-labels.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("os.Stat(filtered rule-labels dump) error = %v, want os.ErrNotExist", err)
+	}
+	if out.Len() == 0 {
+		t.Errorf("App.Run(dump --resources zia/locations) stdout = empty, want dump written line")
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(dump --resources zia/locations) stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestDumpResourceFilterRejectsUnknownResourceBeforeReader(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	outDir := filepath.Join(t.TempDir(), "dump")
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
+
+	err := app.Run(context.Background(), []string{"dump", "--resources", "not-a-resource", "--out", outDir})
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(dump --resources not-a-resource) error = %v, want ErrUsage", err)
+	}
+	if _, statErr := os.Stat(outDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", outDir, statErr)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(dump --resources not-a-resource) stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(dump --resources not-a-resource) stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestDumpResourceFilterRejectsResourceOutsideSelectedProductsBeforeReader(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	outDir := filepath.Join(t.TempDir(), "dump")
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
+
+	err := app.Run(context.Background(), []string{"dump", "--products", "zpa", "--resources", "locations", "--out", outDir})
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(dump --products zpa --resources locations) error = %v, want ErrUsage", err)
+	}
+	if _, statErr := os.Stat(outDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", outDir, statErr)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(dump --products zpa --resources locations) stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(dump --products zpa --resources locations) stderr = %q, want empty", errOut.String())
 	}
 }
 

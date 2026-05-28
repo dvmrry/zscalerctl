@@ -82,6 +82,7 @@ zscalerctl zia gre-tunnels list
 zscalerctl completion zsh
 zscalerctl version
 zscalerctl dump --products zia --out ./dump
+zscalerctl dump --products zia --resources locations,static-ips --out ./dump-subset
 ```
 
 Key design docs:
