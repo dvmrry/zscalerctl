@@ -11,6 +11,7 @@ satisfied for the exact release commit.
 | Project license chosen and committed. | Manual project decision. Must have a committed `LICENSE` file before public release. |
 | Git author identity and public attribution are intentional before first public push. | Manual project decision. `LICENSE` uses legal attribution `David Murray <github@mrry.io>`; git/signing identity may use common-name attribution `Dave Murray <github@mrry.io>` intentionally. |
 | Security reporting policy is committed. | Must have a committed `SECURITY.md` before public release. |
+| Versioning policy is committed and semver labels are enforced. | `docs/VERSIONING.md`, `.github/workflows/semver-label.yml`, `.github/workflows/release.yml`, and local `bash scripts/test-verify-semver-label.sh` plus `bash scripts/test-next-version.sh`. |
 | Vendored dependency tree is current. | CI and local `make release-check`: `go mod tidy`, `go mod vendor`, then `git diff --exit-code -- go.mod go.sum vendor`. |
 | Dependency policy checks pass. | CI and local `make check`, including tests, race tests, vet, staticcheck, govulncheck, docs scan, Semgrep invariant checks, SDK-boundary scripts, workflow credential scan, and GitHub Actions pinning scan. |
 | GitHub Actions remain SHA-pinned and Renovate-managed. | CI and local `bash scripts/verify-actions-pinned.sh` plus `bash scripts/test-verify-actions-pinned.sh`; `renovate.json` extends `helpers:pinGitHubActionDigests`. |
@@ -45,6 +46,10 @@ mandatory before release, and gitleaks is also enforced in CI.
 
 `govulncheck` must report no reachable vulnerabilities. Non-reachable findings
 in required modules require a written review note before release.
+
+Release tags are created by `.github/workflows/release.yml` after merge to
+`main` when the merged pull request has `semver:patch`, `semver:minor`, or
+`semver:major`. `semver:none` intentionally skips release creation.
 
 ## Required Live Smoke
 

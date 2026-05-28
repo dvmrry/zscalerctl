@@ -9,6 +9,7 @@ operator's shell.
 ```sh
 go install ./cmd/zscalerctl
 zscalerctl doctor
+zscalerctl version
 ```
 
 ## Configure Credentials

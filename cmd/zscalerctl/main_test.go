@@ -38,3 +38,19 @@ func TestRunUsageErrorReturnsTwo(t *testing.T) {
 		t.Errorf("run(usage error) stderr = %q, want usage error", stderr.String())
 	}
 }
+
+func TestRunVersionReturnsSuccess(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"version"}, &stdout, &stderr, nil)
+	if code != 0 {
+		t.Fatalf("run(version) exit code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout.String(), "Version") {
+		t.Errorf("run(version) stdout = %q, want version text", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("run(version) stderr = %q, want empty", stderr.String())
+	}
+}

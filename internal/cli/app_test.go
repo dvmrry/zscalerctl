@@ -294,6 +294,33 @@ func TestHelpDoesNotReadCredentialFile(t *testing.T) {
 	}
 }
 
+func TestVersionDoesNotReadCredentialFileOrUseReader(t *testing.T) {
+	t.Parallel()
+
+	const clientID = "client-id-value"
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, []string{
+		config.EnvClientID + "=" + clientID,
+		config.EnvClientSecretFile + "=/path/that/must-not-be-read",
+	}, cli.Options{Reader: failingResourceReader{}})
+
+	err := app.Run(context.Background(), []string{"--format", "json", "version"})
+	if err != nil {
+		t.Fatalf("App.Run(version) error = %v, want nil", err)
+	}
+	if !strings.Contains(out.String(), `"version"`) {
+		t.Errorf("App.Run(version) stdout = %q, want version JSON", out.String())
+	}
+	for _, forbidden := range []string{clientID, "ZSCALERCTL_CLIENT_SECRET_FILE"} {
+		if strings.Contains(out.String(), forbidden) {
+			t.Errorf("App.Run(version) stdout = %q, want no %q", out.String(), forbidden)
+		}
+		if strings.Contains(errOut.String(), forbidden) {
+			t.Errorf("App.Run(version) stderr = %q, want no %q", errOut.String(), forbidden)
+		}
+	}
+}
+
 func TestResourceListDefaultReaderRequiresExplicitCredentials(t *testing.T) {
 	t.Parallel()
 

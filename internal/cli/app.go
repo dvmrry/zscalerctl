@@ -14,6 +14,7 @@ import (
 	"github.com/dvmrry/zscalerctl/internal/output"
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/resources"
+	"github.com/dvmrry/zscalerctl/internal/version"
 	"github.com/dvmrry/zscalerctl/internal/zscaler"
 )
 
@@ -76,6 +77,8 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	case "help", "-h", "--help":
 		a.writeUsage(a.out)
 		return nil
+	case "version":
+		return a.runVersion(opts, rest[1:])
 	case "completion":
 		return a.runCompletion(rest[1:])
 	case "doctor", "auth", "config", "schema", "dump", "zia", "zpa":
@@ -179,6 +182,27 @@ func applyOptions(cfg *config.Config, opts globalOptions) {
 	if opts.noCache {
 		cfg.Defaults.NoCache = true
 	}
+}
+
+func (a *App) runVersion(opts globalOptions, args []string) error {
+	if err := requireNoArgs("version", args); err != nil {
+		return err
+	}
+	info := version.Current()
+	if opts.format == output.FormatJSON {
+		return output.NewRenderer(redact.New(redact.ModeStandard)).WriteJSON(a.out, info)
+	}
+	if opts.format != output.FormatTable {
+		return fmt.Errorf("version does not support %s output yet", opts.format)
+	}
+	body := output.RenderKeyValues([]output.KV{
+		{Key: "Version", Value: info.Version},
+		{Key: "Commit", Value: info.Commit},
+		{Key: "Date", Value: info.Date},
+		{Key: "Go", Value: info.Go},
+		{Key: "Platform", Value: info.OS + "/" + info.Arch},
+	}, a.style(opts))
+	return output.NewRenderer(redact.New(redact.ModeStandard)).WriteText(a.out, body)
 }
 
 func (a *App) runDoctor(ctx context.Context, cfg config.Config, opts globalOptions, args []string) error {
@@ -460,6 +484,7 @@ func (a *App) writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  schema list")
 	fmt.Fprintln(w, "  dump --out <dir>")
 	fmt.Fprintln(w, "  completion bash|zsh|fish")
+	fmt.Fprintln(w, "  version")
 	fmt.Fprintln(w, "  zia <resource> list|get")
 	fmt.Fprintln(w, "  zpa <resource> list|get")
 	fmt.Fprintln(w)

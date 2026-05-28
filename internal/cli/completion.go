@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	completionCommands  = []string{"doctor", "auth", "config", "schema", "dump", "completion", "zia", "zpa", "help"}
+	completionCommands  = []string{"doctor", "auth", "config", "schema", "dump", "completion", "version", "zia", "zpa", "help"}
 	completionFlags     = []string{"--profile", "--format", "--output", "--timeout", "--redaction", "--color", "--no-color", "--no-cache"}
 	completionFormats   = []string{"table", "json", "yaml", "ndjson"}
 	completionRedaction = []string{"standard", "share", "paranoid"}

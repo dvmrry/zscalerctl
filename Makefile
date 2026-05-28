@@ -2,7 +2,7 @@ STATICCHECK_VERSION ?= v0.7.0
 SEMGREP_VERSION ?= 1.164.0
 FUZZTIME ?= 5s
 
-.PHONY: fmt-check test race vet vuln staticcheck docs-check semgrep-check vendor verify-vendor verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned fuzz-smoke check release-check
+.PHONY: fmt-check test race vet vuln staticcheck docs-check semgrep-check vendor verify-vendor verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-release-automation fuzz-smoke check release-check
 
 fmt-check:
 	@files="$$(find . -path ./vendor -prune -o -name '*.go' -print0 | xargs -0 gofmt -l)"; \
@@ -48,11 +48,15 @@ verify-actions-pinned:
 	bash scripts/verify-actions-pinned.sh
 	bash scripts/test-verify-actions-pinned.sh
 
+verify-release-automation:
+	bash scripts/test-verify-semver-label.sh
+	bash scripts/test-next-version.sh
+
 fuzz-smoke:
 	go test -mod=vendor ./internal/redact -run '^$$' -fuzz FuzzRedactorPreservesValidJSON -fuzztime=$(FUZZTIME)
 	go test -mod=vendor ./internal/redact -run '^$$' -fuzz FuzzScanFreeTextRedactsBareHighEntropyCanary -fuzztime=$(FUZZTIME)
 	go test -mod=vendor ./internal/resources -run '^$$' -fuzz FuzzProjectRecordSubsetAndCanaryRedaction -fuzztime=$(FUZZTIME)
 
-check: fmt-check test race vet vuln staticcheck docs-check semgrep-check verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned
+check: fmt-check test race vet vuln staticcheck docs-check semgrep-check verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-release-automation
 
 release-check: verify-vendor check

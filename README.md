@@ -77,6 +77,7 @@ export ZSCALERCTL_ZIA_CLOUD=zscalerthree
 zscalerctl zia locations list
 zscalerctl zia rule-labels list
 zscalerctl completion zsh
+zscalerctl version
 zscalerctl dump --products zia --out ./dump
 ```
 
@@ -88,6 +89,7 @@ Key design docs:
 - [ARCHITECTURE.md](ARCHITECTURE.md)
 - [docs/INSTALL.md](docs/INSTALL.md)
 - [docs/RESOURCES.md](docs/RESOURCES.md)
+- [docs/VERSIONING.md](docs/VERSIONING.md)
 - [docs/DEPENDENCY_POLICY.md](docs/DEPENDENCY_POLICY.md)
 - [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
 
@@ -101,6 +103,9 @@ structs. Output redaction and secret scanning are defense-in-depth, not an
 excuse to render raw API responses.
 
 Version 1 must not include write commands or a generic raw API executor.
+
+Table output is best-effort for quick human inspection. JSON and dump output are
+the primary automation surfaces.
 
 ## Development
 
