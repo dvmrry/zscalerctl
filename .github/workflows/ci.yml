@@ -28,6 +28,7 @@ jobs:
       - run: bash scripts/test-verify-ci-no-live-creds.sh
       - run: bash scripts/verify-actions-pinned.sh
       - run: bash scripts/test-verify-actions-pinned.sh
+      - run: bash scripts/test-live-smoke.sh
       - run: python3 -m pip install --user semgrep==1.164.0
       - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: bash scripts/verify-semgrep.sh

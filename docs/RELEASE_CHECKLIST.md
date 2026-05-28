@@ -13,7 +13,7 @@ satisfied for the exact release commit.
 | Security reporting policy is committed. | Must have a committed `SECURITY.md` before public release. |
 | Versioning policy is committed and semver labels are enforced. | `docs/VERSIONING.md`, `.github/workflows/semver-label.yml`, `.github/workflows/release.yml`, and local `bash scripts/test-verify-semver-label.sh` plus `bash scripts/test-next-version.sh`. |
 | Vendored dependency tree is current. | CI and local `make release-check`: `go mod tidy`, `go mod vendor`, then `git diff --exit-code -- go.mod go.sum vendor`. |
-| Dependency policy checks pass. | CI and local `make check`, including tests, race tests, vet, staticcheck, govulncheck, docs scan, Semgrep invariant checks, SDK-boundary scripts, workflow credential scan, and GitHub Actions pinning scan. |
+| Dependency policy checks pass. | CI and local `make check`, including tests, race tests, vet, staticcheck, govulncheck, docs scan, Semgrep invariant checks, SDK-boundary scripts, workflow credential scan, GitHub Actions pinning scan, and live-smoke script self-test. |
 | GitHub Actions remain SHA-pinned and Renovate-managed. | CI and local `bash scripts/verify-actions-pinned.sh` plus `bash scripts/test-verify-actions-pinned.sh`; `renovate.json` extends `helpers:pinGitHubActionDigests`. |
 | No real, plausible, or generated secrets in examples/docs. | CI SHA-pinned `gitleaks/gitleaks-action`, plus `bash scripts/verify-docs.sh` for docs/examples patterns. Manual review still required for new examples. |
 | OpenSSF Scorecard runs against the repository posture. | `.github/workflows/scorecard.yml` runs on `main` pushes and weekly schedule, with all external actions SHA-pinned. |
@@ -57,18 +57,32 @@ Before public release, run a live smoke against a non-sensitive tenant or
 profile using read-only OneAPI credentials or explicit ZIA legacy credentials:
 
 ```sh
-zscalerctl --format json zia locations list
-zscalerctl --format json zia rule-labels list
-zscalerctl --format json zia static-ips list
-zscalerctl --format json zia gre-tunnels list
-zscalerctl dump --products zia --out ./scratch-live-dump
+scripts/live-smoke.sh --require-credentials --out ./scratch-live-smoke
 ```
 
-Inspect the output for unexpected empty projections, over-redaction, unknown
-fields, and any secret-shaped or high-entropy free-text value that should have
-been dropped or redacted. Where the API exposes total counts, compare returned
-records against the total so a successful but incomplete page cannot look like a
-complete dump. Delete live dump artifacts after review.
+By default the script validates the current source checkout with
+`go run -mod=vendor ./cmd/zscalerctl`. For release artifact validation, pass
+`--bin` pointing at the unpacked candidate binary so the smoke runs against what
+will ship.
+
+`./scratch-live-smoke` is gitignored because live smoke artifacts remain
+confidential operational data even after projection and redaction.
+
+The script prints explicit `[PASS]`, `[FAIL]`, and `[INFO]` markers, captures
+list and dump artifacts under the output directory, validates JSON shape,
+checks dump file permissions and manifest counts, compares list and dump record
+counts, summarizes dropped field names and redaction marker paths without
+printing record values, and fails if resource JSON contains known secret or
+unmodeled sensitive field keys. Without configured credentials it prints
+`[SKIP]`; release gating uses `--require-credentials` so missing credentials
+cannot be mistaken for a completed live smoke.
+
+After the script passes, inspect the captured output for unexpected empty
+projections, over-redaction, unknown fields, and any secret-shaped or
+high-entropy free-text value that should have been dropped or redacted. Where
+the API exposes total counts, compare returned records against the total so a
+successful but incomplete page cannot look like a complete dump. Delete live
+dump artifacts after review.
 
 This smoke is intentionally manual and blocking because fixtures cannot prove
 that real SDK response keys and pagination behavior match the catalog for a
