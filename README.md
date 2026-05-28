@@ -45,7 +45,7 @@ safety rails before adding Zscaler API resources:
   `redaction_report.json`.
 - CLI skeleton for `doctor`, `auth status`, `config show`, `schema list`,
   `completion bash|zsh|fish`, `zia locations list|get`, and
-  `zia rule-labels list|get`.
+  ZIA resource `list|get` commands.
 
 The initial live reader supports a small read-only ZIA resource set through the
 official Go SDK. It requires explicit `ZSCALERCTL_*` configuration and does not
@@ -76,6 +76,8 @@ export ZSCALERCTL_ZIA_CLOUD=zscalerthree
 ```sh
 zscalerctl zia locations list
 zscalerctl zia rule-labels list
+zscalerctl zia static-ips list
+zscalerctl zia gre-tunnels list
 zscalerctl completion zsh
 zscalerctl version
 zscalerctl dump --products zia --out ./dump

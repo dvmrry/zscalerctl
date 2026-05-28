@@ -59,6 +59,8 @@ profile using read-only OneAPI credentials or explicit ZIA legacy credentials:
 ```sh
 zscalerctl --format json zia locations list
 zscalerctl --format json zia rule-labels list
+zscalerctl --format json zia static-ips list
+zscalerctl --format json zia gre-tunnels list
 zscalerctl dump --products zia --out ./scratch-live-dump
 ```
 

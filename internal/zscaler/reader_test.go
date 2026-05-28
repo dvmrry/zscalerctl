@@ -13,6 +13,8 @@ import (
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
+	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
+	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/resources"
@@ -295,6 +297,166 @@ func TestReaderListRuleLabelsProjectsSDKShapeThroughAllowList(t *testing.T) {
 	}
 }
 
+func TestReaderListStaticIPsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "static-ip-psk-canary"
+		adminCanary       = "static-ip-admin-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceStaticIPs}: ziaStaticIPsHandler{
+				client: fakeZIAStaticIPsClient{
+					staticIPs: []staticips.StaticIP{
+						{
+							ID:                   321,
+							IpAddress:            "192.0.2.44",
+							GeoOverride:          true,
+							Latitude:             40.7128,
+							Longitude:            -74.0060,
+							RoutableIP:           true,
+							LastModificationTime: 1712345678,
+							Comment:              "temporary psk=" + canary + " " + bareFreeTextToken,
+							City: &staticips.City{
+								ID:   44,
+								Name: "Metropolis",
+							},
+							ManagedBy: &staticips.ManagedBy{
+								ID:   1001,
+								Name: adminCanary,
+							},
+							LastModifiedBy: &staticips.LastModifiedBy{
+								ID:   1002,
+								Name: adminCanary,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, "static-ips")
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, static-ips) error = %v, want nil", err)
+	}
+	spec, ok := resources.FindSpec(resources.ProductZIA, "static-ips")
+	if !ok {
+		t.Fatal("FindSpec(zia, static-ips) ok = false, want true")
+	}
+	projected, _, err := resources.ProjectRecords(spec, redact.ModeStandard, records)
+	if err != nil {
+		t.Fatalf("ProjectRecords(zia static-ips) error = %v, want nil", err)
+	}
+	got := projected.Records()[0].Fields()
+	comment := toString(got["comment"])
+	if strings.Contains(comment, canary) {
+		t.Errorf("projected static-ips comment = %v, want no %q", got["comment"], canary)
+	}
+	if strings.Contains(comment, bareFreeTextToken) {
+		t.Errorf("projected static-ips comment = %v, want no bare token", got["comment"])
+	}
+	if !strings.Contains(comment, "<REDACTED:SECRET>") {
+		t.Errorf("projected static-ips comment = %v, want typed redaction marker", got["comment"])
+	}
+	for _, field := range []string{"city", "managedBy", "lastModifiedBy"} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected static-ips = %#v, want no %s", got, field)
+		}
+	}
+	if strings.Contains(fmt.Sprint(got), adminCanary) {
+		t.Errorf("projected static-ips = %#v, want no %q", got, adminCanary)
+	}
+	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
+		t.Errorf("AssertRenderedSubset(projected static-ips SDK shape) error = %v, want nil", err)
+	}
+}
+
+func TestReaderListGRETunnelsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "gre-tunnel-psk-canary"
+		adminCanary       = "gre-tunnel-admin-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+		virtualIPCanary   = "198.51.100.77"
+	)
+	withinCountry := true
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceGRETunnels}: ziaGRETunnelsHandler{
+				client: fakeZIAGRETunnelsClient{
+					tunnels: []gretunnels.GreTunnels{
+						{
+							ID:                   654,
+							SourceIP:             "192.0.2.10",
+							InternalIpRange:      "10.10.10.0/29",
+							LastModificationTime: 1712345678,
+							WithinCountry:        &withinCountry,
+							Comment:              "temporary psk=" + canary + " " + bareFreeTextToken,
+							IPUnnumbered:         true,
+							SubCloud:             "us-east",
+							ManagedBy: &gretunnels.ManagedBy{
+								ID:   1001,
+								Name: adminCanary,
+							},
+							LastModifiedBy: &gretunnels.LastModifiedBy{
+								ID:   1002,
+								Name: adminCanary,
+							},
+							PrimaryDestVip: &gretunnels.PrimaryDestVip{
+								ID:        901,
+								VirtualIP: virtualIPCanary,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, "gre-tunnels")
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, gre-tunnels) error = %v, want nil", err)
+	}
+	spec, ok := resources.FindSpec(resources.ProductZIA, "gre-tunnels")
+	if !ok {
+		t.Fatal("FindSpec(zia, gre-tunnels) ok = false, want true")
+	}
+	projected, _, err := resources.ProjectRecords(spec, redact.ModeStandard, records)
+	if err != nil {
+		t.Fatalf("ProjectRecords(zia gre-tunnels) error = %v, want nil", err)
+	}
+	got := projected.Records()[0].Fields()
+	comment := toString(got["comment"])
+	if strings.Contains(comment, canary) {
+		t.Errorf("projected gre-tunnels comment = %v, want no %q", got["comment"], canary)
+	}
+	if strings.Contains(comment, bareFreeTextToken) {
+		t.Errorf("projected gre-tunnels comment = %v, want no bare token", got["comment"])
+	}
+	if !strings.Contains(comment, "<REDACTED:SECRET>") {
+		t.Errorf("projected gre-tunnels comment = %v, want typed redaction marker", got["comment"])
+	}
+	for _, field := range []string{"managedBy", "lastModifiedBy", "primaryDestVip", "secondaryDestVip"} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected gre-tunnels = %#v, want no %s", got, field)
+		}
+	}
+	for _, forbidden := range []string{adminCanary, virtualIPCanary} {
+		if strings.Contains(fmt.Sprint(got), forbidden) {
+			t.Errorf("projected gre-tunnels = %#v, want no %q", got, forbidden)
+		}
+	}
+	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
+		t.Errorf("AssertRenderedSubset(projected gre-tunnels SDK shape) error = %v, want nil", err)
+	}
+}
+
 func TestReaderGetLocationRejectsNonNumericID(t *testing.T) {
 	t.Parallel()
 
@@ -352,6 +514,47 @@ func TestReaderGetRuleLabelDispatchesByResource(t *testing.T) {
 	}
 	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
 		t.Errorf("AssertRenderedSubset(projected rule label) error = %v, want nil", err)
+	}
+}
+
+func TestReaderGetStaticIPDispatchesByResource(t *testing.T) {
+	t.Parallel()
+
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceStaticIPs}: ziaStaticIPsHandler{
+				client: fakeZIAStaticIPsClient{
+					staticIP: &staticips.StaticIP{
+						ID:        321,
+						IpAddress: "192.0.2.44",
+					},
+				},
+			},
+		},
+	}
+
+	record, err := reader.Get(context.Background(), resources.ProductZIA, "static-ips", "321")
+	if err != nil {
+		t.Fatalf("SDKReader.Get(zia, static-ips, 321) error = %v, want nil", err)
+	}
+	spec, ok := resources.FindSpec(resources.ProductZIA, "static-ips")
+	if !ok {
+		t.Fatal("FindSpec(zia, static-ips) ok = false, want true")
+	}
+	projected, _, err := resources.ProjectRecord(spec, redact.ModeStandard, record)
+	if err != nil {
+		t.Fatalf("ProjectRecord(zia static-ips) error = %v, want nil", err)
+	}
+	got := projected.Fields()
+	if got["id"] != 321 {
+		t.Errorf("projected static-ip id = %v, want 321", got["id"])
+	}
+	if got["ipAddress"] != "192.0.2.44" {
+		t.Errorf("projected static-ip ipAddress = %v, want 192.0.2.44", got["ipAddress"])
+	}
+	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
+		t.Errorf("AssertRenderedSubset(projected static-ip) error = %v, want nil", err)
 	}
 }
 
@@ -450,6 +653,46 @@ func (f fakeZIARuleLabelsClient) GetRuleLabel(context.Context, int) (*rulelabels
 		return nil, f.err
 	}
 	return f.label, nil
+}
+
+type fakeZIAStaticIPsClient struct {
+	staticIPs []staticips.StaticIP
+	staticIP  *staticips.StaticIP
+	err       error
+}
+
+func (f fakeZIAStaticIPsClient) ListStaticIPs(context.Context) ([]staticips.StaticIP, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.staticIPs, nil
+}
+
+func (f fakeZIAStaticIPsClient) GetStaticIP(context.Context, int) (*staticips.StaticIP, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.staticIP, nil
+}
+
+type fakeZIAGRETunnelsClient struct {
+	tunnels []gretunnels.GreTunnels
+	tunnel  *gretunnels.GreTunnels
+	err     error
+}
+
+func (f fakeZIAGRETunnelsClient) ListGRETunnels(context.Context) ([]gretunnels.GreTunnels, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.tunnels, nil
+}
+
+func (f fakeZIAGRETunnelsClient) GetGRETunnel(context.Context, int) (*gretunnels.GreTunnels, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.tunnel, nil
 }
 
 func toString(value any) string {
