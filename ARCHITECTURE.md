@@ -144,6 +144,12 @@ omitted merely because they are sensitive or not currently rendered. The
 resource catalog and projection layer are the auditable allow-list; the reader
 is an adapter, not a sanitizer.
 
+Mapped SDK struct shapes are reviewed by reflection tests. Every exported SDK
+JSON field for a mapped resource or nested helper must either correspond to a
+catalog-classified field or appear in an explicit ignored-field registry with a
+reason. SDK bumps and new resources must update that registry intentionally, so
+new SDK response fields cannot drift in silently.
+
 Nested API objects are excluded unless the resource spec explicitly models their
 nested fields. An allowed top-level field does not implicitly allow every child
 field inside a map or list of maps.

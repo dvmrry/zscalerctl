@@ -54,7 +54,10 @@ version bump:
 6. Re-check whether legacy ZIA client cleanup can safely call the SDK `Close`
    method. Version 3.8.37 can deadlock on `Close`, so the current adapter avoids
    that call for short-lived CLI operations.
-7. Run the required checks above.
+7. Confirm `TestReviewedSDKShapesMatchCatalogOrIgnoredRegistry` still passes,
+   and review any new SDK response fields it reports before classifying or
+   ignoring them.
+8. Run the required checks above.
 
 Do not add a new resource in the same change as an SDK bump unless the SDK bump
 is required for that resource and the review explicitly covers both changes.
