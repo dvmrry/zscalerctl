@@ -121,6 +121,11 @@ func (s sdkShapeReview) assertReviewed(t *testing.T) {
 }
 
 func reviewedSDKShapes() []sdkShapeReview {
+	// Register top-level SDK resource structs and every nested SDK helper struct
+	// that reader mappings intentionally traverse. A struct-typed field ignored
+	// at a parent level still needs its own review entry when its fields are
+	// mapped into SourceRecord data, so SDK bumps cannot add nested fields
+	// without an explicit classify-or-ignore decision.
 	return []sdkShapeReview{
 		{
 			name:         "locationmanagement.Locations",
