@@ -360,23 +360,28 @@ func (a *App) runDump(ctx context.Context, cfg config.Config, opts globalOptions
 	fs.SetOutput(io.Discard)
 	outDir := fs.String("out", "", "dump output directory")
 	productsFlag := fs.String("products", "", "comma-separated products: zia,zpa")
+	resourcesFlag := fs.String("resources", "", "comma-separated resources: locations or zia/locations")
 	if err := fs.Parse(args); err != nil {
 		return UsageError{Message: err.Error()}
 	}
 	if fs.NArg() != 0 {
-		return UsageError{Message: "usage: zscalerctl dump --out <dir> [--products zia,zpa]"}
+		return UsageError{Message: dumpUsage()}
 	}
 	if *outDir == "" {
 		*outDir = opts.output
 	}
 	if *outDir == "" {
-		return UsageError{Message: "usage: zscalerctl dump --out <dir> [--products zia,zpa]"}
+		return UsageError{Message: dumpUsage()}
 	}
 	products, err := parseProducts(*productsFlag)
 	if err != nil {
 		return err
 	}
-	entries, err := a.collectDump(ctx, cfg, opts, products)
+	selectedResources, err := parseDumpResources(*resourcesFlag, products, resources.Catalog())
+	if err != nil {
+		return err
+	}
+	entries, err := a.collectDump(ctx, cfg, opts, products, selectedResources)
 	if err != nil {
 		return err
 	}
@@ -439,6 +444,7 @@ func (a *App) collectDump(
 	cfg config.Config,
 	opts globalOptions,
 	products map[resources.Product]bool,
+	selectedResources map[dumpResourceKey]bool,
 ) ([]dump.ResourceDump, error) {
 	var entries []dump.ResourceDump
 	catalog := resources.Catalog()
@@ -448,6 +454,9 @@ func (a *App) collectDump(
 	readers := make(map[resources.Product]ResourceReader)
 	for _, spec := range catalog {
 		if !products[spec.Product] {
+			continue
+		}
+		if !dumpResourceSelected(selectedResources, spec) {
 			continue
 		}
 		reader, ok := readers[spec.Product]
@@ -522,7 +531,7 @@ func (a *App) writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  auth status")
 	fmt.Fprintln(w, "  config show")
 	fmt.Fprintln(w, "  schema list")
-	fmt.Fprintln(w, "  dump --out <dir>")
+	fmt.Fprintln(w, "  dump --out <dir> [--resources names]")
 	fmt.Fprintln(w, "  completion bash|zsh|fish")
 	fmt.Fprintln(w, "  version")
 	fmt.Fprintln(w, "  zia <resource> list|get")
@@ -602,6 +611,10 @@ func requireNoArgs(command string, args []string) error {
 	return nil
 }
 
+func dumpUsage() string {
+	return "usage: zscalerctl dump --out <dir> [--products zia,zpa] [--resources names]"
+}
+
 func credentialStatus(cfg config.Config) string {
 	switch cfg.EffectiveAuthMode() {
 	case config.AuthModeZIALegacy:
@@ -673,4 +686,107 @@ func parseProducts(value string) (map[resources.Product]bool, error) {
 		}
 	}
 	return products, nil
+}
+
+type dumpResourceKey struct {
+	product resources.Product
+	name    string
+}
+
+func parseDumpResources(
+	value string,
+	products map[resources.Product]bool,
+	catalog resources.ResourceCatalog,
+) (map[dumpResourceKey]bool, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	selected := map[dumpResourceKey]bool{}
+	for _, raw := range strings.Split(value, ",") {
+		item := strings.TrimSpace(strings.ToLower(raw))
+		if item == "" {
+			return nil, UsageError{Message: "empty resource in --resources"}
+		}
+		keys, err := matchDumpResources(item, products, catalog)
+		if err != nil {
+			return nil, err
+		}
+		for _, key := range keys {
+			selected[key] = true
+		}
+	}
+	return selected, nil
+}
+
+func matchDumpResources(
+	item string,
+	products map[resources.Product]bool,
+	catalog resources.ResourceCatalog,
+) ([]dumpResourceKey, error) {
+	if strings.Contains(item, "/") {
+		parts := strings.Split(item, "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return nil, UsageError{Message: fmt.Sprintf("invalid resource %q", item)}
+		}
+		product := resources.Product(parts[0])
+		if product != resources.ProductZIA && product != resources.ProductZPA {
+			return nil, UsageError{Message: fmt.Sprintf("unsupported product %q", parts[0])}
+		}
+		if !products[product] {
+			return nil, UsageError{Message: fmt.Sprintf("resource %s is not selected by --products", item)}
+		}
+		key := dumpResourceKey{product: product, name: parts[1]}
+		if !catalogHasDumpResource(catalog, key) {
+			return nil, UsageError{Message: fmt.Sprintf("unsupported dump resource %s", item)}
+		}
+		return []dumpResourceKey{key}, nil
+	}
+
+	var matches []dumpResourceKey
+	knownOutsideSelection := false
+	for _, spec := range catalog {
+		if spec.Name != item || !resourceSupportsDump(spec) {
+			continue
+		}
+		if !products[spec.Product] {
+			knownOutsideSelection = true
+			continue
+		}
+		matches = append(matches, dumpResourceKey{product: spec.Product, name: spec.Name})
+	}
+	switch {
+	case len(matches) == 1:
+		return matches, nil
+	case len(matches) > 1:
+		return nil, UsageError{Message: fmt.Sprintf("ambiguous dump resource %q; use product/name", item)}
+	case knownOutsideSelection:
+		return nil, UsageError{Message: fmt.Sprintf("resource %s is not selected by --products", item)}
+	default:
+		return nil, UsageError{Message: fmt.Sprintf("unsupported dump resource %q", item)}
+	}
+}
+
+func catalogHasDumpResource(catalog resources.ResourceCatalog, key dumpResourceKey) bool {
+	for _, spec := range catalog {
+		if spec.Product == key.product && spec.Name == key.name && resourceSupportsDump(spec) {
+			return true
+		}
+	}
+	return false
+}
+
+func resourceSupportsDump(spec resources.ResourceSpec) bool {
+	for _, op := range spec.Operations {
+		if op.Name == "list" && op.Capability == resources.CapabilityRead {
+			return true
+		}
+	}
+	return false
+}
+
+func dumpResourceSelected(selected map[dumpResourceKey]bool, spec resources.ResourceSpec) bool {
+	if selected == nil {
+		return true
+	}
+	return selected[dumpResourceKey{product: spec.Product, name: spec.Name}]
 }

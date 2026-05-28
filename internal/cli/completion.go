@@ -59,11 +59,12 @@ _zscalerctl()
     --redaction) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     --color) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     --products) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
+    --resources) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     completion) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     auth) COMPREPLY=( $(compgen -W "status" -- "$cur") ); return ;;
     config) COMPREPLY=( $(compgen -W "show" -- "$cur") ); return ;;
     schema) COMPREPLY=( $(compgen -W "list" -- "$cur") ); return ;;
-    dump) COMPREPLY=( $(compgen -W "--out --products" -- "$cur") ); return ;;
+    dump) COMPREPLY=( $(compgen -W "--out --products --resources" -- "$cur") ); return ;;
     zia) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     zpa) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     %s) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
@@ -77,6 +78,7 @@ complete -F _zscalerctl zscalerctl
 		words(completionRedaction),
 		words(completionColors),
 		words(completionProducts),
+		words(dumpResourceNames()),
 		words(completionShells),
 		words(resourceNames(resources.ProductZIA)),
 		words(resourceNames(resources.ProductZPA)),
@@ -91,24 +93,26 @@ func zshCompletion() string {
 	return fmt.Sprintf(`#compdef zscalerctl
 
 _zscalerctl() {
-  local -a commands flags formats redactions colors products shells zia_resources zpa_resources operations dump_flags
+  local -a commands flags formats redactions colors products dump_resources shells zia_resources zpa_resources operations dump_flags
   commands=(%s)
   flags=(%s)
   formats=(%s)
   redactions=(%s)
   colors=(%s)
   products=(%s)
+  dump_resources=(%s)
   shells=(%s)
   zia_resources=(%s)
   zpa_resources=(%s)
   operations=(%s)
-  dump_flags=(--out --products)
+  dump_flags=(--out --products --resources)
 
   case ${words[CURRENT-1]} in
     --format) compadd -- "${formats[@]}"; return ;;
     --redaction) compadd -- "${redactions[@]}"; return ;;
     --color) compadd -- "${colors[@]}"; return ;;
     --products) compadd -- "${products[@]}"; return ;;
+    --resources) compadd -- "${dump_resources[@]}"; return ;;
     completion) compadd -- "${shells[@]}"; return ;;
     auth) compadd -- status; return ;;
     config) compadd -- show; return ;;
@@ -130,6 +134,7 @@ _zscalerctl "$@"
 		words(completionRedaction),
 		words(completionColors),
 		words(completionProducts),
+		words(dumpResourceNames()),
 		words(completionShells),
 		words(resourceNames(resources.ProductZIA)),
 		words(resourceNames(resources.ProductZPA)),
@@ -154,8 +159,9 @@ complete -c zscalerctl -n '__fish_seen_subcommand_from completion' -a '%s'
 complete -c zscalerctl -n '__fish_seen_subcommand_from auth' -a 'status'
 complete -c zscalerctl -n '__fish_seen_subcommand_from config' -a 'show'
 complete -c zscalerctl -n '__fish_seen_subcommand_from schema' -a 'list'
-complete -c zscalerctl -n '__fish_seen_subcommand_from dump' -a '--out --products'
+complete -c zscalerctl -n '__fish_seen_subcommand_from dump' -a '--out --products --resources'
 complete -c zscalerctl -n '__fish_seen_subcommand_from dump' -l products -x -a '%s'
+complete -c zscalerctl -n '__fish_seen_subcommand_from dump' -l resources -x -a '%s'
 complete -c zscalerctl -n '__fish_seen_subcommand_from zia' -a '%s'
 complete -c zscalerctl -n '__fish_seen_subcommand_from zpa' -a '%s'
 complete -c zscalerctl -n '__fish_seen_subcommand_from %s' -a '%s'
@@ -166,6 +172,7 @@ complete -c zscalerctl -n '__fish_seen_subcommand_from %s' -a '%s'
 		words(completionCommands),
 		words(completionShells),
 		words(completionProducts),
+		words(dumpResourceNames()),
 		words(resourceNames(resources.ProductZIA)),
 		words(resourceNames(resources.ProductZPA)),
 		words(allResourceNames()),
@@ -188,6 +195,23 @@ func allResourceNames() []string {
 	seen := map[string]struct{}{}
 	for _, spec := range resources.Catalog() {
 		seen[spec.Name] = struct{}{}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func dumpResourceNames() []string {
+	seen := map[string]struct{}{}
+	for _, spec := range resources.Catalog() {
+		if !resourceSupportsDump(spec) {
+			continue
+		}
+		seen[spec.Name] = struct{}{}
+		seen[string(spec.Product)+"/"+spec.Name] = struct{}{}
 	}
 	names := make([]string, 0, len(seen))
 	for name := range seen {

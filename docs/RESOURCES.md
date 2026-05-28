@@ -19,6 +19,20 @@ high-entropy token scan for bare unlabeled secret material. Canonical UUIDs and
 contextual git commit SHAs are preserved; other long hashes or thumbprints may
 be redacted in free text.
 
+## Selective Dumps
+
+By default, `zscalerctl dump` collects every catalog resource in the selected
+products. Use `--resources` to limit a dump to specific resource names:
+
+```sh
+zscalerctl dump --products zia --resources locations,static-ips --out ./dump
+zscalerctl dump --resources zia/locations --out ./dump-locations
+```
+
+Unqualified names are matched within the selected products. Product-qualified
+names use `product/name` and are the safer form once multiple products expose
+similarly named resources. Unknown resources fail before live API access.
+
 ## ZIA Locations
 
 Commands:
