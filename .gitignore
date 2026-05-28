@@ -6,3 +6,9 @@ dist/
 coverage.out
 *.test
 /zscalerctl
+
+# Live smoke artifacts contain sanitized but confidential tenant data.
+/scratch-live-smoke/
+/scratch-live-smoke-*/
+/scratch-live-dump/
+/scratch-live-dump-*/
