@@ -459,6 +459,7 @@ func (a *App) collectDump(
 				return nil, err
 			}
 			readers[spec.Product] = reader
+			// Register cleanup once per product session, not once per resource.
 			defer cleanup()
 		}
 		records, err := reader.List(ctx, spec.Product, spec.Name)
