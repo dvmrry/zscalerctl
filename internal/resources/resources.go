@@ -636,6 +636,100 @@ func Catalog() ResourceCatalog {
 				},
 			},
 		},
+		{
+			Product:    ProductZIA,
+			Name:       "static-ips",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				{
+					Name:           "id",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "ipAddress",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "routableIP",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "geoOverride",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				},
+				{
+					Name:           "latitude",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "longitude",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "comment",
+					Classification: ClassFreeText,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "lastModificationTime",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				},
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "gre-tunnels",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				{
+					Name:           "id",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "sourceIp",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "internalIpRange",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "lastModificationTime",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				},
+				{
+					Name:           "withinCountry",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "comment",
+					Classification: ClassFreeText,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "ipUnnumbered",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				},
+				{
+					Name:           "subcloud",
+					Classification: ClassTenantConfig,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				},
+			},
+		},
 	}
 }
 

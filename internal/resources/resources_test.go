@@ -670,7 +670,16 @@ func titleResourceName(name string) string {
 		if part == "" {
 			continue
 		}
-		parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		switch strings.ToLower(part) {
+		case "gre":
+			parts[i] = "GRE"
+		case "ip":
+			parts[i] = "IP"
+		case "ips":
+			parts[i] = "IPs"
+		default:
+			parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		}
 	}
 	return strings.Join(parts, " ")
 }

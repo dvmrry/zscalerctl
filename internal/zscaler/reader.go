@@ -18,6 +18,8 @@ import (
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
+	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
+	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 
 	"github.com/dvmrry/zscalerctl/internal/resources"
 	"github.com/dvmrry/zscalerctl/internal/secret"
@@ -35,6 +37,8 @@ const defaultTimeout = 30 * time.Second
 const (
 	resourceLocations  = "locations"
 	resourceRuleLabels = "rule-labels"
+	resourceStaticIPs  = "static-ips"
+	resourceGRETunnels = "gre-tunnels"
 )
 
 type AuthMode string
@@ -77,6 +81,16 @@ type ziaRuleLabelsClient interface {
 	GetRuleLabel(context.Context, int) (*rulelabels.RuleLabels, error)
 }
 
+type ziaStaticIPsClient interface {
+	ListStaticIPs(context.Context) ([]staticips.StaticIP, error)
+	GetStaticIP(context.Context, int) (*staticips.StaticIP, error)
+}
+
+type ziaGRETunnelsClient interface {
+	ListGRETunnels(context.Context) ([]gretunnels.GreTunnels, error)
+	GetGRETunnel(context.Context, int) (*gretunnels.GreTunnels, error)
+}
+
 type resourceKey struct {
 	product resources.Product
 	name    string
@@ -90,6 +104,8 @@ type resourceHandler interface {
 var (
 	_ resourceHandler = ziaLocationsHandler{}
 	_ resourceHandler = ziaRuleLabelsHandler{}
+	_ resourceHandler = ziaStaticIPsHandler{}
+	_ resourceHandler = ziaGRETunnelsHandler{}
 )
 
 func NewReader(cfg ReaderConfig) (*SDKReader, error) {
@@ -110,6 +126,12 @@ func NewReader(cfg ReaderConfig) (*SDKReader, error) {
 			},
 			{product: resources.ProductZIA, name: resourceRuleLabels}: ziaRuleLabelsHandler{
 				client: sdkZIARuleLabelsClient{sdkZIAClient: ziaClient},
+			},
+			{product: resources.ProductZIA, name: resourceStaticIPs}: ziaStaticIPsHandler{
+				client: sdkZIAStaticIPsClient{sdkZIAClient: ziaClient},
+			},
+			{product: resources.ProductZIA, name: resourceGRETunnels}: ziaGRETunnelsHandler{
+				client: sdkZIAGRETunnelsClient{sdkZIAClient: ziaClient},
 			},
 		},
 	}, nil
@@ -215,6 +237,68 @@ func (h ziaRuleLabelsHandler) Get(ctx context.Context, id string) (resources.Sou
 	return ruleLabelSourceRecord(*label), nil
 }
 
+type ziaStaticIPsHandler struct {
+	client ziaStaticIPsClient
+}
+
+func (h ziaStaticIPsHandler) List(ctx context.Context) ([]resources.SourceRecord, error) {
+	staticIPs, err := h.client.ListStaticIPs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]resources.SourceRecord, 0, len(staticIPs))
+	for _, staticIP := range staticIPs {
+		records = append(records, staticIPSourceRecord(staticIP))
+	}
+	return records, nil
+}
+
+func (h ziaStaticIPsHandler) Get(ctx context.Context, id string) (resources.SourceRecord, error) {
+	staticIPID, err := parsePositiveIntID(id)
+	if err != nil {
+		return resources.SourceRecord{}, err
+	}
+	staticIP, err := h.client.GetStaticIP(ctx, staticIPID)
+	if err != nil {
+		return resources.SourceRecord{}, err
+	}
+	if staticIP == nil {
+		return resources.SourceRecord{}, errors.New("empty sdk static IP response")
+	}
+	return staticIPSourceRecord(*staticIP), nil
+}
+
+type ziaGRETunnelsHandler struct {
+	client ziaGRETunnelsClient
+}
+
+func (h ziaGRETunnelsHandler) List(ctx context.Context) ([]resources.SourceRecord, error) {
+	tunnels, err := h.client.ListGRETunnels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]resources.SourceRecord, 0, len(tunnels))
+	for _, tunnel := range tunnels {
+		records = append(records, greTunnelSourceRecord(tunnel))
+	}
+	return records, nil
+}
+
+func (h ziaGRETunnelsHandler) Get(ctx context.Context, id string) (resources.SourceRecord, error) {
+	tunnelID, err := parsePositiveIntID(id)
+	if err != nil {
+		return resources.SourceRecord{}, err
+	}
+	tunnel, err := h.client.GetGRETunnel(ctx, tunnelID)
+	if err != nil {
+		return resources.SourceRecord{}, err
+	}
+	if tunnel == nil {
+		return resources.SourceRecord{}, errors.New("empty sdk GRE tunnel response")
+	}
+	return greTunnelSourceRecord(*tunnel), nil
+}
+
 func parsePositiveIntID(id string) (int, error) {
 	parsed, err := strconv.Atoi(id)
 	if err != nil || parsed <= 0 {
@@ -269,6 +353,50 @@ func (c sdkZIARuleLabelsClient) GetRuleLabel(ctx context.Context, id int) (*rule
 	}
 	defer cleanup()
 	return rulelabels.Get(ctx, service, id)
+}
+
+type sdkZIAStaticIPsClient struct {
+	sdkZIAClient
+}
+
+func (c sdkZIAStaticIPsClient) ListStaticIPs(ctx context.Context) ([]staticips.StaticIP, error) {
+	service, cleanup, err := c.service(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return staticips.GetAll(ctx, service)
+}
+
+func (c sdkZIAStaticIPsClient) GetStaticIP(ctx context.Context, id int) (*staticips.StaticIP, error) {
+	service, cleanup, err := c.service(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return staticips.Get(ctx, service, id)
+}
+
+type sdkZIAGRETunnelsClient struct {
+	sdkZIAClient
+}
+
+func (c sdkZIAGRETunnelsClient) ListGRETunnels(ctx context.Context) ([]gretunnels.GreTunnels, error) {
+	service, cleanup, err := c.service(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return gretunnels.GetAll(ctx, service)
+}
+
+func (c sdkZIAGRETunnelsClient) GetGRETunnel(ctx context.Context, id int) (*gretunnels.GreTunnels, error) {
+	service, cleanup, err := c.service(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return gretunnels.GetGreTunnels(ctx, service, id)
 }
 
 func (c sdkZIAClient) service(ctx context.Context) (*zsdk.Service, func(), error) {
@@ -530,6 +658,55 @@ func ruleLabelSourceRecord(label rulelabels.RuleLabels) resources.SourceRecord {
 	return resources.NewSourceRecord(fields)
 }
 
+func staticIPSourceRecord(staticIP staticips.StaticIP) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                   staticIP.ID,
+		"ipAddress":            staticIP.IpAddress,
+		"geoOverride":          staticIP.GeoOverride,
+		"latitude":             staticIP.Latitude,
+		"longitude":            staticIP.Longitude,
+		"routableIP":           staticIP.RoutableIP,
+		"lastModificationTime": staticIP.LastModificationTime,
+		"comment":              staticIP.Comment,
+	}
+	if staticIP.City != nil {
+		fields["city"] = staticIPCitySource(staticIP.City)
+	}
+	if staticIP.ManagedBy != nil {
+		fields["managedBy"] = staticIPManagedBySource(staticIP.ManagedBy)
+	}
+	if staticIP.LastModifiedBy != nil {
+		fields["lastModifiedBy"] = staticIPLastModifiedBySource(staticIP.LastModifiedBy)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func greTunnelSourceRecord(tunnel gretunnels.GreTunnels) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                   tunnel.ID,
+		"sourceIp":             tunnel.SourceIP,
+		"internalIpRange":      tunnel.InternalIpRange,
+		"lastModificationTime": tunnel.LastModificationTime,
+		"withinCountry":        boolPointerValue(tunnel.WithinCountry),
+		"comment":              tunnel.Comment,
+		"ipUnnumbered":         tunnel.IPUnnumbered,
+		"subcloud":             tunnel.SubCloud,
+	}
+	if tunnel.ManagedBy != nil {
+		fields["managedBy"] = greManagedBySource(tunnel.ManagedBy)
+	}
+	if tunnel.LastModifiedBy != nil {
+		fields["lastModifiedBy"] = greLastModifiedBySource(tunnel.LastModifiedBy)
+	}
+	if tunnel.PrimaryDestVip != nil {
+		fields["primaryDestVip"] = primaryDestVIPSource(tunnel.PrimaryDestVip)
+	}
+	if tunnel.SecondaryDestVip != nil {
+		fields["secondaryDestVip"] = secondaryDestVIPSource(tunnel.SecondaryDestVip)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
 func idNameExtensionsSource(value *ziacommon.IDNameExtensions) map[string]any {
 	fields := map[string]any{
 		"id":   value.ID,
@@ -539,6 +716,92 @@ func idNameExtensionsSource(value *ziacommon.IDNameExtensions) map[string]any {
 		fields["extensions"] = value.Extensions
 	}
 	return fields
+}
+
+func staticIPCitySource(value *staticips.City) map[string]any {
+	return map[string]any{
+		"id":   value.ID,
+		"name": value.Name,
+	}
+}
+
+func staticIPManagedBySource(value *staticips.ManagedBy) map[string]any {
+	fields := map[string]any{
+		"id":   value.ID,
+		"name": value.Name,
+	}
+	if len(value.Extensions) > 0 {
+		fields["extensions"] = value.Extensions
+	}
+	return fields
+}
+
+func staticIPLastModifiedBySource(value *staticips.LastModifiedBy) map[string]any {
+	fields := map[string]any{
+		"id":   value.ID,
+		"name": value.Name,
+	}
+	if len(value.Extensions) > 0 {
+		fields["extensions"] = value.Extensions
+	}
+	return fields
+}
+
+func greManagedBySource(value *gretunnels.ManagedBy) map[string]any {
+	fields := map[string]any{
+		"id":   value.ID,
+		"name": value.Name,
+	}
+	if len(value.Extensions) > 0 {
+		fields["extensions"] = value.Extensions
+	}
+	return fields
+}
+
+func greLastModifiedBySource(value *gretunnels.LastModifiedBy) map[string]any {
+	fields := map[string]any{
+		"id":   value.ID,
+		"name": value.Name,
+	}
+	if len(value.Extensions) > 0 {
+		fields["extensions"] = value.Extensions
+	}
+	return fields
+}
+
+func primaryDestVIPSource(value *gretunnels.PrimaryDestVip) map[string]any {
+	return map[string]any{
+		"id":                 value.ID,
+		"virtualIp":          value.VirtualIP,
+		"privateServiceEdge": value.PrivateServiceEdge,
+		"datacenter":         value.Datacenter,
+		"latitude":           value.Latitude,
+		"longitude":          value.Longitude,
+		"city":               value.City,
+		"countryCode":        value.CountryCode,
+		"region":             value.Region,
+	}
+}
+
+func secondaryDestVIPSource(value *gretunnels.SecondaryDestVip) map[string]any {
+	return map[string]any{
+		"id":                 value.ID,
+		"virtualIp":          value.VirtualIP,
+		"privateServiceEdge": value.PrivateServiceEdge,
+		"datacenter":         value.Datacenter,
+		"latitude":           value.Latitude,
+		"longitude":          value.Longitude,
+		"city":               value.City,
+		"countryCode":        value.CountryCode,
+		"region":             value.Region,
+	}
+}
+
+func boolPointerValue(value *bool) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 func vpnCredentialsSource(credentials []locationmanagement.VPNCredentials) []any {

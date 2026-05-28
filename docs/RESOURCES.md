@@ -62,6 +62,59 @@ The SDK also returns admin references such as `createdBy` and `lastModifiedBy`.
 The reader maps those nested objects into source records, but the catalog does
 not allow them to render, so projection drops them.
 
+## ZIA Static IPs
+
+Commands:
+
+```sh
+zscalerctl zia static-ips list
+zscalerctl zia static-ips get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Static IP identifier. |
+| `ipAddress` | Sensitive identifier | `standard` | Static IP address; dropped from `share` and `paranoid`. |
+| `routableIP` | Operational metadata | `standard`, `share`, `paranoid` | Whether the address is publicly routable. |
+| `geoOverride` | Operational metadata | `standard`, `share` | Whether geographic coordinates are explicitly configured. |
+| `latitude` | Sensitive identifier | `standard` | Geographic coordinate; dropped from `share` and `paranoid`. |
+| `longitude` | Sensitive identifier | `standard` | Geographic coordinate; dropped from `share` and `paranoid`. |
+| `comment` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `lastModificationTime` | Operational metadata | `standard`, `share` | SDK timestamp value. |
+
+The SDK also returns nested `city`, `managedBy`, and `lastModifiedBy` objects.
+The reader maps those objects into source records, but the catalog does not
+allow them to render, so projection drops them.
+
+## ZIA GRE Tunnels
+
+Commands:
+
+```sh
+zscalerctl zia gre-tunnels list
+zscalerctl zia gre-tunnels get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | GRE tunnel identifier. |
+| `sourceIp` | Sensitive identifier | `standard` | Source IP address; dropped from `share` and `paranoid`. |
+| `internalIpRange` | Sensitive identifier | `standard` | Internal tunnel range; dropped from `share` and `paranoid`. |
+| `lastModificationTime` | Operational metadata | `standard`, `share` | SDK timestamp value. |
+| `withinCountry` | Operational metadata | `standard`, `share`, `paranoid` | Whether destination VIPs are restricted to the source-IP country. |
+| `comment` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `ipUnnumbered` | Operational metadata | `standard`, `share` | Whether the tunnel uses IP unnumbered mode. |
+| `subcloud` | Tenant configuration | `standard`, `share` | Configured subcloud restriction. |
+
+The SDK also returns nested `managedBy`, `lastModifiedBy`, `primaryDestVip`,
+and `secondaryDestVip` objects. The reader maps those objects into source
+records, but the catalog does not allow them to render, so projection drops
+them.
+
 ## Adding A Resource
 
 Before enabling another resource:
