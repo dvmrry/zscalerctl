@@ -395,12 +395,72 @@ Fields:
 | `type`, `isNameL10nTag` | Operational metadata | `standard`, `share`, `paranoid` | Service type and localization flag. |
 | `srcTcpPorts`, `destTcpPorts`, `srcUdpPorts`, `destUdpPorts` | Tenant configuration | `standard`, `share` | Port ranges render reviewed `start`/`end` values only. |
 
+## ZIA Application Services
+
+Commands:
+
+```sh
+zscalerctl zia application-services list
+zscalerctl zia application-services get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Application service identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `nameL10nTag` | Operational metadata | `standard`, `share`, `paranoid` | Whether the name is a localization tag. |
+
+## ZIA Application Service Groups
+
+Commands:
+
+```sh
+zscalerctl zia application-service-groups list
+zscalerctl zia application-service-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Application service group identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `nameL10nTag` | Operational metadata | `standard`, `share`, `paranoid` | Whether the name is a localization tag. |
+
+The ZIA SDK does not expose a direct get-by-id helper for application services
+or application service groups, so `get` uses the list endpoint and returns the
+matching identifier.
+
+## ZIA Network Application Groups
+
+Commands:
+
+```sh
+zscalerctl zia network-application-groups list
+zscalerctl zia network-application-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Network application group identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `networkApplications` | Tenant configuration | `standard`, `share` | Network application identifiers included in the group. |
+
 ## Deferred Resource Follow-Ups
 
 - `zia/network-service-groups`: generated and locally validated, but removed
   from the first policy-reference batch after live smoke reported a request
   failure. Investigate the live endpoint behavior separately before enabling it
   in the catalog.
+- `zia/network-applications`: generated and locally validated, but removed
+  from the application-reference batch after live smoke reported a request
+  failure while `zia/network-application-groups` succeeded. Investigate the live
+  endpoint behavior separately before enabling it in the catalog.
 
 ## Adding A Resource
 

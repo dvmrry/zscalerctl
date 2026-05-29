@@ -1382,6 +1382,37 @@ func Catalog() ResourceCatalog {
 				networkPortsField("destUdpPorts", standardShareModes()),
 			},
 		},
+		{
+			Product:    ProductZIA,
+			Name:       "application-services",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				operationalField("nameL10nTag", allModes()),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "application-service-groups",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				operationalField("nameL10nTag", allModes()),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "network-application-groups",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				freeTextField("description", "ZIA network application group description"),
+				tenantConfigField("networkApplications", standardShareModes()),
+			},
+		},
 	}
 }
 

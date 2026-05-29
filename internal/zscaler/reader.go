@@ -17,9 +17,12 @@ import (
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
 	sdkzia "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
+	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
+	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	filteringrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/filteringrules"
 	ipdestinationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipdestinationgroups"
 	ipsourcegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipsourcegroups"
+	networkapplicationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/networkapplicationgroups"
 	networkservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/networkservices"
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
@@ -46,20 +49,23 @@ var (
 const defaultTimeout = 30 * time.Second
 
 const (
-	resourceLocations       = "locations"
-	resourceLocationGroups  = "location-groups"
-	resourceRuleLabels      = "rule-labels"
-	resourceStaticIPs       = "static-ips"
-	resourceGRETunnels      = "gre-tunnels"
-	resourceSublocations    = "sublocations"
-	resourceSSLRules        = "ssl-inspection-rules"
-	resourceURLCategories   = "url-categories"
-	resourceURLRules        = "url-filtering-rules"
-	resourceFirewallRules   = "firewall-filtering-rules"
-	resourceForwardingRules = "forwarding-rules"
-	resourceIPSourceGroups  = "ip-source-groups"
-	resourceIPDestGroups    = "ip-destination-groups"
-	resourceNetworkServices = "network-services"
+	resourceLocations        = "locations"
+	resourceLocationGroups   = "location-groups"
+	resourceRuleLabels       = "rule-labels"
+	resourceStaticIPs        = "static-ips"
+	resourceGRETunnels       = "gre-tunnels"
+	resourceSublocations     = "sublocations"
+	resourceSSLRules         = "ssl-inspection-rules"
+	resourceURLCategories    = "url-categories"
+	resourceURLRules         = "url-filtering-rules"
+	resourceFirewallRules    = "firewall-filtering-rules"
+	resourceForwardingRules  = "forwarding-rules"
+	resourceIPSourceGroups   = "ip-source-groups"
+	resourceIPDestGroups     = "ip-destination-groups"
+	resourceNetworkServices  = "network-services"
+	resourceAppServices      = "application-services"
+	resourceAppServiceGroups = "application-service-groups"
+	resourceNetworkAppGroups = "network-application-groups"
 )
 
 type AuthMode string
@@ -396,6 +402,44 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 			}),
 			networkServiceSourceRecord,
 		),
+		{product: resources.ProductZIA, name: resourceAppServices}: newListGetHandler(
+			resourceAppServices,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]applicationservices.ApplicationServicesLite, error) {
+				return applicationservices.GetAll(ctx, service)
+			}),
+			ziaSDKListGetByIntID(
+				ziaClient,
+				func(ctx context.Context, service *zsdk.Service) ([]applicationservices.ApplicationServicesLite, error) {
+					return applicationservices.GetAll(ctx, service)
+				},
+				func(item applicationservices.ApplicationServicesLite) int { return item.ID },
+			),
+			applicationServiceSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceAppServiceGroups}: newListGetHandler(
+			resourceAppServiceGroups,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]appservicegroups.ApplicationServicesGroupLite, error) {
+				return appservicegroups.GetAll(ctx, service)
+			}),
+			ziaSDKListGetByIntID(
+				ziaClient,
+				func(ctx context.Context, service *zsdk.Service) ([]appservicegroups.ApplicationServicesGroupLite, error) {
+					return appservicegroups.GetAll(ctx, service)
+				},
+				func(item appservicegroups.ApplicationServicesGroupLite) int { return item.ID },
+			),
+			applicationServiceGroupSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceNetworkAppGroups}: newListGetHandler(
+			resourceNetworkAppGroups,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]networkapplicationgroups.NetworkApplicationGroups, error) {
+				return networkapplicationgroups.GetAllNetworkApplicationGroups(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*networkapplicationgroups.NetworkApplicationGroups, error) {
+				return networkapplicationgroups.GetNetworkApplicationGroups(ctx, service, id)
+			}),
+			networkApplicationGroupSourceRecord,
+		),
 	}
 }
 
@@ -506,6 +550,30 @@ func ziaSDKStringGet[T any](
 		defer cleanup()
 		return call(ctx, service, id)
 	}
+}
+
+func ziaSDKListGetByIntID[T any](
+	client sdkZIAClient,
+	list func(context.Context, *zsdk.Service) ([]T, error),
+	idOf func(T) int,
+) func(context.Context, string) (*T, error) {
+	return intIDGetter(func(ctx context.Context, id int) (*T, error) {
+		service, cleanup, err := client.service(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		items, err := list(ctx, service)
+		if err != nil {
+			return nil, err
+		}
+		for i := range items {
+			if idOf(items[i]) == id {
+				return &items[i], nil
+			}
+		}
+		return nil, nil
+	})
 }
 
 func intIDGetter[T any](get func(context.Context, int) (*T, error)) func(context.Context, string) (*T, error) {
@@ -1265,6 +1333,32 @@ func networkServiceSourceRecord(service networkservices.NetworkServices) resourc
 	addNetworkPorts(fields, "destTcpPorts", service.DestTCPPorts)
 	addNetworkPorts(fields, "srcUdpPorts", service.SrcUDPPorts)
 	addNetworkPorts(fields, "destUdpPorts", service.DestUDPPorts)
+	return resources.NewSourceRecord(fields)
+}
+
+func applicationServiceSourceRecord(service applicationservices.ApplicationServicesLite) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"id":          service.ID,
+		"name":        service.Name,
+		"nameL10nTag": service.NameL10nTag,
+	})
+}
+
+func applicationServiceGroupSourceRecord(group appservicegroups.ApplicationServicesGroupLite) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"id":          group.ID,
+		"name":        group.Name,
+		"nameL10nTag": group.NameL10nTag,
+	})
+}
+
+func networkApplicationGroupSourceRecord(group networkapplicationgroups.NetworkApplicationGroups) resources.SourceRecord {
+	fields := map[string]any{
+		"id":          group.ID,
+		"name":        group.Name,
+		"description": group.Description,
+	}
+	addStringSlice(fields, "networkApplications", group.NetworkApplications)
 	return resources.NewSourceRecord(fields)
 }
 

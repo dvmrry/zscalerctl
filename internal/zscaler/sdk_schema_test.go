@@ -9,9 +9,12 @@ import (
 	"github.com/dvmrry/zscalerctl/internal/resources"
 
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
+	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
+	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	filteringrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/filteringrules"
 	ipdestinationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipdestinationgroups"
 	ipsourcegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipsourcegroups"
+	networkapplicationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/networkapplicationgroups"
 	networkservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/networkservices"
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
@@ -954,6 +957,40 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"start",
 				"end",
 			),
+		},
+		{
+			name:         "applicationservices.ApplicationServicesLite",
+			resource:     resources.ProductZIA,
+			resourceName: resourceAppServices,
+			typ:          reflect.TypeOf(applicationservices.ApplicationServicesLite{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"nameL10nTag",
+			},
+		},
+		{
+			name:         "appservicegroups.ApplicationServicesGroupLite",
+			resource:     resources.ProductZIA,
+			resourceName: resourceAppServiceGroups,
+			typ:          reflect.TypeOf(appservicegroups.ApplicationServicesGroupLite{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"nameL10nTag",
+			},
+		},
+		{
+			name:         "networkapplicationgroups.NetworkApplicationGroups",
+			resource:     resources.ProductZIA,
+			resourceName: resourceNetworkAppGroups,
+			typ:          reflect.TypeOf(networkapplicationgroups.NetworkApplicationGroups{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"networkApplications",
+				"description",
+			},
 		},
 	}
 }

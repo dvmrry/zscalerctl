@@ -11,9 +11,12 @@ import (
 	"time"
 
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
+	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
+	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	filteringrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/filteringrules"
 	ipdestinationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipdestinationgroups"
 	ipsourcegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipsourcegroups"
+	networkapplicationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/networkapplicationgroups"
 	networkservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/networkservices"
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
@@ -1327,6 +1330,118 @@ func TestReaderListNetworkServicesProjectsSDKShapeThroughAllowList(t *testing.T)
 	ports, ok := got["destTcpPorts"].([]any)
 	if !ok || len(ports) != 1 {
 		t.Fatalf("projected network-services destTcpPorts = %T %#v, want one port range", got["destTcpPorts"], got["destTcpPorts"])
+	}
+}
+
+func TestReaderListApplicationServicesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const canary = "application-service-psk-canary"
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceAppServices}: newListGetHandler(
+				resourceAppServices,
+				func(context.Context) ([]applicationservices.ApplicationServicesLite, error) {
+					return []applicationservices.ApplicationServicesLite{
+						{
+							ID:          501,
+							Name:        "Application service psk=" + canary,
+							NameL10nTag: true,
+						},
+					}, nil
+				},
+				func(context.Context, string) (*applicationservices.ApplicationServicesLite, error) { return nil, nil },
+				applicationServiceSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceAppServices)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, application-services) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceAppServices, records)
+	assertNoCanaries(t, "application-services", got, canary)
+	if got["nameL10nTag"] != true {
+		t.Errorf("projected application-services nameL10nTag = %v, want true", got["nameL10nTag"])
+	}
+}
+
+func TestReaderListApplicationServiceGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const canary = "application-service-group-psk-canary"
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceAppServiceGroups}: newListGetHandler(
+				resourceAppServiceGroups,
+				func(context.Context) ([]appservicegroups.ApplicationServicesGroupLite, error) {
+					return []appservicegroups.ApplicationServicesGroupLite{
+						{
+							ID:          502,
+							Name:        "Application service group psk=" + canary,
+							NameL10nTag: true,
+						},
+					}, nil
+				},
+				func(context.Context, string) (*appservicegroups.ApplicationServicesGroupLite, error) { return nil, nil },
+				applicationServiceGroupSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceAppServiceGroups)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, application-service-groups) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceAppServiceGroups, records)
+	assertNoCanaries(t, "application-service-groups", got, canary)
+	if got["nameL10nTag"] != true {
+		t.Errorf("projected application-service-groups nameL10nTag = %v, want true", got["nameL10nTag"])
+	}
+}
+
+func TestReaderListNetworkApplicationGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "network-application-group-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceNetworkAppGroups}: newListGetHandler(
+				resourceNetworkAppGroups,
+				func(context.Context) ([]networkapplicationgroups.NetworkApplicationGroups, error) {
+					return []networkapplicationgroups.NetworkApplicationGroups{
+						{
+							ID:                  503,
+							Name:                "Network application group psk=" + canary,
+							NetworkApplications: []string{"HTTP", "psk=" + canary},
+							Description:         "temporary psk=" + canary + " " + bareFreeTextToken,
+						},
+					}, nil
+				},
+				func(context.Context, string) (*networkapplicationgroups.NetworkApplicationGroups, error) {
+					return nil, nil
+				},
+				networkApplicationGroupSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceNetworkAppGroups)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, network-application-groups) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceNetworkAppGroups, records)
+	assertNoCanaries(t, "network-application-groups", got, canary, bareFreeTextToken)
+	apps, ok := got["networkApplications"].([]string)
+	if !ok || len(apps) != 2 {
+		t.Fatalf("projected network-application-groups networkApplications = %T %#v, want two applications", got["networkApplications"], got["networkApplications"])
 	}
 }
 
