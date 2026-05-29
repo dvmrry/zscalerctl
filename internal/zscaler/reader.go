@@ -16,10 +16,13 @@ import (
 	sdklogger "github.com/zscaler/zscaler-sdk-go/v3/logger"
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
 	sdkzia "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts"
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
+	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
+	emailprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/email_profiles"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -37,12 +40,15 @@ import (
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
+	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
 	usergroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups"
+	vzenclusters "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_clusters"
+	vzennodes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_nodes"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 
 	"github.com/dvmrry/zscalerctl/internal/resources"
@@ -89,6 +95,12 @@ const (
 	resourceGroups           = "groups"
 	resourceDeviceGroups     = "device-groups"
 	resourceWorkloadGroups   = "workload-groups"
+	resourceAlertSubs        = "alert-subscriptions"
+	resourceCloudAppInsts    = "cloud-app-instances"
+	resourceEmailProfiles    = "email-profiles"
+	resourceTenancyProfiles  = "tenancy-restriction-profiles"
+	resourceVZENClusters     = "vzen-clusters"
+	resourceVZENNodes        = "vzen-nodes"
 )
 
 type AuthMode string
@@ -598,6 +610,66 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return workloadgroups.Get(ctx, service, id)
 			}),
 			workloadGroupSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceAlertSubs}: newListGetHandler(
+			resourceAlertSubs,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]alerts.AlertSubscriptions, error) {
+				return alerts.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*alerts.AlertSubscriptions, error) {
+				return alerts.Get(ctx, service, id)
+			}),
+			alertSubscriptionSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceCloudAppInsts}: newListGetHandler(
+			resourceCloudAppInsts,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]cloudappinstances.CloudApplicationInstances, error) {
+				return cloudappinstances.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*cloudappinstances.CloudApplicationInstances, error) {
+				return cloudappinstances.Get(ctx, service, id)
+			}),
+			cloudAppInstanceSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceEmailProfiles}: newListGetHandler(
+			resourceEmailProfiles,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]emailprofiles.EmailProfiles, error) {
+				return emailprofiles.GetAll(ctx, service, nil)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*emailprofiles.EmailProfiles, error) {
+				return emailprofiles.Get(ctx, service, id)
+			}),
+			emailProfileSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceTenancyProfiles}: newListGetHandler(
+			resourceTenancyProfiles,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]tenancyrestriction.TenancyRestrictionProfile, error) {
+				return tenancyrestriction.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*tenancyrestriction.TenancyRestrictionProfile, error) {
+				return tenancyrestriction.Get(ctx, service, id)
+			}),
+			tenancyRestrictionProfileSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceVZENClusters}: newListGetHandler(
+			resourceVZENClusters,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]vzenclusters.VZENClusters, error) {
+				return vzenclusters.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*vzenclusters.VZENClusters, error) {
+				return vzenclusters.Get(ctx, service, id)
+			}),
+			vzenClusterSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceVZENNodes}: newListGetHandler(
+			resourceVZENNodes,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]vzennodes.VZENNodes, error) {
+				return vzennodes.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*vzennodes.VZENNodes, error) {
+				return vzennodes.Get(ctx, service, id)
+			}),
+			vzenNodeSourceRecord,
 		),
 	}
 }
@@ -1738,6 +1810,102 @@ func workloadGroupSourceRecord(group workloadgroups.WorkloadGroup) resources.Sou
 	return resources.NewSourceRecord(fields)
 }
 
+func alertSubscriptionSourceRecord(subscription alerts.AlertSubscriptions) resources.SourceRecord {
+	fields := map[string]any{
+		"id":          subscription.ID,
+		"description": subscription.Description,
+		"email":       subscription.Email,
+		"deleted":     subscription.Deleted,
+	}
+	addStringSlice(fields, "pt0Severities", subscription.Pt0Severities)
+	addStringSlice(fields, "secureSeverities", subscription.SecureSeverities)
+	addStringSlice(fields, "manageSeverities", subscription.ManageSeverities)
+	addStringSlice(fields, "complySeverities", subscription.ComplySeverities)
+	addStringSlice(fields, "systemSeverities", subscription.SystemSeverities)
+	return resources.NewSourceRecord(fields)
+}
+
+func cloudAppInstanceSourceRecord(instance cloudappinstances.CloudApplicationInstances) resources.SourceRecord {
+	fields := map[string]any{
+		"instanceId":   instance.InstanceID,
+		"instanceType": instance.InstanceType,
+		"instanceName": instance.InstanceName,
+		"modifiedAt":   instance.ModifiedAt,
+	}
+	addIDNameExtensionsPtr(fields, "modifiedBy", instance.ModifiedBy)
+	addCloudInstanceIdentifiers(fields, "instanceIdentifiers", instance.InstanceIdentifiers)
+	return resources.NewSourceRecord(fields)
+}
+
+func emailProfileSourceRecord(profile emailprofiles.EmailProfiles) resources.SourceRecord {
+	fields := map[string]any{
+		"id":          profile.ID,
+		"name":        profile.Name,
+		"description": profile.Description,
+	}
+	addStringSlice(fields, "emails", profile.Emails)
+	return resources.NewSourceRecord(fields)
+}
+
+func tenancyRestrictionProfileSourceRecord(profile tenancyrestriction.TenancyRestrictionProfile) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                          profile.ID,
+		"name":                        profile.Name,
+		"appType":                     profile.AppType,
+		"description":                 profile.Description,
+		"itemTypePrimary":             profile.ItemTypePrimary,
+		"itemTypeSecondary":           profile.ItemTypeSecondary,
+		"restrictPersonalO365Domains": profile.RestrictPersonalO365Domains,
+		"allowGoogleConsumers":        profile.AllowGoogleConsumers,
+		"msLoginServicesTrV2":         profile.MsLoginServicesTrV2,
+		"allowGoogleVisitors":         profile.AllowGoogleVisitors,
+		"allowGcpCloudStorageRead":    profile.AllowGcpCloudStorageRead,
+		"lastModifiedTime":            profile.LastModifiedTime,
+		"lastModifiedUserId":          profile.LastModifiedUserID,
+	}
+	addStringSlice(fields, "itemDataPrimary", profile.ItemDataPrimary)
+	addStringSlice(fields, "itemDataSecondary", profile.ItemDataSecondary)
+	addStringSlice(fields, "itemValue", profile.ItemValue)
+	return resources.NewSourceRecord(fields)
+}
+
+func vzenClusterSourceRecord(cluster vzenclusters.VZENClusters) resources.SourceRecord {
+	fields := map[string]any{
+		"id":             cluster.ID,
+		"name":           cluster.Name,
+		"status":         cluster.Status,
+		"ipAddress":      cluster.IpAddress,
+		"subnetMask":     cluster.SubnetMask,
+		"defaultGateway": cluster.DefaultGateway,
+		"type":           cluster.Type,
+		"ipSecEnabled":   cluster.IpSecEnabled,
+	}
+	addIDNameExternalIDSlice(fields, "virtualZenNodes", cluster.VirtualZenNodes)
+	return resources.NewSourceRecord(fields)
+}
+
+func vzenNodeSourceRecord(node vzennodes.VZENNodes) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                            node.ID,
+		"zgatewayId":                    node.ZGatewayID,
+		"name":                          node.Name,
+		"status":                        node.Status,
+		"inProduction":                  node.InProduction,
+		"ipAddress":                     node.IPAddress,
+		"subnetMask":                    node.SubnetMask,
+		"defaultGateway":                node.DefaultGateway,
+		"type":                          node.Type,
+		"ipSecEnabled":                  node.IPSecEnabled,
+		"onDemandSupportTunnelEnabled":  node.OnDemandSupportTunnelEnabled,
+		"establishSupportTunnelEnabled": node.EstablishSupportTunnelEnabled,
+		"loadBalancerIpAddress":         node.LoadBalancerIPAddress,
+		"deploymentMode":                node.DeploymentMode,
+		"clusterName":                   node.ClusterName,
+		"vzenSkuType":                   node.VzenSkuType,
+	}
+	return resources.NewSourceRecord(fields)
+}
+
 func addStringSlice(fields map[string]any, name string, values []string) {
 	if len(values) > 0 {
 		fields[name] = append([]string(nil), values...)
@@ -1753,6 +1921,26 @@ func addIntSlice(fields map[string]any, name string, values []int) {
 func addIDNameExternalIDPtr(fields map[string]any, name string, value *ziacommon.IDNameExternalID) {
 	if value != nil {
 		fields[name] = idNameExternalIDSource(value)
+	}
+}
+
+func addIDNameExternalIDSlice(fields map[string]any, name string, values []ziacommon.IDNameExternalID) {
+	if len(values) > 0 {
+		items := make([]any, 0, len(values))
+		for i := range values {
+			items = append(items, idNameExternalIDSource(&values[i]))
+		}
+		fields[name] = items
+	}
+}
+
+func addCloudInstanceIdentifiers(fields map[string]any, name string, values []cloudappinstances.InstanceIdentifiers) {
+	if len(values) > 0 {
+		items := make([]any, 0, len(values))
+		for _, value := range values {
+			items = append(items, cloudInstanceIdentifierSource(value))
+		}
+		fields[name] = items
 	}
 }
 
@@ -1819,6 +2007,18 @@ func idNameExternalIDSource(value *ziacommon.IDNameExternalID) map[string]any {
 	if len(value.Extensions) > 0 {
 		fields["extensions"] = value.Extensions
 	}
+	return fields
+}
+
+func cloudInstanceIdentifierSource(value cloudappinstances.InstanceIdentifiers) map[string]any {
+	fields := map[string]any{
+		"instanceId":             value.InstanceID,
+		"instanceIdentifier":     value.InstanceIdentifier,
+		"instanceIdentifierName": value.InstanceIdentifierName,
+		"identifierType":         value.IdentifierType,
+		"modifiedAt":             value.ModifiedAt,
+	}
+	addIDNameExtensionsPtr(fields, "modifiedBy", value.ModifiedBy)
 	return fields
 }
 

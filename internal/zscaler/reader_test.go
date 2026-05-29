@@ -10,10 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts"
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
+	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
+	emailprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/email_profiles"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -31,12 +34,15 @@ import (
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
+	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
 	usergroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups"
+	vzenclusters "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_clusters"
+	vzennodes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_nodes"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 
 	"github.com/dvmrry/zscalerctl/internal/redact"
@@ -2093,6 +2099,294 @@ func TestReaderListWorkloadGroupsProjectsSDKShapeThroughAllowList(t *testing.T) 
 	}
 	if got["lastModifiedTime"] != 1700000000 {
 		t.Errorf("projected workload-groups lastModifiedTime = %v, want 1700000000", got["lastModifiedTime"])
+	}
+}
+
+func TestReaderListAlertSubscriptionsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "alert-subscription-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceAlertSubs}: newListGetHandler(
+				resourceAlertSubs,
+				func(context.Context) ([]alerts.AlertSubscriptions, error) {
+					return []alerts.AlertSubscriptions{
+						{
+							ID:               901,
+							Description:      "temporary psk=" + canary + " " + bareFreeTextToken,
+							Email:            "ops@example.invalid",
+							Deleted:          false,
+							Pt0Severities:    []string{"CRITICAL"},
+							SecureSeverities: []string{"MAJOR"},
+							ManageSeverities: []string{"MINOR"},
+							ComplySeverities: []string{"INFO"},
+							SystemSeverities: []string{"SYSTEM"},
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*alerts.AlertSubscriptions, error) { return nil, nil }),
+				alertSubscriptionSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceAlertSubs)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, alert-subscriptions) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceAlertSubs, records)
+	assertNoCanaries(t, "alert-subscriptions", got, canary, bareFreeTextToken)
+	if got["deleted"] != false {
+		t.Errorf("projected alert-subscriptions deleted = %v, want false", got["deleted"])
+	}
+}
+
+func TestReaderListCloudAppInstancesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		adminCanary      = "cloud-app-instance-admin-canary"
+		identifierCanary = "cloud-app-instance-identifier-canary"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceCloudAppInsts}: newListGetHandler(
+				resourceCloudAppInsts,
+				func(context.Context) ([]cloudappinstances.CloudApplicationInstances, error) {
+					return []cloudappinstances.CloudApplicationInstances{
+						{
+							InstanceID:   902,
+							InstanceType: "SAAS",
+							InstanceName: "Finance cloud app",
+							ModifiedAt:   1700000001,
+							ModifiedBy: &ziacommon.IDNameExtensions{
+								ID:   77,
+								Name: adminCanary,
+							},
+							InstanceIdentifiers: []cloudappinstances.InstanceIdentifiers{
+								{
+									InstanceID:             902,
+									InstanceIdentifier:     identifierCanary,
+									InstanceIdentifierName: "Tenant ref",
+									IdentifierType:         "TENANT",
+									ModifiedAt:             1700000002,
+									ModifiedBy: &ziacommon.IDNameExtensions{
+										ID:   78,
+										Name: adminCanary,
+									},
+								},
+							},
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*cloudappinstances.CloudApplicationInstances, error) { return nil, nil }),
+				cloudAppInstanceSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceCloudAppInsts)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, cloud-app-instances) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceCloudAppInsts, records)
+	assertNoCanaries(t, "cloud-app-instances", got, adminCanary, identifierCanary)
+	for _, field := range []string{"modifiedBy", "instanceIdentifiers"} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected cloud-app-instances = %#v, want no %s", got, field)
+		}
+	}
+	if got["instanceId"] != 902 {
+		t.Errorf("projected cloud-app-instances instanceId = %v, want 902", got["instanceId"])
+	}
+}
+
+func TestReaderListEmailProfilesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "email-profile-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceEmailProfiles}: newListGetHandler(
+				resourceEmailProfiles,
+				func(context.Context) ([]emailprofiles.EmailProfiles, error) {
+					return []emailprofiles.EmailProfiles{
+						{
+							ID:          903,
+							Name:        "Security recipients psk=" + canary,
+							Description: "temporary psk=" + canary + " " + bareFreeTextToken,
+							Emails:      []string{"security@example.invalid"},
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*emailprofiles.EmailProfiles, error) { return nil, nil }),
+				emailProfileSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceEmailProfiles)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, email-profiles) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceEmailProfiles, records)
+	assertNoCanaries(t, "email-profiles", got, canary, bareFreeTextToken)
+	if got["id"] != 903 {
+		t.Errorf("projected email-profiles id = %v, want 903", got["id"])
+	}
+}
+
+func TestReaderListTenancyRestrictionProfilesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "tenancy-restriction-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceTenancyProfiles}: newListGetHandler(
+				resourceTenancyProfiles,
+				func(context.Context) ([]tenancyrestriction.TenancyRestrictionProfile, error) {
+					return []tenancyrestriction.TenancyRestrictionProfile{
+						{
+							ID:                          904,
+							Name:                        "Tenant restriction psk=" + canary,
+							AppType:                     "O365",
+							Description:                 "temporary psk=" + canary + " " + bareFreeTextToken,
+							ItemTypePrimary:             "DOMAIN",
+							ItemTypeSecondary:           "TENANT",
+							RestrictPersonalO365Domains: true,
+							AllowGoogleConsumers:        false,
+							MsLoginServicesTrV2:         true,
+							AllowGoogleVisitors:         false,
+							AllowGcpCloudStorageRead:    true,
+							ItemDataPrimary:             []string{"primary psk=" + canary},
+							ItemDataSecondary:           []string{"secondary psk=" + canary},
+							ItemValue:                   []string{"value psk=" + canary},
+							LastModifiedTime:            1700000003,
+							LastModifiedUserID:          8101,
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*tenancyrestriction.TenancyRestrictionProfile, error) { return nil, nil }),
+				tenancyRestrictionProfileSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceTenancyProfiles)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, tenancy-restriction-profiles) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceTenancyProfiles, records)
+	assertNoCanaries(t, "tenancy-restriction-profiles", got, canary, bareFreeTextToken)
+	if got["restrictPersonalO365Domains"] != true {
+		t.Errorf("projected tenancy-restriction-profiles restrictPersonalO365Domains = %v, want true", got["restrictPersonalO365Domains"])
+	}
+}
+
+func TestReaderListVZENClustersProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const nodeCanary = "vzen-cluster-node-canary"
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceVZENClusters}: newListGetHandler(
+				resourceVZENClusters,
+				func(context.Context) ([]vzenclusters.VZENClusters, error) {
+					return []vzenclusters.VZENClusters{
+						{
+							ID:             905,
+							Name:           "VZEN cluster",
+							Status:         "ENABLED",
+							IpAddress:      "198.51.100.10",
+							SubnetMask:     "255.255.255.0",
+							DefaultGateway: "198.51.100.1",
+							Type:           "CLUSTER",
+							IpSecEnabled:   true,
+							VirtualZenNodes: []ziacommon.IDNameExternalID{
+								{
+									ID:         1,
+									Name:       "Node psk=" + nodeCanary,
+									ExternalID: nodeCanary,
+								},
+							},
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*vzenclusters.VZENClusters, error) { return nil, nil }),
+				vzenClusterSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceVZENClusters)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, vzen-clusters) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceVZENClusters, records)
+	assertNoCanaries(t, "vzen-clusters", got, nodeCanary)
+	if got["ipSecEnabled"] != true {
+		t.Errorf("projected vzen-clusters ipSecEnabled = %v, want true", got["ipSecEnabled"])
+	}
+}
+
+func TestReaderListVZENNodesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceVZENNodes}: newListGetHandler(
+				resourceVZENNodes,
+				func(context.Context) ([]vzennodes.VZENNodes, error) {
+					return []vzennodes.VZENNodes{
+						{
+							ID:                            906,
+							ZGatewayID:                    11,
+							Name:                          "VZEN node",
+							Status:                        "ENABLED",
+							InProduction:                  true,
+							IPAddress:                     "198.51.100.20",
+							SubnetMask:                    "255.255.255.0",
+							DefaultGateway:                "198.51.100.1",
+							Type:                          "SMALL",
+							IPSecEnabled:                  true,
+							OnDemandSupportTunnelEnabled:  false,
+							EstablishSupportTunnelEnabled: false,
+							LoadBalancerIPAddress:         "198.51.100.30",
+							DeploymentMode:                "STANDALONE",
+							ClusterName:                   "VZEN cluster",
+							VzenSkuType:                   "SMALL",
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*vzennodes.VZENNodes, error) { return nil, nil }),
+				vzenNodeSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceVZENNodes)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, vzen-nodes) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceVZENNodes, records)
+	if got["zgatewayId"] != 11 {
+		t.Errorf("projected vzen-nodes zgatewayId = %v, want 11", got["zgatewayId"])
 	}
 }
 
