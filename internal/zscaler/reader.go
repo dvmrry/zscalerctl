@@ -17,6 +17,8 @@ import (
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
 	sdkzia "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
+	filteringrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/filteringrules"
+	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
@@ -24,6 +26,7 @@ import (
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
 
 	"github.com/dvmrry/zscalerctl/internal/resources"
 	"github.com/dvmrry/zscalerctl/internal/secret"
@@ -39,14 +42,17 @@ var (
 const defaultTimeout = 30 * time.Second
 
 const (
-	resourceLocations      = "locations"
-	resourceLocationGroups = "location-groups"
-	resourceRuleLabels     = "rule-labels"
-	resourceStaticIPs      = "static-ips"
-	resourceGRETunnels     = "gre-tunnels"
-	resourceSublocations   = "sublocations"
-	resourceSSLRules       = "ssl-inspection-rules"
-	resourceURLCategories  = "url-categories"
+	resourceLocations       = "locations"
+	resourceLocationGroups  = "location-groups"
+	resourceRuleLabels      = "rule-labels"
+	resourceStaticIPs       = "static-ips"
+	resourceGRETunnels      = "gre-tunnels"
+	resourceSublocations    = "sublocations"
+	resourceSSLRules        = "ssl-inspection-rules"
+	resourceURLCategories   = "url-categories"
+	resourceURLRules        = "url-filtering-rules"
+	resourceFirewallRules   = "firewall-filtering-rules"
+	resourceForwardingRules = "forwarding-rules"
 )
 
 type AuthMode string
@@ -316,6 +322,36 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return urlcategories.Get(ctx, service, id)
 			}),
 			urlCategorySourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceURLRules}: newListGetHandler(
+			resourceURLRules,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]urlfilteringpolicies.URLFilteringRule, error) {
+				return urlfilteringpolicies.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*urlfilteringpolicies.URLFilteringRule, error) {
+				return urlfilteringpolicies.Get(ctx, service, id)
+			}),
+			urlFilteringRuleSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceFirewallRules}: newListGetHandler(
+			resourceFirewallRules,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]filteringrules.FirewallFilteringRules, error) {
+				return filteringrules.GetAll(ctx, service, nil)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*filteringrules.FirewallFilteringRules, error) {
+				return filteringrules.Get(ctx, service, id)
+			}),
+			firewallFilteringRuleSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceForwardingRules}: newListGetHandler(
+			resourceForwardingRules,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]forwardingrules.ForwardingRules, error) {
+				return forwardingrules.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*forwardingrules.ForwardingRules, error) {
+				return forwardingrules.Get(ctx, service, id)
+			}),
+			forwardingRuleSourceRecord,
 		),
 	}
 }
@@ -963,6 +999,183 @@ func urlCategorySourceRecord(category urlcategories.URLCategory) resources.Sourc
 	return resources.NewSourceRecord(fields)
 }
 
+func urlFilteringRuleSourceRecord(rule urlfilteringpolicies.URLFilteringRule) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                     rule.ID,
+		"name":                   rule.Name,
+		"order":                  rule.Order,
+		"state":                  rule.State,
+		"rank":                   rule.Rank,
+		"description":            rule.Description,
+		"action":                 rule.Action,
+		"blockOverride":          rule.BlockOverride,
+		"browserEunTemplateId":   rule.BrowserEunTemplateID,
+		"timeQuota":              rule.TimeQuota,
+		"sizeQuota":              rule.SizeQuota,
+		"validityStartTime":      rule.ValidityStartTime,
+		"validityEndTime":        rule.ValidityEndTime,
+		"validityTimeZoneId":     rule.ValidityTimeZoneID,
+		"lastModifiedTime":       rule.LastModifiedTime,
+		"enforceTimeValidity":    rule.EnforceTimeValidity,
+		"ciparule":               rule.Ciparule,
+		"endUserNotificationUrl": rule.EndUserNotificationURL,
+		"cbiProfileId":           rule.CBIProfileID,
+	}
+	addStringSlice(fields, "protocols", rule.Protocols)
+	addStringSlice(fields, "urlCategories", rule.URLCategories)
+	addStringSlice(fields, "urlCategories2", rule.URLCategories2)
+	addStringSlice(fields, "userRiskScoreLevels", rule.UserRiskScoreLevels)
+	addStringSlice(fields, "userAgentTypes", rule.UserAgentTypes)
+	addStringSlice(fields, "requestMethods", rule.RequestMethods)
+	addStringSlice(fields, "sourceCountries", rule.SourceCountries)
+	addStringSlice(fields, "deviceTrustLevels", rule.DeviceTrustLevels)
+	addIDNameExtensionsSlice(fields, "deviceGroups", rule.DeviceGroups)
+	addIDNameExtensionsSlice(fields, "devices", rule.Devices)
+	addIDNameExtensionsPtr(fields, "lastModifiedBy", rule.LastModifiedBy)
+	addIDNameExtensionsSlice(fields, "overrideUsers", rule.OverrideUsers)
+	addIDNameExtensionsSlice(fields, "overrideGroups", rule.OverrideGroups)
+	addIDNameExtensionsSlice(fields, "locationGroups", rule.LocationGroups)
+	addIDNameExtensionsSlice(fields, "labels", rule.Labels)
+	addIDNameExtensionsSlice(fields, "locations", rule.Locations)
+	addIDNameExtensionsSlice(fields, "groups", rule.Groups)
+	addIDNameExtensionsSlice(fields, "departments", rule.Departments)
+	addIDNameExtensionsSlice(fields, "users", rule.Users)
+	addIDNameExtensionsSlice(fields, "sourceIpGroups", rule.SourceIPGroups)
+	addIDNameExtensionsSlice(fields, "timeWindows", rule.TimeWindows)
+	addIDNameSlice(fields, "workloadGroups", rule.WorkloadGroups)
+	if rule.CBIProfile != nil {
+		fields["cbiProfile"] = cbiProfileSource(rule.CBIProfile)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func firewallFilteringRuleSourceRecord(rule filteringrules.FirewallFilteringRules) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                  rule.ID,
+		"name":                rule.Name,
+		"order":               rule.Order,
+		"rank":                rule.Rank,
+		"accessControl":       rule.AccessControl,
+		"enableFullLogging":   rule.EnableFullLogging,
+		"action":              rule.Action,
+		"state":               rule.State,
+		"description":         rule.Description,
+		"lastModifiedTime":    rule.LastModifiedTime,
+		"excludeSrcCountries": rule.ExcludeSrcCountries,
+		"defaultRule":         rule.DefaultRule,
+		"predefined":          rule.Predefined,
+	}
+	addIDNameExtensionsPtr(fields, "lastModifiedBy", rule.LastModifiedBy)
+	addStringSlice(fields, "srcIps", rule.SrcIps)
+	addStringSlice(fields, "destAddresses", rule.DestAddresses)
+	addStringSlice(fields, "destIpCategories", rule.DestIpCategories)
+	addStringSlice(fields, "destCountries", rule.DestCountries)
+	addStringSlice(fields, "sourceCountries", rule.SourceCountries)
+	addStringSlice(fields, "nwApplications", rule.NwApplications)
+	addStringSlice(fields, "deviceTrustLevels", rule.DeviceTrustLevels)
+	addIDNameExtensionsSlice(fields, "locations", rule.Locations)
+	addIDNameExtensionsSlice(fields, "locationGroups", rule.LocationsGroups)
+	addIDNameExtensionsSlice(fields, "departments", rule.Departments)
+	addIDNameExtensionsSlice(fields, "groups", rule.Groups)
+	addIDNameExtensionsSlice(fields, "users", rule.Users)
+	addIDNameExtensionsSlice(fields, "timeWindows", rule.TimeWindows)
+	addIDNameExtensionsSlice(fields, "nwApplicationGroups", rule.NwApplicationGroups)
+	addIDNameExtensionsSlice(fields, "appServices", rule.AppServices)
+	addIDNameExtensionsSlice(fields, "appServiceGroups", rule.AppServiceGroups)
+	addIDNameExtensionsSlice(fields, "labels", rule.Labels)
+	addIDNameExtensionsSlice(fields, "destIpGroups", rule.DestIpGroups)
+	addIDNameExtensionsSlice(fields, "nwServices", rule.NwServices)
+	addIDNameExtensionsSlice(fields, "nwServiceGroups", rule.NwServiceGroups)
+	addIDNameExtensionsSlice(fields, "srcIpGroups", rule.SrcIpGroups)
+	addIDNameExtensionsSlice(fields, "deviceGroups", rule.DeviceGroups)
+	addIDNameExtensionsSlice(fields, "devices", rule.Devices)
+	addIDNameSlice(fields, "workloadGroups", rule.WorkloadGroups)
+	if len(rule.ZPAAppSegments) > 0 {
+		fields["zpaAppSegments"] = zpaAppSegmentsSource(rule.ZPAAppSegments)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func forwardingRuleSourceRecord(rule forwardingrules.ForwardingRules) resources.SourceRecord {
+	fields := map[string]any{
+		"id":               rule.ID,
+		"name":             rule.Name,
+		"description":      rule.Description,
+		"type":             rule.Type,
+		"order":            rule.Order,
+		"rank":             rule.Rank,
+		"forwardMethod":    rule.ForwardMethod,
+		"state":            rule.State,
+		"lastModifiedTime": rule.LastModifiedTime,
+		"zpaBrokerRule":    rule.ZPABrokerRule,
+	}
+	addIDNameExtensionsSlice(fields, "locations", rule.Locations)
+	addIDNameExtensionsSlice(fields, "locationGroups", rule.LocationsGroups)
+	addIDNameExtensionsSlice(fields, "ecGroups", rule.ECGroups)
+	addIDNameExtensionsSlice(fields, "departments", rule.Departments)
+	addIDNameExtensionsSlice(fields, "groups", rule.Groups)
+	addIDNameExtensionsSlice(fields, "users", rule.Users)
+	addIDNameExtensionsPtr(fields, "lastModifiedBy", rule.LastModifiedBy)
+	addStringSlice(fields, "srcIps", rule.SrcIps)
+	addIDNameExtensionsSlice(fields, "srcIpGroups", rule.SrcIpGroups)
+	addIDNameExtensionsSlice(fields, "srcIpv6Groups", rule.SrcIpv6Groups)
+	addStringSlice(fields, "destAddresses", rule.DestAddresses)
+	addStringSlice(fields, "destIpCategories", rule.DestIpCategories)
+	addStringSlice(fields, "resCategories", rule.ResCategories)
+	addStringSlice(fields, "destCountries", rule.DestCountries)
+	addIDNameExtensionsSlice(fields, "destIpGroups", rule.DestIpGroups)
+	addIDNameExtensionsSlice(fields, "destIpv6Groups", rule.DestIpv6Groups)
+	addIDNameExtensionsSlice(fields, "nwServices", rule.NwServices)
+	addIDNameExtensionsSlice(fields, "nwServiceGroups", rule.NwServiceGroups)
+	addIDNameExtensionsSlice(fields, "labels", rule.Labels)
+	addIDNameExtensionsSlice(fields, "nwApplicationGroups", rule.NwApplicationGroups)
+	addIDNameExtensionsSlice(fields, "appServiceGroups", rule.AppServiceGroups)
+	addIDNamePtr(fields, "proxyGateway", rule.ProxyGateway)
+	addIDNamePtr(fields, "dedicatedIPGateway", rule.DedicatedIPGateway)
+	addIDNamePtr(fields, "zpaGateway", rule.ZPAGateway)
+	if len(rule.ZPAAppSegments) > 0 {
+		fields["zpaAppSegments"] = zpaAppSegmentsSource(rule.ZPAAppSegments)
+	}
+	if len(rule.ZPAApplicationSegments) > 0 {
+		fields["zpaApplicationSegments"] = forwardingZPAApplicationSegmentsSource(rule.ZPAApplicationSegments)
+	}
+	if len(rule.ZPAApplicationSegmentGroups) > 0 {
+		fields["zpaApplicationSegmentGroups"] = forwardingZPAApplicationSegmentGroupsSource(rule.ZPAApplicationSegmentGroups)
+	}
+	addIDNameExtensionsSlice(fields, "deviceGroups", rule.DeviceGroups)
+	return resources.NewSourceRecord(fields)
+}
+
+func addStringSlice(fields map[string]any, name string, values []string) {
+	if len(values) > 0 {
+		fields[name] = append([]string(nil), values...)
+	}
+}
+
+func addIDNameExtensionsPtr(fields map[string]any, name string, value *ziacommon.IDNameExtensions) {
+	if value != nil {
+		fields[name] = idNameExtensionsSource(value)
+	}
+}
+
+func addIDNameExtensionsSlice(fields map[string]any, name string, values []ziacommon.IDNameExtensions) {
+	if len(values) > 0 {
+		fields[name] = idNameExtensionsSliceSource(values)
+	}
+}
+
+func addIDNamePtr(fields map[string]any, name string, value *ziacommon.IDName) {
+	if value != nil {
+		fields[name] = idNameSource(value)
+	}
+}
+
+func addIDNameSlice(fields map[string]any, name string, values []ziacommon.IDName) {
+	if len(values) > 0 {
+		fields[name] = idNameSliceSource(values)
+	}
+}
+
 func idNameExtensionsSource(value *ziacommon.IDNameExtensions) map[string]any {
 	fields := map[string]any{
 		"id":   value.ID,
@@ -970,6 +1183,17 @@ func idNameExtensionsSource(value *ziacommon.IDNameExtensions) map[string]any {
 	}
 	if len(value.Extensions) > 0 {
 		fields["extensions"] = value.Extensions
+	}
+	return fields
+}
+
+func idNameSource(value *ziacommon.IDName) map[string]any {
+	fields := map[string]any{
+		"id":   value.ID,
+		"name": value.Name,
+	}
+	if value.Parent != "" {
+		fields["parent"] = value.Parent
 	}
 	return fields
 }
@@ -985,14 +1209,7 @@ func idNameExtensionsSliceSource(values []ziacommon.IDNameExtensions) []any {
 func idNameSliceSource(values []ziacommon.IDName) []any {
 	out := make([]any, 0, len(values))
 	for _, value := range values {
-		fields := map[string]any{
-			"id":   value.ID,
-			"name": value.Name,
-		}
-		if value.Parent != "" {
-			fields["parent"] = value.Parent
-		}
-		out = append(out, fields)
+		out = append(out, idNameSource(&value))
 	}
 	return out
 }
@@ -1008,6 +1225,43 @@ func zpaAppSegmentsSource(values []ziacommon.ZPAAppSegments) []any {
 			fields["externalId"] = value.ExternalID
 		}
 		out = append(out, fields)
+	}
+	return out
+}
+
+func cbiProfileSource(value *ziacommon.CBIProfile) map[string]any {
+	return map[string]any{
+		"id":         value.ID,
+		"name":       value.Name,
+		"url":        value.URL,
+		"profileSeq": value.ProfileSeq,
+	}
+}
+
+func forwardingZPAApplicationSegmentsSource(values []forwardingrules.ZPAApplicationSegments) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":          value.ID,
+			"name":        value.Name,
+			"description": value.Description,
+			"zpaId":       value.ZPAID,
+			"deleted":     value.Deleted,
+		})
+	}
+	return out
+}
+
+func forwardingZPAApplicationSegmentGroupsSource(values []forwardingrules.ZPAApplicationSegmentGroups) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":                  value.ID,
+			"name":                value.Name,
+			"zpaId":               value.ZPAID,
+			"deleted":             value.Deleted,
+			"zpaAppSegmentsCount": value.ZPAAppSegmentsCount,
+		})
 	}
 	return out
 }
