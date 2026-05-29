@@ -60,13 +60,23 @@ Before public release, run a live smoke against a non-sensitive tenant or
 profile using read-only OneAPI credentials or explicit ZIA legacy credentials:
 
 ```sh
-scripts/live-smoke.sh --require-credentials --out ./scratch-live-smoke
+make live-smoke
 ```
 
-By default the script validates the current source checkout with
-`go run -mod=vendor ./cmd/zscalerctl`. For release artifact validation, pass
-`--bin` pointing at the unpacked candidate binary so the smoke runs against what
-will ship.
+By default this validates every current ZIA read/list resource in the current
+source checkout with `go run -mod=vendor ./cmd/zscalerctl`. For release artifact
+validation, pass the unpacked candidate binary so the smoke runs against what
+will ship:
+
+```sh
+make live-smoke LIVE_SMOKE_BIN=./bin/zscalerctl
+```
+
+For focused retry after a single-resource failure, limit the selected resources:
+
+```sh
+make live-smoke LIVE_SMOKE_RESOURCES=zia/locations,zia/rule-labels
+```
 
 `./scratch-live-smoke` is gitignored because live smoke artifacts remain
 confidential operational data even after projection and redaction.
