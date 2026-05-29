@@ -10,6 +10,9 @@ import (
 
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	filteringrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/filteringrules"
+	ipdestinationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipdestinationgroups"
+	ipsourcegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipsourcegroups"
+	networkservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/networkservices"
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
@@ -893,6 +896,63 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"id",
 				"name",
 				"externalId",
+			),
+		},
+		{
+			name:         "ipsourcegroups.IPSourceGroups",
+			resource:     resources.ProductZIA,
+			resourceName: resourceIPSourceGroups,
+			typ:          reflect.TypeOf(ipsourcegroups.IPSourceGroups{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"ipAddresses",
+				"isNonEditable",
+			},
+		},
+		{
+			name:         "ipdestinationgroups.IPDestinationGroups",
+			resource:     resources.ProductZIA,
+			resourceName: resourceIPDestGroups,
+			typ:          reflect.TypeOf(ipdestinationgroups.IPDestinationGroups{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"type",
+				"addresses",
+				"ipCategories",
+				"countries",
+				"isNonEditable",
+			},
+		},
+		{
+			name:         "networkservices.NetworkServices",
+			resource:     resources.ProductZIA,
+			resourceName: resourceNetworkServices,
+			typ:          reflect.TypeOf(networkservices.NetworkServices{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"tag",
+				"type",
+				"protocol",
+				"isNameL10nTag",
+				"srcTcpPorts",
+				"destTcpPorts",
+				"srcUdpPorts",
+				"destUdpPorts",
+			},
+		},
+		{
+			name: "networkservices.NetworkPorts",
+			typ:  reflect.TypeOf(networkservices.NetworkPorts{}),
+			ignoredFields: ignoredBecause(
+				"nested port ranges are explicitly modeled in network service catalog fields; this entry catches SDK additions",
+				"start",
+				"end",
 			),
 		},
 	}

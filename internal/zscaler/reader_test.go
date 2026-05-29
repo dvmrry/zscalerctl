@@ -12,6 +12,9 @@ import (
 
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	filteringrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/filteringrules"
+	ipdestinationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipdestinationgroups"
+	ipsourcegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipsourcegroups"
+	networkservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/networkservices"
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
@@ -1197,6 +1200,133 @@ func TestReaderListForwardingRulesProjectsSDKShapeThroughAllowList(t *testing.T)
 	}
 	if got["forwardMethod"] != "DIRECT" {
 		t.Errorf("projected forwarding-rules forwardMethod = %v, want DIRECT", got["forwardMethod"])
+	}
+}
+
+func TestReaderListIPSourceGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "ip-source-group-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceIPSourceGroups}: newListGetHandler(
+				resourceIPSourceGroups,
+				func(context.Context) ([]ipsourcegroups.IPSourceGroups, error) {
+					return []ipsourcegroups.IPSourceGroups{
+						{
+							ID:            401,
+							Name:          "Source group psk=" + canary,
+							Description:   "temporary psk=" + canary + " " + bareFreeTextToken,
+							IPAddresses:   []string{"192.0.2.10", "198.51.100.0/24"},
+							IsNonEditable: true,
+						},
+					}, nil
+				},
+				func(context.Context, string) (*ipsourcegroups.IPSourceGroups, error) { return nil, nil },
+				ipSourceGroupSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceIPSourceGroups)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, ip-source-groups) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceIPSourceGroups, records)
+	assertNoCanaries(t, "ip-source-groups", got, canary, bareFreeTextToken)
+	if got["isNonEditable"] != true {
+		t.Errorf("projected ip-source-groups isNonEditable = %v, want true", got["isNonEditable"])
+	}
+}
+
+func TestReaderListIPDestinationGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "ip-destination-group-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceIPDestGroups}: newListGetHandler(
+				resourceIPDestGroups,
+				func(context.Context) ([]ipdestinationgroups.IPDestinationGroups, error) {
+					return []ipdestinationgroups.IPDestinationGroups{
+						{
+							ID:            402,
+							Name:          "Destination group psk=" + canary,
+							Description:   "temporary psk=" + canary + " " + bareFreeTextToken,
+							Type:          "DSTN_IP",
+							Addresses:     []string{"203.0.113.10", "example.invalid"},
+							IPCategories:  []string{"CUSTOM_01"},
+							Countries:     []string{"US"},
+							IsNonEditable: false,
+						},
+					}, nil
+				},
+				func(context.Context, string) (*ipdestinationgroups.IPDestinationGroups, error) { return nil, nil },
+				ipDestinationGroupSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceIPDestGroups)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, ip-destination-groups) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceIPDestGroups, records)
+	assertNoCanaries(t, "ip-destination-groups", got, canary, bareFreeTextToken)
+	if got["type"] != "DSTN_IP" {
+		t.Errorf("projected ip-destination-groups type = %v, want DSTN_IP", got["type"])
+	}
+}
+
+func TestReaderListNetworkServicesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "network-service-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceNetworkServices}: newListGetHandler(
+				resourceNetworkServices,
+				func(context.Context) ([]networkservices.NetworkServices, error) {
+					return []networkservices.NetworkServices{
+						{
+							ID:           403,
+							Name:         "Network service psk=" + canary,
+							Tag:          "custom-service",
+							Description:  "temporary psk=" + canary + " " + bareFreeTextToken,
+							Type:         "CUSTOM",
+							Protocol:     "TCP",
+							SrcTCPPorts:  []networkservices.NetworkPorts{{Start: 1024, End: 65535}},
+							DestTCPPorts: []networkservices.NetworkPorts{{Start: 443, End: 443}},
+						},
+					}, nil
+				},
+				func(context.Context, string) (*networkservices.NetworkServices, error) { return nil, nil },
+				networkServiceSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceNetworkServices)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, network-services) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceNetworkServices, records)
+	assertNoCanaries(t, "network-services", got, canary, bareFreeTextToken)
+	ports, ok := got["destTcpPorts"].([]any)
+	if !ok || len(ports) != 1 {
+		t.Fatalf("projected network-services destTcpPorts = %T %#v, want one port range", got["destTcpPorts"], got["destTcpPorts"])
 	}
 }
 

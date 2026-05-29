@@ -18,6 +18,9 @@ import (
 	sdkzia "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	filteringrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/filteringrules"
+	ipdestinationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipdestinationgroups"
+	ipsourcegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipsourcegroups"
+	networkservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/networkservices"
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
@@ -54,6 +57,9 @@ const (
 	resourceURLRules        = "url-filtering-rules"
 	resourceFirewallRules   = "firewall-filtering-rules"
 	resourceForwardingRules = "forwarding-rules"
+	resourceIPSourceGroups  = "ip-source-groups"
+	resourceIPDestGroups    = "ip-destination-groups"
+	resourceNetworkServices = "network-services"
 )
 
 type AuthMode string
@@ -359,6 +365,36 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return forwardingrules.Get(ctx, service, id)
 			}),
 			forwardingRuleSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceIPSourceGroups}: newListGetHandler(
+			resourceIPSourceGroups,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]ipsourcegroups.IPSourceGroups, error) {
+				return ipsourcegroups.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*ipsourcegroups.IPSourceGroups, error) {
+				return ipsourcegroups.Get(ctx, service, id)
+			}),
+			ipSourceGroupSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceIPDestGroups}: newListGetHandler(
+			resourceIPDestGroups,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]ipdestinationgroups.IPDestinationGroups, error) {
+				return ipdestinationgroups.GetAll(ctx, service, "")
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*ipdestinationgroups.IPDestinationGroups, error) {
+				return ipdestinationgroups.Get(ctx, service, id)
+			}),
+			ipDestinationGroupSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceNetworkServices}: newListGetHandler(
+			resourceNetworkServices,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]networkservices.NetworkServices, error) {
+				return networkservices.GetAllNetworkServices(ctx, service, nil, nil)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*networkservices.NetworkServices, error) {
+				return networkservices.Get(ctx, service, id)
+			}),
+			networkServiceSourceRecord,
 		),
 	}
 }
@@ -1190,6 +1226,48 @@ func forwardingRuleSourceRecord(rule forwardingrules.ForwardingRules) resources.
 	return resources.NewSourceRecord(fields)
 }
 
+func ipSourceGroupSourceRecord(group ipsourcegroups.IPSourceGroups) resources.SourceRecord {
+	fields := map[string]any{
+		"id":            group.ID,
+		"name":          group.Name,
+		"description":   group.Description,
+		"isNonEditable": group.IsNonEditable,
+	}
+	addStringSlice(fields, "ipAddresses", group.IPAddresses)
+	return resources.NewSourceRecord(fields)
+}
+
+func ipDestinationGroupSourceRecord(group ipdestinationgroups.IPDestinationGroups) resources.SourceRecord {
+	fields := map[string]any{
+		"id":            group.ID,
+		"name":          group.Name,
+		"description":   group.Description,
+		"type":          group.Type,
+		"isNonEditable": group.IsNonEditable,
+	}
+	addStringSlice(fields, "addresses", group.Addresses)
+	addStringSlice(fields, "ipCategories", group.IPCategories)
+	addStringSlice(fields, "countries", group.Countries)
+	return resources.NewSourceRecord(fields)
+}
+
+func networkServiceSourceRecord(service networkservices.NetworkServices) resources.SourceRecord {
+	fields := map[string]any{
+		"id":            service.ID,
+		"name":          service.Name,
+		"tag":           service.Tag,
+		"type":          service.Type,
+		"description":   service.Description,
+		"protocol":      service.Protocol,
+		"isNameL10nTag": service.IsNameL10nTag,
+	}
+	addNetworkPorts(fields, "srcTcpPorts", service.SrcTCPPorts)
+	addNetworkPorts(fields, "destTcpPorts", service.DestTCPPorts)
+	addNetworkPorts(fields, "srcUdpPorts", service.SrcUDPPorts)
+	addNetworkPorts(fields, "destUdpPorts", service.DestUDPPorts)
+	return resources.NewSourceRecord(fields)
+}
+
 func addStringSlice(fields map[string]any, name string, values []string) {
 	if len(values) > 0 {
 		fields[name] = append([]string(nil), values...)
@@ -1217,6 +1295,12 @@ func addIDNamePtr(fields map[string]any, name string, value *ziacommon.IDName) {
 func addIDNameSlice(fields map[string]any, name string, values []ziacommon.IDName) {
 	if len(values) > 0 {
 		fields[name] = idNameSliceSource(values)
+	}
+}
+
+func addNetworkPorts(fields map[string]any, name string, values []networkservices.NetworkPorts) {
+	if len(values) > 0 {
+		fields[name] = networkPortsSource(values)
 	}
 }
 
@@ -1254,6 +1338,17 @@ func idNameSliceSource(values []ziacommon.IDName) []any {
 	out := make([]any, 0, len(values))
 	for _, value := range values {
 		out = append(out, idNameSource(&value))
+	}
+	return out
+}
+
+func networkPortsSource(values []networkservices.NetworkPorts) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"start": value.Start,
+			"end":   value.End,
+		})
 	}
 	return out
 }
