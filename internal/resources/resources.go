@@ -1607,6 +1607,45 @@ func Catalog() ResourceCatalog {
 				idNameExtensionsField("deviceGroups", standardOnlyMode()),
 			},
 		},
+		{
+			Product:    ProductZIA,
+			Name:       "groups",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				tenantConfigField("idpId", standardShareModes()),
+				freeTextField("comments", "ZIA group comments"),
+				operationalField("isSystemDefined", allModes()),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "device-groups",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				operationalField("groupType", allModes()),
+				freeTextField("description", "ZIA device group description"),
+				operationalField("osType", allModes()),
+				operationalField("predefined", allModes()),
+				sensitiveIdentifierField("deviceNames"),
+				operationalField("deviceCount", allModes()),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "workload-groups",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				freeTextField("description", "ZIA workload group description"),
+				sensitiveIdentifierField("expression"),
+				operationalField("lastModifiedTime", standardShareModes()),
+			},
+		},
 	}
 }
 

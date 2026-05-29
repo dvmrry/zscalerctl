@@ -650,6 +650,69 @@ Fields:
 The SDK also returns `lastModifiedBy`. The reader maps it into source records,
 but the catalog does not allow it to render, so projection drops it.
 
+## ZIA Groups
+
+Commands:
+
+```sh
+zscalerctl zia groups list
+zscalerctl zia groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Group identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `idpId` | Tenant configuration | `standard`, `share` | Identity provider identifier. |
+| `comments` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `isSystemDefined` | Operational metadata | `standard`, `share`, `paranoid` | Whether the group is system-defined. |
+
+## ZIA Device Groups
+
+Commands:
+
+```sh
+zscalerctl zia device-groups list
+zscalerctl zia device-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Device group identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `groupType`, `osType`, `predefined`, `deviceCount` | Operational metadata | `standard`, `share`, `paranoid` | Group type, OS, predefined flag, and member count. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `deviceNames` | Sensitive identifier | `standard` | Local-only device-name list when returned by the SDK. |
+
+Device groups use a list-derived `get`.
+
+## ZIA Workload Groups
+
+Commands:
+
+```sh
+zscalerctl zia workload-groups list
+zscalerctl zia workload-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Workload group identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `expression` | Sensitive identifier | `standard` | Local-only workload tag expression. |
+| `lastModifiedTime` | Operational metadata | `standard`, `share` | SDK timestamp value. |
+
+The SDK also returns structured expression JSON and `lastModifiedBy`. The
+reader maps those structures, but the catalog does not allow them to render, so
+projection drops them.
+
 ## Deferred Resource Follow-Ups
 
 - `zia/network-service-groups`: generated and locally validated, but removed
@@ -660,6 +723,18 @@ but the catalog does not allow it to render, so projection drops it.
   from the application-reference batch after live smoke reported a request
   failure while `zia/network-application-groups` succeeded. Investigate the live
   endpoint behavior separately before enabling it in the catalog.
+- `zia/departments`: generated and locally validated, but removed from the
+  identity-reference batch after live smoke reported a list request failure under
+  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  before enabling it in the catalog.
+- `zia/users`: generated and locally validated, but removed from the
+  identity-reference batch after live smoke reported a list request failure under
+  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  before enabling it in the catalog.
+- `zia/devices`: generated and locally validated, but removed from the
+  identity-reference batch after live smoke reported a list request failure under
+  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  before enabling it in the catalog.
 
 ## Adding A Resource
 
