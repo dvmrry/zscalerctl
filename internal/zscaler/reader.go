@@ -22,6 +22,10 @@ import (
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller"
+	zpacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/common"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup"
 
 	"github.com/dvmrry/zscalerctl/internal/resources"
 	"github.com/dvmrry/zscalerctl/internal/secret"
@@ -42,6 +46,7 @@ const (
 	resourceRuleLabels     = "rule-labels"
 	resourceStaticIPs      = "static-ips"
 	resourceGRETunnels     = "gre-tunnels"
+	resourceServerGroups   = "server-groups"
 )
 
 type AuthMode string
@@ -52,14 +57,16 @@ const (
 )
 
 type ReaderConfig struct {
-	ClientID     secret.Secret
-	ClientSecret secret.Secret
-	VanityDomain string
-	Cloud        string
-	AuthMode     AuthMode
-	ZIALegacy    ZIALegacyConfig
-	Timeout      time.Duration
-	NoCache      bool
+	ClientID         secret.Secret
+	ClientSecret     secret.Secret
+	VanityDomain     string
+	Cloud            string
+	ZPACustomerID    string
+	ZPAMicrotenantID string
+	AuthMode         AuthMode
+	ZIALegacy        ZIALegacyConfig
+	Timeout          time.Duration
+	NoCache          bool
 }
 
 type ZIALegacyConfig struct {
@@ -97,7 +104,7 @@ type resourceHandler interface {
 }
 
 type ziaServiceProvider interface {
-	service(context.Context) (*zsdk.Service, func(), error)
+	service(context.Context, resources.Product) (*zsdk.Service, func(), error)
 }
 
 var (
@@ -125,11 +132,16 @@ func (r *SDKReader) Session(ctx context.Context, product resources.Product) (Res
 	if r == nil {
 		return nil, fmt.Errorf("%w: %s/session", ErrUnsupportedResource, product)
 	}
-	if product != resources.ProductZIA {
+	switch product {
+	case resources.ProductZIA, resources.ProductZPA:
+	default:
 		return nil, fmt.Errorf("%w: %s/session", ErrUnsupportedResource, product)
 	}
-	service, cleanup, err := perCallZIAService{cfg: r.cfg}.service(ctx)
+	service, cleanup, err := perCallZIAService{cfg: r.cfg}.service(ctx, product)
 	if err != nil {
+		if errors.Is(err, ErrMissingCredentials) {
+			return nil, err
+		}
 		return nil, normalizeLiveError(ctx, "authenticate", product, "session")
 	}
 	ziaClient := sdkZIAClient{services: fixedZIAService{sdkService: service}}
@@ -190,6 +202,9 @@ func listResource(
 	}
 	records, err := handler.List(ctx)
 	if err != nil {
+		if errors.Is(err, ErrMissingCredentials) {
+			return nil, err
+		}
 		return nil, normalizeLiveError(ctx, "list", product, name)
 	}
 	return records, nil
@@ -208,7 +223,7 @@ func getResource(
 	}
 	record, err := handler.Get(ctx, id)
 	if err != nil {
-		if errors.Is(err, ErrInvalidResourceID) {
+		if errors.Is(err, ErrInvalidResourceID) || errors.Is(err, ErrMissingCredentials) {
 			return resources.SourceRecord{}, err
 		}
 		return resources.SourceRecord{}, normalizeLiveError(ctx, "get", product, name)
@@ -231,56 +246,68 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 	return map[resourceKey]resourceHandler{
 		{product: resources.ProductZIA, name: resourceLocations}: newListGetHandler(
 			resourceLocations,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]locationmanagement.Locations, error) {
+			ziaSDKList(ziaClient, resources.ProductZIA, func(ctx context.Context, service *zsdk.Service) ([]locationmanagement.Locations, error) {
 				return locationmanagement.GetAll(ctx, service)
 			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*locationmanagement.Locations, error) {
+			ziaSDKGet(ziaClient, resources.ProductZIA, func(ctx context.Context, service *zsdk.Service, id int) (*locationmanagement.Locations, error) {
 				return locationmanagement.GetLocation(ctx, service, id)
 			}),
 			locationSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceLocationGroups}: newListGetHandler(
 			resourceLocationGroups,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]locationgroups.LocationGroup, error) {
+			ziaSDKList(ziaClient, resources.ProductZIA, func(ctx context.Context, service *zsdk.Service) ([]locationgroups.LocationGroup, error) {
 				fetchLocations := false
 				return locationgroups.GetAll(ctx, service, &locationgroups.GetAllFilterOptions{
 					FetchLocations: &fetchLocations,
 				})
 			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*locationgroups.LocationGroup, error) {
+			ziaSDKGet(ziaClient, resources.ProductZIA, func(ctx context.Context, service *zsdk.Service, id int) (*locationgroups.LocationGroup, error) {
 				return locationgroups.GetLocationGroup(ctx, service, id)
 			}),
 			locationGroupSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceRuleLabels}: newListGetHandler(
 			resourceRuleLabels,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]rulelabels.RuleLabels, error) {
+			ziaSDKList(ziaClient, resources.ProductZIA, func(ctx context.Context, service *zsdk.Service) ([]rulelabels.RuleLabels, error) {
 				return rulelabels.GetAll(ctx, service)
 			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*rulelabels.RuleLabels, error) {
+			ziaSDKGet(ziaClient, resources.ProductZIA, func(ctx context.Context, service *zsdk.Service, id int) (*rulelabels.RuleLabels, error) {
 				return rulelabels.Get(ctx, service, id)
 			}),
 			ruleLabelSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceStaticIPs}: newListGetHandler(
 			resourceStaticIPs,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]staticips.StaticIP, error) {
+			ziaSDKList(ziaClient, resources.ProductZIA, func(ctx context.Context, service *zsdk.Service) ([]staticips.StaticIP, error) {
 				return staticips.GetAll(ctx, service)
 			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*staticips.StaticIP, error) {
+			ziaSDKGet(ziaClient, resources.ProductZIA, func(ctx context.Context, service *zsdk.Service, id int) (*staticips.StaticIP, error) {
 				return staticips.Get(ctx, service, id)
 			}),
 			staticIPSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceGRETunnels}: newListGetHandler(
 			resourceGRETunnels,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]gretunnels.GreTunnels, error) {
+			ziaSDKList(ziaClient, resources.ProductZIA, func(ctx context.Context, service *zsdk.Service) ([]gretunnels.GreTunnels, error) {
 				return gretunnels.GetAll(ctx, service)
 			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*gretunnels.GreTunnels, error) {
+			ziaSDKGet(ziaClient, resources.ProductZIA, func(ctx context.Context, service *zsdk.Service, id int) (*gretunnels.GreTunnels, error) {
 				return gretunnels.GetGreTunnels(ctx, service, id)
 			}),
 			greTunnelSourceRecord,
+		),
+		{product: resources.ProductZPA, name: resourceServerGroups}: newListGetHandler(
+			resourceServerGroups,
+			ziaSDKList(ziaClient, resources.ProductZPA, func(ctx context.Context, service *zsdk.Service) ([]servergroup.ServerGroup, error) {
+				items, _, err := servergroup.GetAll(ctx, service)
+				return items, err
+			}),
+			ziaSDKStringGet(ziaClient, resources.ProductZPA, func(ctx context.Context, service *zsdk.Service, id string) (*servergroup.ServerGroup, error) {
+				item, _, err := servergroup.Get(ctx, service, id)
+				return item, err
+			}),
+			serverGroupSourceRecord,
 		),
 	}
 }
@@ -341,19 +368,20 @@ type sdkZIAClient struct {
 	services ziaServiceProvider
 }
 
-func (c sdkZIAClient) service(ctx context.Context) (*zsdk.Service, func(), error) {
+func (c sdkZIAClient) service(ctx context.Context, product resources.Product) (*zsdk.Service, func(), error) {
 	if c.services == nil {
 		return nil, nil, errors.New("missing zia service provider")
 	}
-	return c.services.service(ctx)
+	return c.services.service(ctx, product)
 }
 
 func ziaSDKList[T any](
 	client sdkZIAClient,
+	product resources.Product,
 	call func(context.Context, *zsdk.Service) ([]T, error),
 ) func(context.Context) ([]T, error) {
 	return func(ctx context.Context) ([]T, error) {
-		service, cleanup, err := client.service(ctx)
+		service, cleanup, err := client.service(ctx, product)
 		if err != nil {
 			return nil, err
 		}
@@ -364,16 +392,36 @@ func ziaSDKList[T any](
 
 func ziaSDKGet[T any](
 	client sdkZIAClient,
+	product resources.Product,
 	call func(context.Context, *zsdk.Service, int) (*T, error),
 ) func(context.Context, string) (*T, error) {
 	return intIDGetter(func(ctx context.Context, id int) (*T, error) {
-		service, cleanup, err := client.service(ctx)
+		service, cleanup, err := client.service(ctx, product)
 		if err != nil {
 			return nil, err
 		}
 		defer cleanup()
 		return call(ctx, service, id)
 	})
+}
+
+func ziaSDKStringGet[T any](
+	client sdkZIAClient,
+	product resources.Product,
+	call func(context.Context, *zsdk.Service, string) (*T, error),
+) func(context.Context, string) (*T, error) {
+	return func(ctx context.Context, id string) (*T, error) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil, fmt.Errorf("%w: empty", ErrInvalidResourceID)
+		}
+		service, cleanup, err := client.service(ctx, product)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		return call(ctx, service, id)
+	}
 }
 
 func intIDGetter[T any](get func(context.Context, int) (*T, error)) func(context.Context, string) (*T, error) {
@@ -390,9 +438,15 @@ type perCallZIAService struct {
 	cfg ReaderConfig
 }
 
-func (s perCallZIAService) service(ctx context.Context) (*zsdk.Service, func(), error) {
+func (s perCallZIAService) service(ctx context.Context, product resources.Product) (*zsdk.Service, func(), error) {
 	if s.cfg.AuthMode == AuthModeZIALegacy {
+		if product != resources.ProductZIA {
+			return nil, nil, fmt.Errorf("%w: %s requires OneAPI credentials", ErrMissingCredentials, product)
+		}
 		return s.legacyService(ctx)
+	}
+	if err := validateProductConfig(s.cfg, product); err != nil {
+		return nil, nil, err
 	}
 	cfg := newSDKConfiguration(ctx, s.cfg)
 	// Do not replace this with zsdk.NewConfiguration. That SDK constructor
@@ -451,7 +505,7 @@ type fixedZIAService struct {
 	sdkService *zsdk.Service
 }
 
-func (s fixedZIAService) service(ctx context.Context) (*zsdk.Service, func(), error) {
+func (s fixedZIAService) service(ctx context.Context, _ resources.Product) (*zsdk.Service, func(), error) {
 	if err := effectiveContext(ctx).Err(); err != nil {
 		return nil, nil, err
 	}
@@ -490,6 +544,8 @@ func newSDKConfiguration(ctx context.Context, cfg ReaderConfig) *zsdk.Configurat
 	sdkCfg.Zscaler.Client.ClientSecret = cfg.ClientSecret.Reveal()
 	sdkCfg.Zscaler.Client.VanityDomain = cfg.VanityDomain
 	sdkCfg.Zscaler.Client.Cloud = cfg.Cloud
+	sdkCfg.Zscaler.Client.CustomerID = strings.TrimSpace(cfg.ZPACustomerID)
+	sdkCfg.Zscaler.Client.MicrotenantID = strings.TrimSpace(cfg.ZPAMicrotenantID)
 	sdkCfg.Zscaler.Client.RequestTimeout = timeout
 	sdkCfg.Zscaler.Client.RateLimit.MaxRetries = 2
 	sdkCfg.Zscaler.Client.RateLimit.RetryWaitMin = time.Second
@@ -592,6 +648,16 @@ func validateReaderConfig(cfg ReaderConfig) error {
 	default:
 		return fmt.Errorf("%w: unsupported auth mode %q", ErrMissingCredentials, cfg.AuthMode)
 	}
+}
+
+func validateProductConfig(cfg ReaderConfig, product resources.Product) error {
+	if effectiveAuthMode(cfg.AuthMode) != AuthModeOneAPI {
+		return nil
+	}
+	if product == resources.ProductZPA && strings.TrimSpace(cfg.ZPACustomerID) == "" {
+		return fmt.Errorf("%w: ZSCALERCTL_ZPA_CUSTOMER_ID is required for ZPA resources", ErrMissingCredentials)
+	}
+	return nil
 }
 
 func effectiveAuthMode(mode AuthMode) AuthMode {
@@ -730,6 +796,40 @@ func greTunnelSourceRecord(tunnel gretunnels.GreTunnels) resources.SourceRecord 
 	}
 	if tunnel.SecondaryDestVip != nil {
 		fields["secondaryDestVip"] = secondaryDestVIPSource(tunnel.SecondaryDestVip)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func serverGroupSourceRecord(group servergroup.ServerGroup) resources.SourceRecord {
+	fields := map[string]any{
+		"id":               group.ID,
+		"enabled":          group.Enabled,
+		"name":             group.Name,
+		"description":      group.Description,
+		"ipAnchored":       group.IpAnchored,
+		"configSpace":      group.ConfigSpace,
+		"dynamicDiscovery": group.DynamicDiscovery,
+		"extranetEnabled":  group.ExtranetEnabled,
+		"creationTime":     group.CreationTime,
+		"modifiedBy":       group.ModifiedBy,
+		"modifiedTime":     group.ModifiedTime,
+		"microtenantId":    group.MicroTenantID,
+		"microtenantName":  group.MicroTenantName,
+		"readOnly":         group.ReadOnly,
+		"restrictionType":  group.RestrictionType,
+		"zscalerManaged":   group.ZscalerManaged,
+	}
+	if len(group.AppConnectorGroups) > 0 {
+		fields["appConnectorGroups"] = zpaAppConnectorGroupsSource(group.AppConnectorGroups)
+	}
+	if len(group.Servers) > 0 {
+		fields["servers"] = zpaApplicationServersSource(group.Servers)
+	}
+	if len(group.Applications) > 0 {
+		fields["applications"] = serverGroupApplicationsSource(group.Applications)
+	}
+	if !emptyExtranetDTO(group.ExtranetDTO) {
+		fields["extranetDTO"] = extranetDTOSource(group.ExtranetDTO)
 	}
 	return resources.NewSourceRecord(fields)
 }
@@ -890,6 +990,113 @@ func secondaryDestVIPSource(value *gretunnels.SecondaryDestVip) map[string]any {
 		"countryCode":        value.CountryCode,
 		"region":             value.Region,
 	}
+}
+
+func zpaAppConnectorGroupsSource(values []appconnectorgroup.AppConnectorGroup) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":              value.ID,
+			"name":            value.Name,
+			"description":     value.Description,
+			"enabled":         value.Enabled,
+			"cityCountry":     value.CityCountry,
+			"modifiedBy":      value.ModifiedBy,
+			"modifiedTime":    value.ModifiedTime,
+			"microtenantId":   value.MicroTenantID,
+			"microtenantName": value.MicroTenantName,
+		})
+	}
+	return out
+}
+
+func zpaApplicationServersSource(values []appservercontroller.ApplicationServer) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":                value.ID,
+			"name":              value.Name,
+			"description":       value.Description,
+			"enabled":           value.Enabled,
+			"address":           value.Address,
+			"appServerGroupIds": append([]string(nil), value.AppServerGroupIds...),
+			"modifiedBy":        value.ModifiedBy,
+			"modifiedTime":      value.ModifiedTime,
+			"microtenantId":     value.MicroTenantID,
+			"microtenantName":   value.MicroTenantName,
+		})
+	}
+	return out
+}
+
+func serverGroupApplicationsSource(values []servergroup.Applications) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":   value.ID,
+			"name": value.Name,
+		})
+	}
+	return out
+}
+
+func extranetDTOSource(value zpacommon.ExtranetDTO) map[string]any {
+	fields := map[string]any{
+		"ziaErName": value.ZiaErName,
+		"zpnErId":   value.ZpnErID,
+	}
+	if len(value.LocationDTO) > 0 {
+		fields["locationDTO"] = zpaLocationDTOSource(value.LocationDTO)
+	}
+	if len(value.LocationGroupDTO) > 0 {
+		fields["locationGroupDTO"] = zpaLocationGroupDTOSource(value.LocationGroupDTO)
+	}
+	return fields
+}
+
+func emptyExtranetDTO(value zpacommon.ExtranetDTO) bool {
+	return len(value.LocationDTO) == 0 &&
+		len(value.LocationGroupDTO) == 0 &&
+		value.ZiaErName == "" &&
+		value.ZpnErID == ""
+}
+
+func zpaLocationDTOSource(values []zpacommon.LocationDTO) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":   value.ID,
+			"name": value.Name,
+		})
+	}
+	return out
+}
+
+func zpaLocationGroupDTOSource(values []zpacommon.LocationGroupDTO) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		fields := map[string]any{
+			"id":   value.ID,
+			"name": value.Name,
+		}
+		if len(value.ZiaLocations) > 0 {
+			fields["ziaLocations"] = zpaCommonSummarySource(value.ZiaLocations)
+		}
+		out = append(out, fields)
+	}
+	return out
+}
+
+func zpaCommonSummarySource(values []zpacommon.CommonSummary) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":      value.ID,
+			"name":    value.Name,
+			"enabled": value.Enabled,
+		})
+	}
+	return out
 }
 
 func boolPointerValue(value *bool) any {

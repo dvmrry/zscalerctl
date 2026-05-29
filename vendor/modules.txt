@@ -79,6 +79,11 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorcontroller
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/common
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw
 # golang.org/x/sys v0.44.0
 ## explicit; go 1.25.0

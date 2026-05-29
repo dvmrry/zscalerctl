@@ -45,6 +45,9 @@ schema_fields() {
     static-ips)
       printf '[{"name":"id","allowed_modes":["standard"]},{"name":"ipAddress","allowed_modes":["standard"]},{"name":"routableIP","allowed_modes":["standard"]},{"name":"comment","allowed_modes":["standard"]}]'
       ;;
+    server-groups)
+      printf '[{"name":"id","allowed_modes":["standard"]},{"name":"enabled","allowed_modes":["standard"]},{"name":"name","allowed_modes":["standard"]},{"name":"description","allowed_modes":["standard"]}]'
+      ;;
     *)
       echo "unexpected resource: $1" >&2
       exit 2
@@ -62,6 +65,8 @@ write_schema() {
     fi
     printf '  {"product":"zia","name":"%s","operations":[{"name":"list","capability":"read"},{"name":"get","capability":"read"}],"fields":%s}' "$resource" "$(schema_fields "$resource")"
   done
+  printf ',\n'
+  printf '  {"product":"zpa","name":"server-groups","operations":[{"name":"list","capability":"read"},{"name":"get","capability":"read"}],"fields":%s}' "$(schema_fields server-groups)"
   printf '\n]\n'
 }
 
@@ -95,6 +100,9 @@ write_resource() {
     *:gre-tunnels)
       printf '[{"id":4,"sourceIp":"203.0.113.10","internalIpRange":"10.0.0.0/24","comment":"","withinCountry":true}]\n'
       ;;
+    *:server-groups)
+      printf '[{"id":"sg-1","enabled":true,"name":"Core services","description":""}]\n'
+      ;;
     *)
       echo "unexpected resource: $resource" >&2
       exit 2
@@ -104,10 +112,15 @@ write_resource() {
 
 write_dump() {
   local out=""
+  local resources_arg=""
   shift
   while (($#)); do
     case "$1" in
       --products)
+        shift 2
+        ;;
+      --resources)
+        resources_arg="$2"
         shift 2
         ;;
       --out)
@@ -123,6 +136,43 @@ write_dump() {
   if [[ -z "$out" ]]; then
     echo "missing --out" >&2
     exit 2
+  fi
+
+  if [[ "$resources_arg" == "zpa/server-groups" ]]; then
+    mkdir -p "$out/resources/zpa"
+    chmod 700 "$out" "$out/resources" "$out/resources/zpa"
+    write_resource server-groups >"$out/resources/zpa/server-groups.json"
+    cat >"$out/manifest.json" <<'JSON'
+{
+  "schema": "zscalerctl.dump.manifest.v1",
+  "redaction": "standard",
+  "warning": "sanitized dumps remain confidential operational data",
+  "status": "complete",
+  "resources": [
+    {"product": "zpa", "name": "server-groups", "status": "complete", "path": "resources/zpa/server-groups.json", "records": 1}
+  ]
+}
+JSON
+    cat >"$out/redaction_report.json" <<'JSON'
+{
+  "schema": "zscalerctl.redaction.report.v1",
+  "redaction": "standard",
+  "resources": [
+    {
+      "product": "zpa",
+      "name": "server-groups",
+      "path": "resources/zpa/server-groups.json",
+      "records": 1,
+      "included_fields": ["description", "enabled", "id", "name"],
+      "dropped_fields": [],
+      "redacted_fields": []
+    }
+  ]
+}
+JSON
+    chmod 600 "$out"/manifest.json "$out"/redaction_report.json "$out"/resources/zpa/*.json
+    echo "dump written: $out"
+    return
   fi
 
   mkdir -p "$out/resources/zia"
@@ -194,7 +244,7 @@ if [[ "${1:-}" == "--format" && "${2:-}" == "json" && "${3:-}" == "schema" && "$
 fi
 
 if [[ "${1:-}" == "--format" ]]; then
-  if [[ "${2:-}" != "json" || "${3:-}" != "zia" || "${5:-}" != "list" ]]; then
+  if [[ "${2:-}" != "json" || "${5:-}" != "list" ]]; then
     echo "unexpected list args: $*" >&2
     exit 2
   fi
@@ -331,15 +381,35 @@ if ! grep -F -q '[INFO] dump zia locations redaction markers at: [].description'
   exit 1
 fi
 
-if ! grep -q '\[PASS\] dump manifest resource set matches ZIA catalog' "$tmp_dir/stdout-good"; then
+if ! grep -q '\[PASS\] dump manifest resource set matches selected catalog' "$tmp_dir/stdout-good"; then
   echo "live-smoke good fixture did not validate manifest resource set" >&2
   cat "$tmp_dir/stdout-good" >&2
   exit 1
 fi
 
-if ! grep -q '\[PASS\] dump resource files match ZIA catalog' "$tmp_dir/stdout-good"; then
+if ! grep -q '\[PASS\] dump resource files match selected catalog' "$tmp_dir/stdout-good"; then
   echo "live-smoke good fixture did not validate dump file set" >&2
   cat "$tmp_dir/stdout-good" >&2
+  exit 1
+fi
+
+if ! ZSCALERCTL_BIN="$fake_bin" ZSCALERCTL_FAKE_MODE="good" \
+  "$repo_root/scripts/live-smoke.sh" --skip-credential-check --resources zpa/server-groups --out "$tmp_dir/out-zpa" >"$tmp_dir/stdout-zpa" 2>"$tmp_dir/stderr-zpa"; then
+  echo "live-smoke rejected the zpa/server-groups fixture" >&2
+  cat "$tmp_dir/stdout-zpa" >&2
+  cat "$tmp_dir/stderr-zpa" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] zpa server-groups list command completed' "$tmp_dir/stdout-zpa"; then
+  echo "live-smoke zpa fixture did not run the ZPA list command" >&2
+  cat "$tmp_dir/stdout-zpa" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] dump zpa server-groups contains only catalog-allowed top-level fields' "$tmp_dir/stdout-zpa"; then
+  echo "live-smoke zpa fixture did not validate dump catalog subset" >&2
+  cat "$tmp_dir/stdout-zpa" >&2
   exit 1
 fi
 
@@ -402,7 +472,7 @@ if run_smoke missing-manifest-resource; then
   exit 1
 fi
 
-if ! grep -q 'dump manifest resource set differs from ZIA catalog' "$tmp_dir/stderr-missing-manifest-resource"; then
+if ! grep -q 'dump manifest resource set differs from selected catalog' "$tmp_dir/stderr-missing-manifest-resource"; then
   echo "live-smoke missing-manifest-resource failure did not mention resource-set drift" >&2
   cat "$tmp_dir/stderr-missing-manifest-resource" >&2
   exit 1

@@ -1101,22 +1101,96 @@ func TestDumpRejectsNilReaderSession(t *testing.T) {
 	}
 }
 
-func TestDumpWithNoSelectedResourcesDoesNotOpenReader(t *testing.T) {
+func TestDumpWritesZPASelectedResource(t *testing.T) {
 	t.Parallel()
 
+	reader := fakeResourceReader{
+		list: []resources.SourceRecord{resources.NewSourceRecord(map[string]any{
+			"id":               "sg-123",
+			"enabled":          true,
+			"name":             "Core services",
+			"description":      "",
+			"ipAnchored":       true,
+			"configSpace":      "DEFAULT",
+			"dynamicDiscovery": true,
+			"extranetEnabled":  false,
+			"creationTime":     "1712345000",
+			"modifiedTime":     "1712345678",
+			"microtenantId":    "microtenant-1",
+			"microtenantName":  "Primary",
+			"readOnly":         false,
+			"restrictionType":  "NONE",
+			"zscalerManaged":   false,
+		})},
+	}
 	var out, errOut bytes.Buffer
 	outDir := filepath.Join(t.TempDir(), "dump")
-	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 
-	err := app.Run(context.Background(), []string{"dump", "--products", "zpa", "--out", outDir})
+	err := app.Run(context.Background(), []string{
+		"dump",
+		"--products", "zpa",
+		"--resources", "server-groups",
+		"--out", outDir,
+	})
 	if err != nil {
-		t.Fatalf("App.Run(dump --products zpa --out) error = %v, want nil", err)
+		t.Fatalf("App.Run(dump --products zpa --resources server-groups --out) error = %v, want nil", err)
 	}
 	if !strings.Contains(out.String(), "dump written: "+outDir) {
-		t.Errorf("App.Run(dump --products zpa --out) stdout = %q, want dump written line", out.String())
+		t.Errorf("App.Run(dump zpa/server-groups) stdout = %q, want dump written line", out.String())
 	}
 	if errOut.Len() != 0 {
-		t.Errorf("App.Run(dump --products zpa --out) stderr = %q, want empty", errOut.String())
+		t.Errorf("App.Run(dump zpa/server-groups) stderr = %q, want empty", errOut.String())
+	}
+	resourcePath := filepath.Join(outDir, "resources", "zpa", "server-groups.json")
+	if _, err := os.Stat(resourcePath); err != nil {
+		t.Fatalf("os.Stat(%q) error = %v, want nil", resourcePath, err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "resources", "zia")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("os.Stat(resources/zia) error = %v, want os.ErrNotExist", err)
+	}
+}
+
+func TestDumpDefaultsToZIAOnlyForLegacyAuth(t *testing.T) {
+	t.Parallel()
+
+	reader := &recordingResourceReader{
+		list: []resources.SourceRecord{resources.NewSourceRecord(map[string]any{
+			"id":                   "123",
+			"name":                 "HQ",
+			"description":          "",
+			"comments":             "",
+			"comment":              "",
+			"groupType":            "STATIC_GROUP",
+			"ipAddresses":          []any{"192.0.2.10"},
+			"sourceIp":             "203.0.113.10",
+			"internalIpRange":      "10.0.0.0/24",
+			"lastModTime":          1712345678,
+			"lastModifiedTime":     1712345678,
+			"lastModificationTime": 1712345678,
+		})},
+	}
+	var out, errOut bytes.Buffer
+	outDir := filepath.Join(t.TempDir(), "dump")
+	app := cli.NewWithOptions(&out, &errOut, []string{
+		config.EnvAuthMode + "=" + string(config.AuthModeZIALegacy),
+		config.EnvZIAUsername + "=admin@example.invalid",
+		config.EnvZIAPassword + "=legacy-password",
+		config.EnvZIAAPIKey + "=legacy-api-key",
+		config.EnvZIACloud + "=zscalerthree",
+	}, cli.Options{Reader: reader})
+
+	err := app.Run(context.Background(), []string{"dump", "--out", outDir})
+	if err != nil {
+		t.Fatalf("App.Run(legacy dump default products) error = %v, want nil", err)
+	}
+	for _, call := range reader.calls {
+		if strings.HasPrefix(call, "zpa/") {
+			t.Errorf("legacy dump default reader calls = %#v, want no ZPA resources", reader.calls)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "resources", "zpa")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("os.Stat(resources/zpa) error = %v, want os.ErrNotExist", err)
 	}
 }
 
@@ -1171,6 +1245,20 @@ func (f fakeResourceReader) List(context.Context, resources.Product, string) ([]
 
 func (f fakeResourceReader) Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error) {
 	return f.get, nil
+}
+
+type recordingResourceReader struct {
+	list  []resources.SourceRecord
+	calls []string
+}
+
+func (f *recordingResourceReader) List(_ context.Context, product resources.Product, name string) ([]resources.SourceRecord, error) {
+	f.calls = append(f.calls, string(product)+"/"+name)
+	return f.list, nil
+}
+
+func (f *recordingResourceReader) Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, errors.New("get must not be called")
 }
 
 type selectiveErrorResourceReader struct {

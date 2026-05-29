@@ -15,10 +15,12 @@ skip_credential_check=0
 strict_counts=0
 failures=0
 resources=()
+resource_filters=()
+credential_family_name=""
 
 usage() {
   cat <<'EOF'
-usage: scripts/live-smoke.sh [--out DIR] [--bin PATH] [--require-credentials] [--require-nonempty] [--strict-counts]
+usage: scripts/live-smoke.sh [--out DIR] [--bin PATH] [--resources LIST] [--require-credentials] [--require-nonempty] [--strict-counts]
 
 Runs a read-only live smoke against the currently configured zscalerctl
 credentials and prints PASS/FAIL markers for pre-PR validation.
@@ -28,9 +30,15 @@ Options:
                        secure temporary directory that is kept for inspection.
   --bin PATH           zscalerctl binary to run. Defaults to
                        "go run -mod=vendor ./cmd/zscalerctl".
+  --resources LIST     Comma-separated resources to validate. Supports bare
+                       names and product/name. Defaults to all read/list
+                       resources with OneAPI credentials, or current ZIA
+                       read/list resources for legacy/back-compatible runs.
   --require-credentials
                        Fail instead of SKIP when no supported live credential
                        family is configured. Use this for release gating.
+                       Selected ZPA resources also require
+                       ZSCALERCTL_ZPA_CUSTOMER_ID.
   --require-nonempty   Treat a zero-record resource list as a failure.
   --strict-counts      Fail if a list count differs from the dump count.
                        By default this is INFO because live data can change.
@@ -60,6 +68,14 @@ while (($#)); do
         exit 2
       fi
       ZSCALERCTL_BIN="$2"
+      shift 2
+      ;;
+    --resources)
+      if (($# < 2)); then
+        echo "--resources requires a comma-separated list" >&2
+        exit 2
+      fi
+      IFS=',' read -r -a resource_filters <<<"$2"
       shift 2
       ;;
     --require-credentials)
@@ -178,6 +194,28 @@ find_denied_keys() {
   ' "$1"
 }
 
+selected_has_product() {
+  local product="$1"
+  local resource_key
+  for resource_key in "${resources[@]}"; do
+    if [[ "${resource_key%%/*}" == "$product" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+validate_selected_product_credentials() {
+  if ((skip_credential_check)); then
+    return 0
+  fi
+  if selected_has_product zpa && ! is_set ZSCALERCTL_ZPA_CUSTOMER_ID; then
+    fail "selected ZPA resources require ZSCALERCTL_ZPA_CUSTOMER_ID"
+    return 1
+  fi
+  return 0
+}
+
 validate_json_array() {
   local label="$1"
   local file="$2"
@@ -217,12 +255,13 @@ validate_no_denied_keys() {
 }
 
 find_non_catalog_keys() {
-  local resource="$1"
-  local file="$2"
-  local schema="$3"
+  local product="$1"
+  local resource="$2"
+  local file="$3"
+  local schema="$4"
 
-  jq -r --slurpfile schema "$schema" --arg resource "$resource" '
-    ($schema[0] | map(select(.product == "zia" and .name == $resource)) | .[0]) as $spec
+  jq -r --slurpfile schema "$schema" --arg product "$product" --arg resource "$resource" '
+    ($schema[0] | map(select(.product == $product and .name == $resource)) | .[0]) as $spec
     | if $spec == null then
         ["<missing schema resource>"]
       else
@@ -246,12 +285,13 @@ find_non_catalog_keys() {
 
 validate_catalog_subset() {
   local label="$1"
-  local resource="$2"
-  local file="$3"
-  local schema="$4"
+  local product="$2"
+  local resource="$3"
+  local file="$4"
+  local schema="$5"
   local unexpected
 
-  unexpected="$(find_non_catalog_keys "$resource" "$file" "$schema")"
+  unexpected="$(find_non_catalog_keys "$product" "$resource" "$file" "$schema")"
   if [[ -n "$unexpected" ]]; then
     fail "$label contains non-catalog field key(s): $(tr '\n' ' ' <<<"$unexpected")"
     return
@@ -297,10 +337,12 @@ summarize_redaction_markers() {
   pass "$label has no redaction markers"
 }
 
-load_zia_resources() {
+load_resources() {
   local schema_file="$1"
   local stderr_file="$2"
-  local resource
+  local filter
+  local matches
+  local resource_key
 
   if "${cli[@]}" --format json schema list >"$schema_file" 2>"$stderr_file"; then
     pass "schema list command completed"
@@ -315,51 +357,104 @@ load_zia_resources() {
   fi
   pass "schema list returned a JSON array"
 
-  while IFS= read -r resource; do
-    resources+=("$resource")
-  done < <(jq -r '
+  if ((${#resource_filters[@]} == 0)); then
+    local default_product="zia"
+    if [[ "$credential_family_name" == "OneAPI" ]]; then
+      default_product=""
+    fi
+    while IFS= read -r resource_key; do
+      resources+=("$resource_key")
+    done < <(jq -r --arg product "$default_product" '
     [
       .[]
-      | select(.product == "zia")
+      | select($product == "" or .product == $product)
       | select(any(.operations[]?; .name == "list" and .capability == "read"))
-      | .name
+      | .product + "/" + .name
     ]
     | sort
     | .[]
   ' "$schema_file")
 
-  if ((${#resources[@]} == 0)); then
-    fail "schema list contains no ZIA read/list resources"
-    return 1
+    if ((${#resources[@]} == 0)); then
+      fail "schema list contains no ZIA read/list resources"
+      return 1
+    fi
+
+    pass "schema list found ${#resources[@]} default read/list resource(s): ${resources[*]}"
+    return 0
   fi
 
-  pass "schema list found ${#resources[@]} ZIA read/list resource(s): ${resources[*]}"
+  for filter in "${resource_filters[@]}"; do
+    filter="$(printf '%s' "$filter" | tr '[:upper:]' '[:lower:]' | xargs)"
+    if [[ -z "$filter" ]]; then
+      fail "empty resource in --resources"
+      return 1
+    fi
+    if [[ "$filter" == */* ]]; then
+      matches="$(jq -r --arg key "$filter" '
+        [
+          .[]
+          | select(any(.operations[]?; .name == "list" and .capability == "read"))
+          | .product + "/" + .name
+          | select(. == $key)
+        ]
+        | .[]
+      ' "$schema_file")"
+    else
+      matches="$(jq -r --arg name "$filter" '
+        [
+          .[]
+          | select(.name == $name)
+          | select(any(.operations[]?; .name == "list" and .capability == "read"))
+          | .product + "/" + .name
+        ]
+        | sort
+        | .[]
+      ' "$schema_file")"
+    fi
+    if [[ -z "$matches" ]]; then
+      fail "schema list has no read/list resource matching --resources entry $filter"
+      return 1
+    fi
+    if (($(printf '%s\n' "$matches" | sed '/^$/d' | wc -l | tr -d ' ') > 1)); then
+      fail "ambiguous --resources entry $filter; use product/name"
+      return 1
+    fi
+    resources+=("$matches")
+  done
+
+  pass "schema list selected ${#resources[@]} read/list resource(s): ${resources[*]}"
   return 0
 }
 
 compare_counts() {
-  local resource="$1"
-  local list_count="$2"
-  local dump_count="$3"
+  local product="$1"
+  local resource="$2"
+  local list_count="$3"
+  local dump_count="$4"
 
   if [[ "$list_count" == "$dump_count" ]]; then
-    pass "zia $resource list and dump counts match ($list_count records)"
+    pass "$product $resource list and dump counts match ($list_count records)"
     return
   fi
   if ((strict_counts)); then
-    fail "zia $resource list count = $list_count, dump count = $dump_count"
+    fail "$product $resource list count = $list_count, dump count = $dump_count"
   else
-    info "zia $resource list count = $list_count, dump count = $dump_count; live data may have changed between reads"
+    info "$product $resource list count = $list_count, dump count = $dump_count; live data may have changed between reads"
   fi
 }
 
 write_expected_dump_paths() {
   local output="$1"
+  local resource_key
+  local product
   local resource
 
   : >"$output"
-  for resource in "${resources[@]}"; do
-    printf 'resources/zia/%s.json\n' "$resource" >>"$output"
+  for resource_key in "${resources[@]}"; do
+    product="${resource_key%%/*}"
+    resource="${resource_key#*/}"
+    printf 'resources/%s/%s.json\n' "$product" "$resource" >>"$output"
   done
   sort -o "$output" "$output"
 }
@@ -370,17 +465,12 @@ validate_manifest_resource_set() {
   local actual="$3"
   local diff_file="$4"
 
-  jq -r '.resources[]? | select(.product == "zia") | .path' "$manifest" | sort >"$actual"
+  jq -r '.resources[]? | .path' "$manifest" | sort >"$actual"
   if diff -u "$expected" "$actual" >"$diff_file"; then
-    pass "dump manifest resource set matches ZIA catalog"
+    pass "dump manifest resource set matches selected catalog"
+    pass "dump manifest contains only selected resources"
   else
-    fail "dump manifest resource set differs from ZIA catalog; diff captured at $diff_file"
-  fi
-
-  if jq -e '[.resources[]? | select(.product != "zia")] | length == 0' "$manifest" >/dev/null; then
-    pass "dump manifest contains only ZIA resources"
-  else
-    fail "dump manifest contains non-ZIA resources"
+    fail "dump manifest resource set differs from selected catalog; diff captured at $diff_file"
   fi
 }
 
@@ -390,20 +480,20 @@ validate_dump_file_set() {
   local actual="$3"
   local diff_file="$4"
 
-  if [[ ! -d "$dump_dir/resources/zia" ]]; then
-    fail "dump ZIA resources directory missing: $dump_dir/resources/zia"
+  if [[ ! -d "$dump_dir/resources" ]]; then
+    fail "dump resources directory missing: $dump_dir/resources"
     return
   fi
 
-  find "$dump_dir/resources/zia" -maxdepth 1 -type f -name '*.json' -print |
+  find "$dump_dir/resources" -mindepth 2 -maxdepth 2 -type f -name '*.json' -print |
     while IFS= read -r path; do
       printf '%s\n' "${path#"$dump_dir/"}"
     done | sort >"$actual"
 
   if diff -u "$expected" "$actual" >"$diff_file"; then
-    pass "dump resource files match ZIA catalog"
+    pass "dump resource files match selected catalog"
   else
-    fail "dump resource files differ from ZIA catalog; diff captured at $diff_file"
+    fail "dump resource files differ from selected catalog; diff captured at $diff_file"
   fi
 }
 
@@ -465,6 +555,7 @@ if ((skip_credential_check)); then
   info "credential preflight skipped for fake CLI validation"
 else
   if family="$(credential_family)"; then
+    credential_family_name="$family"
     pass "live credential preflight found $family credentials"
   else
     message="no supported live credentials configured; set explicit zscalerctl OneAPI or ZIA legacy env vars"
@@ -497,30 +588,39 @@ info "using CLI: ${cli[*]}"
 
 schema_file="$lists_dir/schema.json"
 schema_stderr="$lists_dir/schema.stderr"
-if ! load_zia_resources "$schema_file" "$schema_stderr"; then
+if ! load_resources "$schema_file" "$schema_stderr"; then
   fail "live smoke cannot continue without a valid schema resource set"
   exit 1
 fi
+if ! validate_selected_product_credentials; then
+  fail "live smoke cannot continue without product-specific credential metadata"
+  exit 1
+fi
 
-expected_paths_file="$lists_dir/expected-zia-dump-paths.txt"
+expected_paths_file="$lists_dir/expected-dump-paths.txt"
 write_expected_dump_paths "$expected_paths_file"
 
-for resource in "${resources[@]}"; do
-  stdout_file="$lists_dir/zia-${resource}.json"
-  stderr_file="$lists_dir/zia-${resource}.stderr"
+dump_products="$(printf '%s\n' "${resources[@]}" | awk -F/ '!seen[$1]++ {print $1}' | paste -sd ',' -)"
+dump_resources="$(printf '%s\n' "${resources[@]}" | paste -sd ',' -)"
 
-  if "${cli[@]}" --format json zia "$resource" list >"$stdout_file" 2>"$stderr_file"; then
-    pass "zia $resource list command completed"
+for resource_key in "${resources[@]}"; do
+  product="${resource_key%%/*}"
+  resource="${resource_key#*/}"
+  stdout_file="$lists_dir/${product}-${resource}.json"
+  stderr_file="$lists_dir/${product}-${resource}.stderr"
+
+  if "${cli[@]}" --format json "$product" "$resource" list >"$stdout_file" 2>"$stderr_file"; then
+    pass "$product $resource list command completed"
   else
-    fail "zia $resource list command failed; stderr captured at $stderr_file"
+    fail "$product $resource list command failed; stderr captured at $stderr_file"
     continue
   fi
 
-  if validate_json_array "zia $resource list" "$stdout_file"; then
-    jq 'length' "$stdout_file" >"$lists_dir/zia-${resource}.count"
-    validate_no_denied_keys "zia $resource list" "$stdout_file"
-    validate_catalog_subset "zia $resource list" "$resource" "$stdout_file" "$schema_file"
-    summarize_redaction_markers "zia $resource list" "$stdout_file"
+  if validate_json_array "$product $resource list" "$stdout_file"; then
+    jq 'length' "$stdout_file" >"$lists_dir/${product}-${resource}.count"
+    validate_no_denied_keys "$product $resource list" "$stdout_file"
+    validate_catalog_subset "$product $resource list" "$product" "$resource" "$stdout_file" "$schema_file"
+    summarize_redaction_markers "$product $resource list" "$stdout_file"
   fi
 done
 
@@ -528,16 +628,18 @@ dump_dir="$out_dir/dump"
 dump_stdout="$out_dir/dump.stdout"
 dump_stderr="$out_dir/dump.stderr"
 
-if "${cli[@]}" dump --products zia --out "$dump_dir" >"$dump_stdout" 2>"$dump_stderr"; then
-  pass "zia dump command completed"
+if "${cli[@]}" dump --products "$dump_products" --resources "$dump_resources" --out "$dump_dir" >"$dump_stdout" 2>"$dump_stderr"; then
+  pass "dump command completed for selected resources"
 else
-  fail "zia dump command failed; stderr captured at $dump_stderr"
+  fail "dump command failed for selected resources; stderr captured at $dump_stderr"
 fi
 
 if [[ -d "$dump_dir" ]]; then
   validate_file_mode "dump root directory" "$dump_dir" "700"
   validate_file_mode "dump resources directory" "$dump_dir/resources" "700"
-  validate_file_mode "dump zia directory" "$dump_dir/resources/zia" "700"
+  while IFS= read -r product; do
+    validate_file_mode "dump $product directory" "$dump_dir/resources/$product" "700"
+  done < <(printf '%s\n' "${resources[@]}" | awk -F/ '!seen[$1]++ {print $1}')
 
   manifest="$dump_dir/manifest.json"
   report="$dump_dir/redaction_report.json"
@@ -560,7 +662,7 @@ if [[ -d "$dump_dir" ]]; then
       else
         fail "dump manifest includes unexpected partial-error metadata"
       fi
-      validate_manifest_resource_set "$manifest" "$expected_paths_file" "$lists_dir/manifest-zia-dump-paths.txt" "$lists_dir/manifest-zia-dump-paths.diff"
+      validate_manifest_resource_set "$manifest" "$expected_paths_file" "$lists_dir/manifest-dump-paths.txt" "$lists_dir/manifest-dump-paths.diff"
     else
       fail "dump manifest is not valid JSON: $manifest"
     fi
@@ -591,22 +693,24 @@ if [[ -d "$dump_dir" ]]; then
     pass "complete dump did not write errors.ndjson"
   fi
 
-  validate_dump_file_set "$dump_dir" "$expected_paths_file" "$lists_dir/actual-zia-dump-paths.txt" "$lists_dir/actual-zia-dump-paths.diff"
+  validate_dump_file_set "$dump_dir" "$expected_paths_file" "$lists_dir/actual-dump-paths.txt" "$lists_dir/actual-dump-paths.diff"
 
-  for resource in "${resources[@]}"; do
-    file="$dump_dir/resources/zia/${resource}.json"
+  for resource_key in "${resources[@]}"; do
+    product="${resource_key%%/*}"
+    resource="${resource_key#*/}"
+    file="$dump_dir/resources/$product/${resource}.json"
     if [[ ! -f "$file" ]]; then
       fail "dump resource file missing: $file"
       continue
     fi
-    validate_file_mode "dump zia $resource file" "$file" "600"
-    if validate_json_array "dump zia $resource" "$file"; then
-      jq 'length' "$file" >"$lists_dir/dump-zia-${resource}.count"
-      validate_no_denied_keys "dump zia $resource" "$file"
-      validate_catalog_subset "dump zia $resource" "$resource" "$file" "$schema_file"
-      summarize_redaction_markers "dump zia $resource" "$file"
-      if [[ -f "$lists_dir/zia-${resource}.count" ]]; then
-        compare_counts "$resource" "$(cat "$lists_dir/zia-${resource}.count")" "$(cat "$lists_dir/dump-zia-${resource}.count")"
+    validate_file_mode "dump $product $resource file" "$file" "600"
+    if validate_json_array "dump $product $resource" "$file"; then
+      jq 'length' "$file" >"$lists_dir/dump-${product}-${resource}.count"
+      validate_no_denied_keys "dump $product $resource" "$file"
+      validate_catalog_subset "dump $product $resource" "$product" "$resource" "$file" "$schema_file"
+      summarize_redaction_markers "dump $product $resource" "$file"
+      if [[ -f "$lists_dir/${product}-${resource}.count" ]]; then
+        compare_counts "$product" "$resource" "$(cat "$lists_dir/${product}-${resource}.count")" "$(cat "$lists_dir/dump-${product}-${resource}.count")"
       fi
     fi
   done

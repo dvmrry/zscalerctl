@@ -16,6 +16,10 @@ import (
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller"
+	zpacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/common"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup"
 
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/resources"
@@ -62,6 +66,8 @@ func TestNewSDKConfigurationDoesNotUseSDKDiscoveryOrLogging(t *testing.T) {
 	t.Setenv("ZSCALER_CLIENT_ID", "sdk-client-id")
 	t.Setenv("ZSCALER_CLIENT_SECRET", "sdk-client-secret")
 	t.Setenv("ZSCALER_VANITY_DOMAIN", "sdk-vanity")
+	t.Setenv("ZPA_CUSTOMER_ID", "sdk-zpa-customer-id")
+	t.Setenv("ZPA_MICROTENANT_ID", "sdk-zpa-microtenant-id")
 	t.Setenv("ZSCALER_CLOUD", "sdk-cloud")
 	t.Setenv("ZSCALER_CLIENT_PROXY_HOST", "sdk-proxy.example.invalid")
 	t.Setenv("ZSCALER_CLIENT_CACHE_ENABLED", "true")
@@ -82,6 +88,12 @@ func TestNewSDKConfigurationDoesNotUseSDKDiscoveryOrLogging(t *testing.T) {
 	if got := cfg.Zscaler.Client.Cloud; got != "" {
 		t.Errorf("newSDKConfiguration().Cloud = %q, want empty", got)
 	}
+	if got := cfg.Zscaler.Client.CustomerID; got != "zscalerctl-zpa-customer-id" {
+		t.Errorf("newSDKConfiguration().CustomerID = %q, want zscalerctl-zpa-customer-id", got)
+	}
+	if got := cfg.Zscaler.Client.MicrotenantID; got != "zscalerctl-zpa-microtenant-id" {
+		t.Errorf("newSDKConfiguration().MicrotenantID = %q, want zscalerctl-zpa-microtenant-id", got)
+	}
 	if got := cfg.Zscaler.Client.Proxy.Host; got != "" {
 		t.Errorf("newSDKConfiguration().Proxy.Host = %q, want empty", got)
 	}
@@ -97,6 +109,24 @@ func TestNewSDKConfigurationDoesNotUseSDKDiscoveryOrLogging(t *testing.T) {
 	}
 	if transport.Proxy != nil {
 		t.Errorf("newSDKConfiguration().HTTPClient.Transport.Proxy is non-nil, want nil")
+	}
+}
+
+func TestZPAReaderRequiresCustomerIDBeforeNetwork(t *testing.T) {
+	t.Parallel()
+
+	cfg := validReaderConfig()
+	cfg.ZPACustomerID = ""
+	reader, err := NewReader(cfg)
+	if err != nil {
+		t.Fatalf("NewReader(valid OneAPI without ZPA customer id) error = %v, want nil", err)
+	}
+	_, err = reader.List(context.Background(), resources.ProductZPA, "server-groups")
+	if !errors.Is(err, ErrMissingCredentials) {
+		t.Fatalf("SDKReader.List(zpa, server-groups without customer id) error = %v, want ErrMissingCredentials", err)
+	}
+	if !strings.Contains(err.Error(), "ZSCALERCTL_ZPA_CUSTOMER_ID") {
+		t.Errorf("SDKReader.List(zpa, server-groups without customer id) error = %v, want ZSCALERCTL_ZPA_CUSTOMER_ID guidance", err)
 	}
 }
 
@@ -548,6 +578,116 @@ func TestReaderListGRETunnelsProjectsSDKShapeThroughAllowList(t *testing.T) {
 	}
 }
 
+func TestReaderListServerGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "server-group-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+		adminCanary       = "server-group-admin-canary"
+		connectorCanary   = "server-group-connector-canary"
+		serverCanary      = "server-group-server-canary"
+		appCanary         = "server-group-application-canary"
+		extranetCanary    = "server-group-extranet-canary"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZPA, name: resourceServerGroups}: fakeServerGroupsResourceHandler(fakeZPAServerGroupsClient{
+				groups: []servergroup.ServerGroup{
+					{
+						ID:               "sg-123",
+						Enabled:          true,
+						Name:             "Core services psk=" + canary,
+						Description:      "temporary psk=" + canary + " " + bareFreeTextToken,
+						IpAnchored:       true,
+						ConfigSpace:      "DEFAULT",
+						DynamicDiscovery: true,
+						ExtranetEnabled:  true,
+						CreationTime:     "1712345000",
+						ModifiedBy:       adminCanary,
+						ModifiedTime:     "1712345678",
+						MicroTenantID:    "microtenant-1",
+						MicroTenantName:  "Primary",
+						ReadOnly:         false,
+						RestrictionType:  "NONE",
+						ZscalerManaged:   false,
+						AppConnectorGroups: []appconnectorgroup.AppConnectorGroup{
+							{
+								ID:          "acg-1",
+								Name:        connectorCanary,
+								Description: "temporary psk=" + canary,
+							},
+						},
+						Servers: []appservercontroller.ApplicationServer{
+							{
+								ID:      "server-1",
+								Name:    serverCanary,
+								Address: "198.51.100.10",
+							},
+						},
+						Applications: []servergroup.Applications{
+							{
+								ID:   "app-1",
+								Name: appCanary,
+							},
+						},
+						ExtranetDTO: zpacommon.ExtranetDTO{
+							ZiaErName: extranetCanary,
+							ZpnErID:   "zpn-er-1",
+							LocationDTO: []zpacommon.LocationDTO{
+								{
+									ID:   "loc-1",
+									Name: extranetCanary,
+								},
+							},
+						},
+					},
+				},
+			}),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZPA, "server-groups")
+	if err != nil {
+		t.Fatalf("SDKReader.List(zpa, server-groups) error = %v, want nil", err)
+	}
+	spec, ok := resources.FindSpec(resources.ProductZPA, "server-groups")
+	if !ok {
+		t.Fatal("FindSpec(zpa, server-groups) ok = false, want true")
+	}
+	projected, _, err := resources.ProjectRecords(spec, redact.ModeStandard, records)
+	if err != nil {
+		t.Fatalf("ProjectRecords(zpa server-groups) error = %v, want nil", err)
+	}
+	got := projected.Records()[0].Fields()
+	for _, field := range []string{"name", "description"} {
+		value := toString(got[field])
+		if strings.Contains(value, canary) {
+			t.Errorf("projected server-groups %s = %v, want no %q", field, got[field], canary)
+		}
+		if field == "description" && strings.Contains(value, bareFreeTextToken) {
+			t.Errorf("projected server-groups %s = %v, want no bare token", field, got[field])
+		}
+		if !strings.Contains(value, "<REDACTED:SECRET>") {
+			t.Errorf("projected server-groups %s = %v, want typed redaction marker", field, got[field])
+		}
+	}
+	for _, field := range []string{"modifiedBy", "appConnectorGroups", "servers", "applications", "extranetDTO"} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected server-groups = %#v, want no %s", got, field)
+		}
+	}
+	for _, forbidden := range []string{adminCanary, connectorCanary, serverCanary, appCanary, extranetCanary} {
+		if strings.Contains(fmt.Sprint(got), forbidden) {
+			t.Errorf("projected server-groups = %#v, want no %q", got, forbidden)
+		}
+	}
+	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
+		t.Errorf("AssertRenderedSubset(projected server-groups SDK shape) error = %v, want nil", err)
+	}
+}
+
 func TestReaderGetLocationRejectsNonNumericID(t *testing.T) {
 	t.Parallel()
 
@@ -561,6 +701,49 @@ func TestReaderGetLocationRejectsNonNumericID(t *testing.T) {
 	_, err := reader.Get(context.Background(), resources.ProductZIA, "locations", "not-a-number")
 	if !errors.Is(err, ErrInvalidResourceID) {
 		t.Fatalf("SDKReader.Get(non-numeric id) error = %v, want ErrInvalidResourceID", err)
+	}
+}
+
+func TestReaderGetServerGroupDispatchesByResource(t *testing.T) {
+	t.Parallel()
+
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZPA, name: resourceServerGroups}: fakeServerGroupsResourceHandler(fakeZPAServerGroupsClient{
+				group: &servergroup.ServerGroup{
+					ID:      "sg-123",
+					Name:    "Core services",
+					Enabled: true,
+				},
+			}),
+		},
+	}
+
+	record, err := reader.Get(context.Background(), resources.ProductZPA, "server-groups", "sg-123")
+	if err != nil {
+		t.Fatalf("SDKReader.Get(zpa, server-groups, sg-123) error = %v, want nil", err)
+	}
+	spec, ok := resources.FindSpec(resources.ProductZPA, "server-groups")
+	if !ok {
+		t.Fatal("FindSpec(zpa, server-groups) ok = false, want true")
+	}
+	projected, _, err := resources.ProjectRecord(spec, redact.ModeStandard, record)
+	if err != nil {
+		t.Fatalf("ProjectRecord(zpa server-groups) error = %v, want nil", err)
+	}
+	got := projected.Fields()
+	if got["id"] != "sg-123" {
+		t.Errorf("projected server-group id = %v, want sg-123", got["id"])
+	}
+	if got["name"] != "Core services" {
+		t.Errorf("projected server-group name = %v, want Core services", got["name"])
+	}
+	if got["enabled"] != true {
+		t.Errorf("projected server-group enabled = %v, want true", got["enabled"])
+	}
+	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
+		t.Errorf("AssertRenderedSubset(projected server-group) error = %v, want nil", err)
 	}
 }
 
@@ -739,10 +922,12 @@ func TestReaderNormalizesSDKErrors(t *testing.T) {
 
 func validReaderConfig() ReaderConfig {
 	return ReaderConfig{
-		ClientID:     secret.New("zscalerctl-client-id"),
-		ClientSecret: secret.New("zscalerctl-client-secret"),
-		VanityDomain: "zscalerctl-vanity",
-		Timeout:      time.Second,
+		ClientID:         secret.New("zscalerctl-client-id"),
+		ClientSecret:     secret.New("zscalerctl-client-secret"),
+		VanityDomain:     "zscalerctl-vanity",
+		ZPACustomerID:    "zscalerctl-zpa-customer-id",
+		ZPAMicrotenantID: "zscalerctl-zpa-microtenant-id",
+		Timeout:          time.Second,
 	}
 }
 
@@ -859,6 +1044,26 @@ func (f fakeZIAGRETunnelsClient) GetGRETunnel(context.Context, int) (*gretunnels
 	return f.tunnel, nil
 }
 
+type fakeZPAServerGroupsClient struct {
+	groups []servergroup.ServerGroup
+	group  *servergroup.ServerGroup
+	err    error
+}
+
+func (f fakeZPAServerGroupsClient) ListServerGroups(context.Context) ([]servergroup.ServerGroup, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.groups, nil
+}
+
+func (f fakeZPAServerGroupsClient) GetServerGroup(context.Context, string) (*servergroup.ServerGroup, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.group, nil
+}
+
 func fakeLocationsResourceHandler(client fakeZIALocationClient) resourceHandler {
 	return newListGetHandler(
 		resourceLocations,
@@ -901,6 +1106,15 @@ func fakeGRETunnelsResourceHandler(client fakeZIAGRETunnelsClient) resourceHandl
 		client.ListGRETunnels,
 		intIDGetter(client.GetGRETunnel),
 		greTunnelSourceRecord,
+	)
+}
+
+func fakeServerGroupsResourceHandler(client fakeZPAServerGroupsClient) resourceHandler {
+	return newListGetHandler(
+		resourceServerGroups,
+		client.ListServerGroups,
+		client.GetServerGroup,
+		serverGroupSourceRecord,
 	)
 }
 

@@ -18,6 +18,8 @@ const (
 	EnvClientID         = "ZSCALERCTL_CLIENT_ID"
 	EnvClientSecret     = "ZSCALERCTL_CLIENT_SECRET"
 	EnvClientSecretFile = "ZSCALERCTL_CLIENT_SECRET_FILE"
+	EnvZPACustomerID    = "ZSCALERCTL_ZPA_CUSTOMER_ID"
+	EnvZPAMicrotenantID = "ZSCALERCTL_ZPA_MICROTENANT_ID"
 	EnvZIAUsername      = "ZSCALERCTL_ZIA_USERNAME"
 	EnvZIAPassword      = "ZSCALERCTL_ZIA_PASSWORD"
 	EnvZIAPasswordFile  = "ZSCALERCTL_ZIA_PASSWORD_FILE"
@@ -41,6 +43,7 @@ type Config struct {
 	VanityDomain string
 	Cloud        string
 	Credentials  Credentials
+	ZPA          ZPAConfig
 	ZIALegacy    ZIALegacyCredentials
 	Defaults     Defaults
 }
@@ -49,6 +52,11 @@ type Credentials struct {
 	ClientID         secret.Secret
 	ClientSecret     secret.Secret
 	ClientSecretFile string
+}
+
+type ZPAConfig struct {
+	CustomerID    string
+	MicrotenantID string
 }
 
 type ZIALegacyCredentials struct {
@@ -71,6 +79,7 @@ type SafeConfig struct {
 	VanityDomainSet bool             `json:"vanity_domain_set"`
 	Cloud           string           `json:"cloud,omitempty"`
 	Credentials     CredentialStatus `json:"credentials"`
+	ZPA             ZPAStatus        `json:"zpa"`
 	ZIALegacy       ZIALegacyStatus  `json:"zia_legacy"`
 	Defaults        DefaultsView     `json:"defaults"`
 }
@@ -81,6 +90,11 @@ type CredentialStatus struct {
 	ClientIDSet         bool `json:"client_id_set"`
 	ClientSecretSet     bool `json:"client_secret_set"`
 	ClientSecretFileSet bool `json:"client_secret_file_set"`
+}
+
+type ZPAStatus struct {
+	CustomerIDSet    bool `json:"customer_id_set"`
+	MicrotenantIDSet bool `json:"microtenant_id_set"`
 }
 
 type ZIALegacyStatus struct {
@@ -158,6 +172,10 @@ func LoadEnv(environ []string) (Config, error) {
 			ClientSecret:     clientSecret,
 			ClientSecretFile: env[EnvClientSecretFile],
 		},
+		ZPA: ZPAConfig{
+			CustomerID:    strings.TrimSpace(env[EnvZPACustomerID]),
+			MicrotenantID: strings.TrimSpace(env[EnvZPAMicrotenantID]),
+		},
 		ZIALegacy: ZIALegacyCredentials{
 			Username:     secret.New(env[EnvZIAUsername]),
 			Password:     ziaPassword,
@@ -190,6 +208,10 @@ func (c Config) Safe() SafeConfig {
 			ClientIDSet:         c.Credentials.ClientID.IsSet(),
 			ClientSecretSet:     c.Credentials.ClientSecret.IsSet(),
 			ClientSecretFileSet: c.Credentials.ClientSecretFile != "",
+		},
+		ZPA: ZPAStatus{
+			CustomerIDSet:    c.ZPA.CustomerID != "",
+			MicrotenantIDSet: c.ZPA.MicrotenantID != "",
 		},
 		ZIALegacy: ZIALegacyStatus{
 			UsernameSet:     c.ZIALegacy.Username.IsSet(),
