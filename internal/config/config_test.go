@@ -21,6 +21,7 @@ func TestLoadEnvSafeConfigDoesNotExposeSecrets(t *testing.T) {
 		config.EnvCloud + "=zscalerthree",
 		config.EnvClientID + "=" + clientID,
 		config.EnvClientSecret + "=" + clientSecret,
+		config.EnvProxyURL + "=http://proxy-user:proxy-secret@proxy.example.invalid:8080",
 		config.EnvNoCache + "=true",
 	})
 	if err != nil {
@@ -32,7 +33,7 @@ func TestLoadEnvSafeConfigDoesNotExposeSecrets(t *testing.T) {
 		t.Fatalf("json.Marshal(Config.Safe()) error = %v, want nil", err)
 	}
 	got := string(body)
-	for _, forbidden := range []string{clientID, clientSecret, "acme"} {
+	for _, forbidden := range []string{clientID, clientSecret, "acme", "proxy-user", "proxy-secret", "proxy.example.invalid"} {
 		if strings.Contains(got, forbidden) {
 			t.Errorf("json.Marshal(Config.Safe()) = %s, want no %q", got, forbidden)
 		}
@@ -42,6 +43,9 @@ func TestLoadEnvSafeConfigDoesNotExposeSecrets(t *testing.T) {
 	}
 	if !cfg.Safe().VanityDomainSet {
 		t.Errorf("Config.Safe().VanityDomainSet = false, want true")
+	}
+	if !cfg.Safe().Proxy.URLSet || cfg.Safe().Proxy.FromEnvironment {
+		t.Errorf("Config.Safe().Proxy = %+v, want URL set without environment proxy", cfg.Safe().Proxy)
 	}
 }
 
@@ -113,6 +117,34 @@ func TestLoadEnvRejectsRedactionOff(t *testing.T) {
 
 	if _, err := config.LoadEnv([]string{config.EnvRedaction + "=off"}); err == nil {
 		t.Errorf("LoadEnv(%s=off) error = nil, want error", config.EnvRedaction)
+	}
+}
+
+func TestLoadEnvReadsExplicitProxyFromEnvironmentFlag(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.LoadEnv([]string{
+		config.EnvProxyFromEnv + "=true",
+	})
+	if err != nil {
+		t.Fatalf("LoadEnv(proxy from env) error = %v, want nil", err)
+	}
+	if !cfg.Proxy.FromEnvironment {
+		t.Errorf("LoadEnv(proxy from env).Proxy.FromEnvironment = false, want true")
+	}
+	if cfg.Safe().Proxy.URLSet {
+		t.Errorf("Config.Safe().Proxy.URLSet = true, want false")
+	}
+	if !cfg.Safe().Proxy.FromEnvironment {
+		t.Errorf("Config.Safe().Proxy.FromEnvironment = false, want true")
+	}
+}
+
+func TestLoadEnvRejectsInvalidProxyFromEnvironmentFlag(t *testing.T) {
+	t.Parallel()
+
+	if _, err := config.LoadEnv([]string{config.EnvProxyFromEnv + "=sometimes"}); err == nil {
+		t.Errorf("LoadEnv(%s=sometimes) error = nil, want error", config.EnvProxyFromEnv)
 	}
 }
 

@@ -255,6 +255,86 @@ Fields:
 The SDK also returns scope details. The reader maps those fields, but the
 catalog drops `scopes` until they are separately classified.
 
+## ZIA Url Filtering Rules
+
+Commands:
+
+```sh
+zscalerctl zia url-filtering-rules list
+zscalerctl zia url-filtering-rules get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | URL filtering rule identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `state`, `order`, `rank` | Operational metadata | `standard`, `share`, `paranoid` | Rule state and ordering metadata. |
+| `action`, `protocols`, `requestMethods`, `urlCategories`, `urlCategories2`, `userRiskScoreLevels`, `userAgentTypes` | Tenant configuration | `standard`, `share` | Primary rule criteria and action fields. |
+| `sourceCountries`, `lastModifiedTime`, `enforceTimeValidity`, `validityStartTime`, `validityEndTime`, `validityTimeZoneId`, `blockOverride`, `timeQuota`, `sizeQuota`, `ciparule` | Operational metadata | varies | Reviewed non-principal rule metadata. |
+| `endUserNotificationUrl`, `cbiProfileId` | Sensitive identifier | `standard` | Local-only URL/browser isolation references. |
+| `labels`, `timeWindows` | Tenant configuration | `standard`, `share` | Nested references render reviewed `id`/`name` fields only. |
+| `locations`, `locationGroups`, `sourceIpGroups`, `workloadGroups` | Tenant configuration | `standard` | Local-only scope references. Nested unreviewed fields are dropped. |
+
+The SDK also returns admin, user, device, department, override, and CBI profile
+objects. The reader maps those structures, but the catalog keeps them out of
+rendered output until they are separately modeled.
+
+## ZIA Firewall Filtering Rules
+
+Commands:
+
+```sh
+zscalerctl zia firewall-filtering-rules list
+zscalerctl zia firewall-filtering-rules get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Firewall filtering rule identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `state`, `order`, `rank`, `enableFullLogging`, `defaultRule`, `predefined`, `excludeSrcCountries` | Operational metadata | `standard`, `share`, `paranoid` | Rule state, logging, ordering, and default/predefined flags. |
+| `action`, `accessControl`, `nwApplications`, `deviceTrustLevels` | Tenant configuration | `standard`, `share` | Reviewed rule action and criteria metadata. |
+| `sourceCountries`, `destCountries`, `lastModifiedTime` | Operational metadata | `standard`, `share` | Non-principal rule metadata. |
+| `srcIps`, `destAddresses`, `destIpCategories` | Sensitive identifier | `standard` | Local-only IP and destination category criteria. |
+| `labels`, `timeWindows` | Tenant configuration | `standard`, `share` | Nested references render reviewed `id`/`name` fields only. |
+| `locations`, `locationGroups`, `srcIpGroups`, `destIpGroups`, `nwServices`, `nwServiceGroups`, `nwApplicationGroups`, `appServices`, `appServiceGroups`, `workloadGroups` | Tenant configuration | `standard` | Local-only scope and service references. Nested unreviewed fields are dropped. |
+
+The SDK also returns admin, user, group, department, device, and ZPA segment
+references. The reader maps those structures, but the catalog keeps them out of
+rendered output until they are separately modeled.
+
+## ZIA Forwarding Rules
+
+Commands:
+
+```sh
+zscalerctl zia forwarding-rules list
+zscalerctl zia forwarding-rules get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Forwarding rule identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `type`, `state`, `order`, `rank`, `lastModifiedTime`, `zpaBrokerRule`, `destCountries` | Operational metadata | varies | Rule type, state, order, and forwarding metadata. |
+| `forwardMethod` | Tenant configuration | `standard`, `share` | Forwarding method selected for the rule. |
+| `srcIps`, `destAddresses`, `destIpCategories`, `resCategories` | Sensitive identifier | `standard` | Local-only source and destination criteria. |
+| `labels` | Tenant configuration | `standard`, `share` | Nested references render reviewed `id`/`name` fields only. |
+| `locations`, `locationGroups`, `ecGroups`, `srcIpGroups`, `srcIpv6Groups`, `destIpGroups`, `destIpv6Groups`, `nwServices`, `nwServiceGroups`, `nwApplicationGroups`, `appServiceGroups`, `proxyGateway`, `dedicatedIPGateway`, `zpaGateway` | Tenant configuration | `standard` | Local-only scope, service, and gateway references. Nested unreviewed fields are dropped. |
+
+The SDK also returns admin, user, group, department, device, and ZPA segment
+objects. The reader maps those structures, but the catalog keeps them out of
+rendered output until they are separately modeled.
+
 ## Adding A Resource
 
 Before enabling another resource:

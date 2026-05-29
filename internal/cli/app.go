@@ -226,6 +226,7 @@ func (a *App) runDoctor(ctx context.Context, cfg config.Config, opts globalOptio
 		{Key: "Redaction", Value: string(cfg.Defaults.Redaction)},
 		{Key: "Timeout", Value: opts.timeout.String()},
 		{Key: "Cache", Value: cacheStatus(cfg.Defaults.NoCache)},
+		{Key: "Proxy", Value: proxyStatus(cfg.Proxy)},
 		{Key: "Credentials", Value: credentialStatus(cfg)},
 		{Key: "Live API", Value: liveAPIStatus(cfg)},
 	}, a.style(opts))
@@ -266,6 +267,7 @@ func (a *App) runConfig(_ context.Context, cfg config.Config, opts globalOptions
 		{Key: "ZIA Password", Value: setStatus(safe.ZIALegacy.PasswordSet || safe.ZIALegacy.PasswordFileSet)},
 		{Key: "ZIA API Key", Value: setStatus(safe.ZIALegacy.APIKeySet || safe.ZIALegacy.APIKeyFileSet)},
 		{Key: "ZIA Cloud", Value: setStatus(safe.ZIALegacy.CloudSet)},
+		{Key: "Proxy", Value: proxyStatus(cfg.Proxy)},
 		{Key: "Redaction", Value: safe.Defaults.Redaction},
 		{Key: "Cache", Value: cacheStatus(safe.Defaults.NoCache)},
 	}, a.style(opts))
@@ -416,6 +418,10 @@ func (a *App) resourceReader(cfg config.Config, opts globalOptions) (ResourceRea
 		},
 		Timeout: opts.timeout,
 		NoCache: cfg.Defaults.NoCache,
+		Proxy: zscaler.ProxyConfig{
+			URL:             cfg.Proxy.URL,
+			FromEnvironment: cfg.Proxy.FromEnvironment,
+		},
 	})
 }
 
@@ -689,6 +695,17 @@ func cacheStatus(noCache bool) string {
 		return "bypass"
 	}
 	return "default"
+}
+
+func proxyStatus(proxy config.Proxy) string {
+	switch {
+	case proxy.FromEnvironment:
+		return "environment"
+	case strings.TrimSpace(proxy.URL) != "":
+		return "explicit"
+	default:
+		return "direct"
+	}
 }
 
 func valueOrUnset(value string) string {

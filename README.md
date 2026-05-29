@@ -50,7 +50,8 @@ safety rails before adding Zscaler API resources:
 The initial live reader supports a small read-only ZIA resource set through the
 official Go SDK. It requires explicit `ZSCALERCTL_*` configuration and does not
 consume the SDK's own environment variable names, local SDK config files, SDK log
-flags, or ambient proxy variables. SDK response caching is disabled.
+flags, or ambient proxy variables unless `ZSCALERCTL_PROXY_FROM_ENV=true` is set.
+SDK response caching is disabled.
 
 OneAPI credentials are the default:
 
@@ -71,6 +72,20 @@ export ZSCALERCTL_ZIA_USERNAME=...
 export ZSCALERCTL_ZIA_PASSWORD_FILE=/path/to/owner-only/password-file
 export ZSCALERCTL_ZIA_API_KEY_FILE=/path/to/owner-only/api-key-file
 export ZSCALERCTL_ZIA_CLOUD=zscalerthree
+```
+
+Corporate proxy settings are opt-in. To use standard `HTTPS_PROXY`,
+`HTTP_PROXY`, and `NO_PROXY` values, set:
+
+```sh
+export ZSCALERCTL_PROXY_FROM_ENV=true
+```
+
+To avoid ambient proxy discovery while still using a proxy, set an explicit
+proxy URL:
+
+```sh
+export ZSCALERCTL_PROXY_URL=http://proxy.example.invalid:8080
 ```
 
 ```sh

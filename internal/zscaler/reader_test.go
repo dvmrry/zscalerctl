@@ -11,6 +11,8 @@ import (
 	"time"
 
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
+	filteringrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/filteringrules"
+	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
@@ -18,6 +20,7 @@ import (
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
 
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/resources"
@@ -102,6 +105,75 @@ func TestNewSDKConfigurationDoesNotUseSDKDiscoveryOrLogging(t *testing.T) {
 	}
 }
 
+func TestNewSDKConfigurationCanUseExplicitEnvironmentProxy(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://proxy.example.invalid:8080")
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("NO_PROXY", "")
+
+	cfg := validReaderConfig()
+	cfg.Proxy.FromEnvironment = true
+	sdkCfg := newSDKConfiguration(context.Background(), cfg)
+	transport, ok := sdkCfg.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("newSDKConfiguration().HTTPClient.Transport = %T, want *http.Transport", sdkCfg.HTTPClient.Transport)
+	}
+	if transport.Proxy == nil {
+		t.Fatal("newSDKConfiguration().HTTPClient.Transport.Proxy = nil, want environment proxy")
+	}
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.example.invalid", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v, want nil", err)
+	}
+	proxyURL, err := transport.Proxy(request)
+	if err != nil {
+		t.Fatalf("transport.Proxy() error = %v, want nil", err)
+	}
+	if got := proxyURL.String(); got != "http://proxy.example.invalid:8080" {
+		t.Errorf("transport.Proxy() = %q, want http://proxy.example.invalid:8080", got)
+	}
+}
+
+func TestNewSDKConfigurationCanUseExplicitProxyURL(t *testing.T) {
+	cfg := validReaderConfig()
+	cfg.Proxy.URL = "http://proxy.example.invalid:8080"
+	sdkCfg := newSDKConfiguration(context.Background(), cfg)
+	transport, ok := sdkCfg.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("newSDKConfiguration().HTTPClient.Transport = %T, want *http.Transport", sdkCfg.HTTPClient.Transport)
+	}
+	if transport.Proxy == nil {
+		t.Fatal("newSDKConfiguration().HTTPClient.Transport.Proxy = nil, want explicit proxy")
+	}
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.example.invalid", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v, want nil", err)
+	}
+	proxyURL, err := transport.Proxy(request)
+	if err != nil {
+		t.Fatalf("transport.Proxy() error = %v, want nil", err)
+	}
+	if got := proxyURL.String(); got != "http://proxy.example.invalid:8080" {
+		t.Errorf("transport.Proxy() = %q, want http://proxy.example.invalid:8080", got)
+	}
+}
+
+func TestNewReaderRejectsInvalidProxyConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := validReaderConfig()
+	cfg.Proxy.URL = "proxy.example.invalid:8080"
+	if _, err := NewReader(cfg); !errors.Is(err, ErrInvalidProxyConfig) {
+		t.Fatalf("NewReader(invalid proxy URL) error = %v, want ErrInvalidProxyConfig", err)
+	}
+
+	cfg = validReaderConfig()
+	cfg.Proxy.URL = "http://proxy.example.invalid:8080"
+	cfg.Proxy.FromEnvironment = true
+	if _, err := NewReader(cfg); !errors.Is(err, ErrInvalidProxyConfig) {
+		t.Fatalf("NewReader(conflicting proxy config) error = %v, want ErrInvalidProxyConfig", err)
+	}
+}
+
 func TestNewLegacyZIAConfigurationDoesNotUseSDKDiscoveryOrProxy(t *testing.T) {
 	t.Setenv("ZIA_USERNAME", "sdk-legacy-admin@example.invalid")
 	t.Setenv("ZIA_PASSWORD", "sdk-legacy-password")
@@ -143,6 +215,26 @@ func TestNewLegacyZIAConfigurationDoesNotUseSDKDiscoveryOrProxy(t *testing.T) {
 	}
 	if transport.Proxy != nil {
 		t.Errorf("newLegacyZIAConfiguration().HTTPClient.Transport.Proxy is non-nil, want nil")
+	}
+}
+
+func TestNewLegacyZIAConfigurationCanUseExplicitEnvironmentProxy(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://proxy.example.invalid:8080")
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("NO_PROXY", "")
+
+	cfg := validLegacyReaderConfig()
+	cfg.Proxy.FromEnvironment = true
+	ziaCfg, err := newLegacyZIAConfiguration(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("newLegacyZIAConfiguration(proxy from env) error = %v, want nil", err)
+	}
+	transport, ok := ziaCfg.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("newLegacyZIAConfiguration().HTTPClient.Transport = %T, want *http.Transport", ziaCfg.HTTPClient.Transport)
+	}
+	if transport.Proxy == nil {
+		t.Fatal("newLegacyZIAConfiguration().HTTPClient.Transport.Proxy = nil, want environment proxy")
 	}
 }
 
@@ -866,6 +958,248 @@ func TestReaderListURLCategoriesProjectsSDKShapeThroughAllowList(t *testing.T) {
 	}
 }
 
+func TestReaderListURLFilteringRulesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "url-rule-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+		adminCanary       = "url-rule-admin-canary"
+		userCanary        = "url-rule-user-canary"
+		profileCanary     = "https://operator:url-rule-secret@example.invalid"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceURLRules}: newListGetHandler(
+				resourceURLRules,
+				func(context.Context) ([]urlfilteringpolicies.URLFilteringRule, error) {
+					return []urlfilteringpolicies.URLFilteringRule{
+						{
+							ID:                     101,
+							Name:                   "URL rule psk=" + canary,
+							Description:            "temporary psk=" + canary + " " + bareFreeTextToken,
+							Order:                  1,
+							Rank:                   7,
+							State:                  "ENABLED",
+							Action:                 "ALLOW",
+							Protocols:              []string{"HTTPS_RULE"},
+							URLCategories:          []string{"CUSTOM_01"},
+							URLCategories2:         []string{"CUSTOM_02"},
+							UserRiskScoreLevels:    []string{"LOW"},
+							UserAgentTypes:         []string{"OPERA"},
+							RequestMethods:         []string{"GET"},
+							SourceCountries:        []string{"US"},
+							EndUserNotificationURL: "https://notify.example.invalid",
+							BlockOverride:          true,
+							TimeQuota:              30,
+							SizeQuota:              1024,
+							LastModifiedTime:       1700000000,
+							EnforceTimeValidity:    true,
+							ValidityStartTime:      1700000001,
+							ValidityEndTime:        1700000100,
+							ValidityTimeZoneID:     "America/New_York",
+							Ciparule:               false,
+							CBIProfileID:           55,
+							CBIProfile: &ziacommon.CBIProfile{
+								ID:   "cbi-1",
+								Name: "CBI profile",
+								URL:  profileCanary,
+							},
+							LastModifiedBy: &ziacommon.IDNameExtensions{
+								ID:   9001,
+								Name: adminCanary,
+							},
+							Users: []ziacommon.IDNameExtensions{
+								{ID: 2001, Name: userCanary},
+							},
+							Locations: []ziacommon.IDNameExtensions{
+								{ID: 3001, Name: "Branch"},
+							},
+							Labels: []ziacommon.IDNameExtensions{
+								{ID: 4001, Name: "Security"},
+							},
+							SourceIPGroups: []ziacommon.IDNameExtensions{
+								{ID: 5001, Name: "source-networks"},
+							},
+						},
+					}, nil
+				},
+				func(context.Context, string) (*urlfilteringpolicies.URLFilteringRule, error) { return nil, nil },
+				urlFilteringRuleSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, "url-filtering-rules")
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, url-filtering-rules) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, "url-filtering-rules", records)
+	assertNoCanaries(t, "url-filtering-rules", got, canary, bareFreeTextToken, adminCanary, userCanary, profileCanary)
+	for _, field := range []string{"cbiProfile", "lastModifiedBy", "users"} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected url-filtering-rules = %#v, want no %s", got, field)
+		}
+	}
+	if got["action"] != "ALLOW" {
+		t.Errorf("projected url-filtering-rules action = %v, want ALLOW", got["action"])
+	}
+}
+
+func TestReaderListFirewallFilteringRulesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "firewall-rule-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+		adminCanary       = "firewall-rule-admin-canary"
+		userCanary        = "firewall-rule-user-canary"
+		zpaCanary         = "firewall-rule-zpa-canary"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceFirewallRules}: newListGetHandler(
+				resourceFirewallRules,
+				func(context.Context) ([]filteringrules.FirewallFilteringRules, error) {
+					return []filteringrules.FirewallFilteringRules{
+						{
+							ID:                202,
+							Name:              "Firewall rule psk=" + canary,
+							Description:       "temporary psk=" + canary + " " + bareFreeTextToken,
+							Order:             2,
+							Rank:              8,
+							State:             "ENABLED",
+							Action:            "ALLOW",
+							AccessControl:     "READ_WRITE",
+							EnableFullLogging: true,
+							DefaultRule:       false,
+							Predefined:        false,
+							LastModifiedTime:  1700000000,
+							SrcIps:            []string{"192.0.2.10"},
+							DestAddresses:     []string{"203.0.113.10"},
+							DestIpCategories:  []string{"COUNTRY_US"},
+							DestCountries:     []string{"US"},
+							SourceCountries:   []string{"US"},
+							NwApplications:    []string{"HTTP"},
+							LastModifiedBy: &ziacommon.IDNameExtensions{
+								ID:   9002,
+								Name: adminCanary,
+							},
+							Users: []ziacommon.IDNameExtensions{
+								{ID: 2002, Name: userCanary},
+							},
+							Locations: []ziacommon.IDNameExtensions{
+								{ID: 3002, Name: "Branch"},
+							},
+							Labels: []ziacommon.IDNameExtensions{
+								{ID: 4002, Name: "Security"},
+							},
+							ZPAAppSegments: []ziacommon.ZPAAppSegments{
+								{ID: 5002, Name: zpaCanary},
+							},
+						},
+					}, nil
+				},
+				func(context.Context, string) (*filteringrules.FirewallFilteringRules, error) { return nil, nil },
+				firewallFilteringRuleSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, "firewall-filtering-rules")
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, firewall-filtering-rules) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, "firewall-filtering-rules", records)
+	assertNoCanaries(t, "firewall-filtering-rules", got, canary, bareFreeTextToken, adminCanary, userCanary, zpaCanary)
+	for _, field := range []string{"lastModifiedBy", "users", "zpaAppSegments"} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected firewall-filtering-rules = %#v, want no %s", got, field)
+		}
+	}
+	if got["action"] != "ALLOW" {
+		t.Errorf("projected firewall-filtering-rules action = %v, want ALLOW", got["action"])
+	}
+}
+
+func TestReaderListForwardingRulesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "forwarding-rule-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+		adminCanary       = "forwarding-rule-admin-canary"
+		userCanary        = "forwarding-rule-user-canary"
+		zpaCanary         = "forwarding-rule-zpa-canary"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceForwardingRules}: newListGetHandler(
+				resourceForwardingRules,
+				func(context.Context) ([]forwardingrules.ForwardingRules, error) {
+					return []forwardingrules.ForwardingRules{
+						{
+							ID:               303,
+							Name:             "Forwarding rule psk=" + canary,
+							Description:      "temporary psk=" + canary + " " + bareFreeTextToken,
+							Type:             "FORWARDING",
+							Order:            3,
+							Rank:             9,
+							ForwardMethod:    "DIRECT",
+							State:            "ENABLED",
+							LastModifiedTime: 1700000000,
+							SrcIps:           []string{"198.51.100.10"},
+							DestAddresses:    []string{"example.invalid"},
+							DestCountries:    []string{"US"},
+							DestIpCategories: []string{"COUNTRY_US"},
+							ResCategories:    []string{"COUNTRY_CA"},
+							LastModifiedBy: &ziacommon.IDNameExtensions{
+								ID:   9003,
+								Name: adminCanary,
+							},
+							Users: []ziacommon.IDNameExtensions{
+								{ID: 2003, Name: userCanary},
+							},
+							Locations: []ziacommon.IDNameExtensions{
+								{ID: 3003, Name: "Branch"},
+							},
+							Labels: []ziacommon.IDNameExtensions{
+								{ID: 4003, Name: "Security"},
+							},
+							ZPAApplicationSegments: []forwardingrules.ZPAApplicationSegments{
+								{ID: 5003, Name: zpaCanary, Description: "psk=" + canary},
+							},
+							ZPAApplicationSegmentGroups: []forwardingrules.ZPAApplicationSegmentGroups{
+								{ID: 6003, Name: zpaCanary},
+							},
+						},
+					}, nil
+				},
+				func(context.Context, string) (*forwardingrules.ForwardingRules, error) { return nil, nil },
+				forwardingRuleSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, "forwarding-rules")
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, forwarding-rules) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, "forwarding-rules", records)
+	assertNoCanaries(t, "forwarding-rules", got, canary, bareFreeTextToken, adminCanary, userCanary, zpaCanary)
+	for _, field := range []string{"lastModifiedBy", "users", "zpaApplicationSegments", "zpaApplicationSegmentGroups"} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected forwarding-rules = %#v, want no %s", got, field)
+		}
+	}
+	if got["forwardMethod"] != "DIRECT" {
+		t.Errorf("projected forwarding-rules forwardMethod = %v, want DIRECT", got["forwardMethod"])
+	}
+}
+
 func TestReaderGetLocationRejectsNonNumericID(t *testing.T) {
 	t.Parallel()
 
@@ -1220,6 +1554,38 @@ func fakeGRETunnelsResourceHandler(client fakeZIAGRETunnelsClient) resourceHandl
 		intIDGetter(client.GetGRETunnel),
 		greTunnelSourceRecord,
 	)
+}
+
+func projectOneRecord(t *testing.T, product resources.Product, name string, records []resources.SourceRecord) map[string]any {
+	t.Helper()
+
+	spec, ok := resources.FindSpec(product, name)
+	if !ok {
+		t.Fatalf("FindSpec(%s, %s) ok = false, want true", product, name)
+	}
+	projected, _, err := resources.ProjectRecords(spec, redact.ModeStandard, records)
+	if err != nil {
+		t.Fatalf("ProjectRecords(%s %s) error = %v, want nil", product, name, err)
+	}
+	if len(projected.Records()) != 1 {
+		t.Fatalf("ProjectRecords(%s %s) records = %d, want 1", product, name, len(projected.Records()))
+	}
+	got := projected.Records()[0].Fields()
+	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
+		t.Fatalf("AssertRenderedSubset(projected %s %s SDK shape) error = %v, want nil", product, name, err)
+	}
+	return got
+}
+
+func assertNoCanaries(t *testing.T, resource string, record map[string]any, canaries ...string) {
+	t.Helper()
+
+	body := fmt.Sprint(record)
+	for _, canary := range canaries {
+		if strings.Contains(body, canary) {
+			t.Errorf("projected %s = %#v, want no %q", resource, record, canary)
+		}
+	}
 }
 
 func toString(value any) string {

@@ -47,6 +47,31 @@ export ZSCALERCTL_ZIA_CLOUD=<zia-cloud-name>
 Inline `ZSCALERCTL_ZIA_PASSWORD` and `ZSCALERCTL_ZIA_API_KEY` are supported for
 short-lived local smoke tests, but file-based secret delivery is preferred.
 
+## Configure A Proxy
+
+By default, live reads use a direct transport and ignore ambient proxy
+variables. This keeps credentialed traffic from being redirected by unrelated
+shell state.
+
+If your office network requires the standard Go proxy environment, opt in
+explicitly:
+
+```sh
+export ZSCALERCTL_PROXY_FROM_ENV=true
+export HTTPS_PROXY=http://proxy.example.invalid:8080
+export NO_PROXY=localhost,127.0.0.1
+```
+
+If you prefer not to depend on ambient `HTTPS_PROXY`/`HTTP_PROXY`, set a
+dedicated proxy URL instead:
+
+```sh
+export ZSCALERCTL_PROXY_URL=http://proxy.example.invalid:8080
+```
+
+`ZSCALERCTL_PROXY_URL` and `ZSCALERCTL_PROXY_FROM_ENV` are mutually exclusive.
+Status commands report only whether a proxy is configured, never the proxy URL.
+
 ## Shell Completions
 
 Completion scripts are static helper output. Generating them does not contact

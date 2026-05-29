@@ -23,10 +23,12 @@ func TestConfigShowDoesNotExposeEnvironmentSecrets(t *testing.T) {
 
 	const clientID = "client-id-value"
 	const clientSecret = "client-secret-value"
+	const proxyURL = "http://proxy-user:proxy-secret@proxy.example.invalid:8080"
 	var out, errOut bytes.Buffer
 	app := cli.New(&out, &errOut, []string{
 		config.EnvClientID + "=" + clientID,
 		config.EnvClientSecret + "=" + clientSecret,
+		config.EnvProxyURL + "=" + proxyURL,
 	})
 
 	err := app.Run(context.Background(), []string{"--format", "json", "config", "show"})
@@ -34,7 +36,7 @@ func TestConfigShowDoesNotExposeEnvironmentSecrets(t *testing.T) {
 		t.Fatalf("App.Run(config show) error = %v, want nil", err)
 	}
 	got := out.String()
-	for _, forbidden := range []string{clientID, clientSecret} {
+	for _, forbidden := range []string{clientID, clientSecret, "proxy-user", "proxy-secret", "proxy.example.invalid"} {
 		if strings.Contains(got, forbidden) {
 			t.Errorf("App.Run(config show) output = %q, want no %q", got, forbidden)
 		}
@@ -49,17 +51,19 @@ func TestDoctorDoesNotExposeEnvironmentSecrets(t *testing.T) {
 
 	const clientID = "client-id-value"
 	const clientSecret = "client-secret-value"
+	const proxyURL = "http://proxy-user:proxy-secret@proxy.example.invalid:8080"
 	var out, errOut bytes.Buffer
 	app := cli.New(&out, &errOut, []string{
 		config.EnvClientID + "=" + clientID,
 		config.EnvClientSecret + "=" + clientSecret,
+		config.EnvProxyURL + "=" + proxyURL,
 	})
 
 	err := app.Run(context.Background(), []string{"doctor"})
 	if err != nil {
 		t.Fatalf("App.Run(doctor) error = %v, want nil", err)
 	}
-	for _, forbidden := range []string{clientID, clientSecret} {
+	for _, forbidden := range []string{clientID, clientSecret, "proxy-user", "proxy-secret", "proxy.example.invalid"} {
 		if strings.Contains(out.String(), forbidden) {
 			t.Errorf("App.Run(doctor) output = %q, want no %q", out.String(), forbidden)
 		}

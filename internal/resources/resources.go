@@ -615,6 +615,90 @@ func FindSpec(product Product, name string) (ResourceSpec, bool) {
 	return ResourceSpec{}, false
 }
 
+func modes(values ...redact.Mode) []redact.Mode {
+	out := make([]redact.Mode, len(values))
+	copy(out, values)
+	return out
+}
+
+func allModes() []redact.Mode {
+	return modes(redact.ModeStandard, redact.ModeShare, redact.ModeParanoid)
+}
+
+func standardShareModes() []redact.Mode {
+	return modes(redact.ModeStandard, redact.ModeShare)
+}
+
+func standardOnlyMode() []redact.Mode {
+	return modes(redact.ModeStandard)
+}
+
+func operationalField(name string, allowed []redact.Mode) FieldSpec {
+	return FieldSpec{
+		Name:           name,
+		Classification: ClassOperational,
+		AllowedModes:   allowed,
+	}
+}
+
+func tenantConfigField(name string, allowed []redact.Mode) FieldSpec {
+	return FieldSpec{
+		Name:           name,
+		Classification: ClassTenantConfig,
+		AllowedModes:   allowed,
+	}
+}
+
+func sensitiveIdentifierField(name string) FieldSpec {
+	return FieldSpec{
+		Name:           name,
+		Classification: ClassSensitiveIdentifier,
+		AllowedModes:   standardOnlyMode(),
+	}
+}
+
+func freeTextField(name string, subject string) FieldSpec {
+	return FieldSpec{
+		Name:                   name,
+		Classification:         ClassFreeText,
+		AllowedModes:           standardOnlyMode(),
+		StandardFreeTextReason: standardFreeTextReason(subject),
+	}
+}
+
+func secretField(name string) FieldSpec {
+	return FieldSpec{
+		Name:           name,
+		Classification: ClassSecret,
+	}
+}
+
+func idNameExtensionsField(name string, allowed []redact.Mode) FieldSpec {
+	return FieldSpec{
+		Name:           name,
+		Classification: ClassTenantConfig,
+		AllowedModes:   allowed,
+		Fields: []FieldSpec{
+			operationalField("id", allModes()),
+			tenantConfigField("name", standardShareModes()),
+			secretField("extensions"),
+		},
+	}
+}
+
+func idNameField(name string, allowed []redact.Mode) FieldSpec {
+	return FieldSpec{
+		Name:           name,
+		Classification: ClassTenantConfig,
+		AllowedModes:   allowed,
+		Fields: []FieldSpec{
+			operationalField("id", allModes()),
+			tenantConfigField("name", standardShareModes()),
+			secretField("parent"),
+		},
+	}
+}
+
 func Catalog() ResourceCatalog {
 	return ResourceCatalog{
 		{
@@ -1125,6 +1209,120 @@ func Catalog() ResourceCatalog {
 					Classification: ClassSensitiveIdentifier,
 					AllowedModes:   []redact.Mode{redact.ModeStandard},
 				},
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "url-filtering-rules",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				freeTextField("description", "ZIA URL filtering rule description"),
+				operationalField("state", allModes()),
+				operationalField("order", allModes()),
+				operationalField("rank", allModes()),
+				tenantConfigField("action", standardShareModes()),
+				tenantConfigField("protocols", standardShareModes()),
+				tenantConfigField("requestMethods", standardShareModes()),
+				tenantConfigField("urlCategories", standardShareModes()),
+				tenantConfigField("urlCategories2", standardShareModes()),
+				tenantConfigField("userRiskScoreLevels", standardShareModes()),
+				tenantConfigField("userAgentTypes", standardShareModes()),
+				operationalField("sourceCountries", standardShareModes()),
+				operationalField("lastModifiedTime", standardShareModes()),
+				operationalField("enforceTimeValidity", allModes()),
+				operationalField("validityStartTime", standardShareModes()),
+				operationalField("validityEndTime", standardShareModes()),
+				operationalField("validityTimeZoneId", standardShareModes()),
+				operationalField("blockOverride", allModes()),
+				operationalField("timeQuota", standardShareModes()),
+				operationalField("sizeQuota", standardShareModes()),
+				operationalField("ciparule", allModes()),
+				sensitiveIdentifierField("endUserNotificationUrl"),
+				sensitiveIdentifierField("cbiProfileId"),
+				idNameExtensionsField("labels", standardShareModes()),
+				idNameExtensionsField("timeWindows", standardShareModes()),
+				idNameExtensionsField("locations", standardOnlyMode()),
+				idNameExtensionsField("locationGroups", standardOnlyMode()),
+				idNameExtensionsField("sourceIpGroups", standardOnlyMode()),
+				idNameField("workloadGroups", standardOnlyMode()),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "firewall-filtering-rules",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				freeTextField("description", "ZIA firewall filtering rule description"),
+				operationalField("state", allModes()),
+				operationalField("order", allModes()),
+				operationalField("rank", allModes()),
+				tenantConfigField("action", standardShareModes()),
+				operationalField("accessControl", standardShareModes()),
+				operationalField("enableFullLogging", allModes()),
+				operationalField("defaultRule", allModes()),
+				operationalField("predefined", allModes()),
+				operationalField("lastModifiedTime", standardShareModes()),
+				operationalField("sourceCountries", standardShareModes()),
+				operationalField("destCountries", standardShareModes()),
+				operationalField("excludeSrcCountries", allModes()),
+				tenantConfigField("nwApplications", standardShareModes()),
+				sensitiveIdentifierField("srcIps"),
+				sensitiveIdentifierField("destAddresses"),
+				sensitiveIdentifierField("destIpCategories"),
+				tenantConfigField("deviceTrustLevels", standardShareModes()),
+				idNameExtensionsField("labels", standardShareModes()),
+				idNameExtensionsField("timeWindows", standardShareModes()),
+				idNameExtensionsField("locations", standardOnlyMode()),
+				idNameExtensionsField("locationGroups", standardOnlyMode()),
+				idNameExtensionsField("srcIpGroups", standardOnlyMode()),
+				idNameExtensionsField("destIpGroups", standardOnlyMode()),
+				idNameExtensionsField("nwServices", standardOnlyMode()),
+				idNameExtensionsField("nwServiceGroups", standardOnlyMode()),
+				idNameExtensionsField("nwApplicationGroups", standardOnlyMode()),
+				idNameExtensionsField("appServices", standardOnlyMode()),
+				idNameExtensionsField("appServiceGroups", standardOnlyMode()),
+				idNameField("workloadGroups", standardOnlyMode()),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "forwarding-rules",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				freeTextField("description", "ZIA forwarding rule description"),
+				operationalField("type", allModes()),
+				operationalField("state", allModes()),
+				operationalField("order", allModes()),
+				operationalField("rank", allModes()),
+				tenantConfigField("forwardMethod", standardShareModes()),
+				operationalField("lastModifiedTime", standardShareModes()),
+				operationalField("zpaBrokerRule", allModes()),
+				operationalField("destCountries", standardShareModes()),
+				sensitiveIdentifierField("srcIps"),
+				sensitiveIdentifierField("destAddresses"),
+				sensitiveIdentifierField("destIpCategories"),
+				sensitiveIdentifierField("resCategories"),
+				idNameExtensionsField("labels", standardShareModes()),
+				idNameExtensionsField("locations", standardOnlyMode()),
+				idNameExtensionsField("locationGroups", standardOnlyMode()),
+				idNameExtensionsField("ecGroups", standardOnlyMode()),
+				idNameExtensionsField("srcIpGroups", standardOnlyMode()),
+				idNameExtensionsField("srcIpv6Groups", standardOnlyMode()),
+				idNameExtensionsField("destIpGroups", standardOnlyMode()),
+				idNameExtensionsField("destIpv6Groups", standardOnlyMode()),
+				idNameExtensionsField("nwServices", standardOnlyMode()),
+				idNameExtensionsField("nwServiceGroups", standardOnlyMode()),
+				idNameExtensionsField("nwApplicationGroups", standardOnlyMode()),
+				idNameExtensionsField("appServiceGroups", standardOnlyMode()),
+				idNameField("proxyGateway", standardOnlyMode()),
+				idNameField("dedicatedIPGateway", standardOnlyMode()),
+				idNameField("zpaGateway", standardOnlyMode()),
 			},
 		},
 	}
