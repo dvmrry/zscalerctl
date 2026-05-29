@@ -47,7 +47,7 @@ safety rails before adding Zscaler API resources:
   `completion bash|zsh|fish`, `zia locations list|get`, and
   ZIA resource `list|get` commands.
 
-The initial live reader supports a small read-only ZIA resource set through the
+The initial live reader supports a small read-only ZIA and ZPA resource set through the
 official Go SDK. It requires explicit `ZSCALERCTL_*` configuration and does not
 consume the SDK's own environment variable names, local SDK config files, SDK log
 flags, or ambient proxy variables. SDK response caching is disabled.
@@ -61,6 +61,14 @@ export ZSCALERCTL_VANITY_DOMAIN=...
 export ZSCALERCTL_CLOUD=PRODUCTION # optional
 ```
 
+ZPA resources also require the ZPA customer ID because the ZPA config API
+includes it in resource paths:
+
+```sh
+export ZSCALERCTL_ZPA_CUSTOMER_ID=...
+export ZSCALERCTL_ZPA_MICROTENANT_ID=... # optional
+```
+
 ZIA legacy credentials are supported for read-only ZIA resources through
 explicit `ZSCALERCTL_ZIA_*` variables. Raw SDK names such as `ZIA_USERNAME` are
 intentionally ignored.
@@ -72,6 +80,9 @@ export ZSCALERCTL_ZIA_PASSWORD_FILE=/path/to/owner-only/password-file
 export ZSCALERCTL_ZIA_API_KEY_FILE=/path/to/owner-only/api-key-file
 export ZSCALERCTL_ZIA_CLOUD=zscalerthree
 ```
+
+For real-tenant validation, including fish shell setup and the exact ZPA
+server-groups smoke command, see [docs/LIVE_SMOKE.md](docs/LIVE_SMOKE.md).
 
 ```sh
 zscalerctl zia locations list

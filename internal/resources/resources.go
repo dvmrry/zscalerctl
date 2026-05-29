@@ -807,6 +807,109 @@ func Catalog() ResourceCatalog {
 				},
 			},
 		},
+		{
+			Product:    ProductZPA,
+			Name:       "server-groups",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				{
+					Name:           "id",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "enabled",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "name",
+					Classification: ClassTenantConfig,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				},
+				{
+					Name:                   "description",
+					Classification:         ClassFreeText,
+					AllowedModes:           []redact.Mode{redact.ModeStandard},
+					StandardFreeTextReason: standardFreeTextReason("ZPA server group description"),
+				},
+				{
+					Name:           "ipAnchored",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "configSpace",
+					Classification: ClassTenantConfig,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				},
+				{
+					Name:           "dynamicDiscovery",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "extranetEnabled",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "creationTime",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				},
+				{
+					Name:           "modifiedBy",
+					Classification: ClassSecret,
+				},
+				{
+					Name:           "modifiedTime",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				},
+				{
+					Name:           "microtenantId",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "microtenantName",
+					Classification: ClassTenantConfig,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				},
+				{
+					Name:           "readOnly",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "restrictionType",
+					Classification: ClassTenantConfig,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				},
+				{
+					Name:           "zscalerManaged",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "appConnectorGroups",
+					Classification: ClassSecret,
+				},
+				{
+					Name:           "servers",
+					Classification: ClassSecret,
+				},
+				{
+					Name:           "applications",
+					Classification: ClassSecret,
+				},
+				{
+					Name:           "extranetDTO",
+					Classification: ClassSecret,
+				},
+			},
+		},
 	}
 }
 

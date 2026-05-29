@@ -162,6 +162,45 @@ and `secondaryDestVip` objects. The reader maps those objects into source
 records, but the catalog does not allow them to render, so projection drops
 them.
 
+## ZPA Server Groups
+
+Commands:
+
+```sh
+zscalerctl zpa server-groups list
+zscalerctl zpa server-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | ZPA server-group identifier. |
+| `enabled` | Operational metadata | `standard`, `share`, `paranoid` | Whether the server group is enabled. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `ipAnchored` | Operational metadata | `standard`, `share`, `paranoid` | Whether the server group is IP anchored. |
+| `configSpace` | Tenant configuration | `standard`, `share` | SDK config-space value. |
+| `dynamicDiscovery` | Operational metadata | `standard`, `share`, `paranoid` | Whether dynamic discovery is enabled. |
+| `extranetEnabled` | Operational metadata | `standard`, `share`, `paranoid` | Whether extranet support is enabled. |
+| `creationTime` | Operational metadata | `standard`, `share` | SDK timestamp value. |
+| `modifiedBy` | Secret | never | Admin reference is mapped into source records and dropped by projection. |
+| `modifiedTime` | Operational metadata | `standard`, `share` | SDK timestamp value. |
+| `microtenantId` | Sensitive identifier | `standard` | Microtenant identifier; dropped from `share` and `paranoid`. |
+| `microtenantName` | Tenant configuration | `standard`, `share` | Microtenant name. |
+| `readOnly` | Operational metadata | `standard`, `share`, `paranoid` | Whether the object is read-only. |
+| `restrictionType` | Tenant configuration | `standard`, `share` | SDK restriction type. |
+| `zscalerManaged` | Operational metadata | `standard`, `share`, `paranoid` | Whether Zscaler manages the object. |
+| `appConnectorGroups` | Secret | never | Nested connector-group objects are mapped into source records and dropped by projection. |
+| `servers` | Secret | never | Nested server objects are mapped into source records and dropped by projection. |
+| `applications` | Secret | never | Nested application references are mapped into source records and dropped by projection. |
+| `extranetDTO` | Secret | never | Nested extranet references are mapped into source records and dropped by projection. |
+
+ZPA reads require OneAPI credentials and `ZSCALERCTL_ZPA_CUSTOMER_ID`. Set
+`ZSCALERCTL_ZPA_MICROTENANT_ID` when reads should be scoped to a microtenant.
+ZIA legacy credentials are scoped to ZIA resources; dump defaults to ZIA-only
+when legacy auth is active.
+
 ## Adding A Resource
 
 Before enabling another resource:
