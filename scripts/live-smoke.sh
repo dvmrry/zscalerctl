@@ -15,19 +15,23 @@ skip_credential_check=0
 strict_counts=0
 failures=0
 resources=()
+requested_resources=()
 
 usage() {
   cat <<'EOF'
-usage: scripts/live-smoke.sh [--out DIR] [--bin PATH] [--require-credentials] [--require-nonempty] [--strict-counts]
+usage: scripts/live-smoke.sh [--out DIR] [--bin PATH] [--resources LIST] [--require-credentials] [--require-nonempty] [--strict-counts]
 
 Runs a read-only live smoke against the currently configured zscalerctl
 credentials and prints PASS/FAIL markers for pre-PR validation.
+By default, all current ZIA read/list resources are validated.
 
 Options:
   --out DIR            Write validation artifacts under DIR. Defaults to a
                        secure temporary directory that is kept for inspection.
   --bin PATH           zscalerctl binary to run. Defaults to
                        "go run -mod=vendor ./cmd/zscalerctl".
+  --resources LIST     Optional comma-separated ZIA resource filter, using
+                       bare names or zia/name. Defaults to all ZIA resources.
   --require-credentials
                        Fail instead of SKIP when no supported live credential
                        family is configured. Use this for release gating.
@@ -42,6 +46,50 @@ This script does not print credential values or live resource payloads. It
 recognizes explicit zscalerctl OneAPI credentials and explicit ZIA legacy
 credentials; raw SDK env vars such as ZIA_USERNAME are intentionally ignored.
 EOF
+}
+
+trim_space() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+normalize_requested_resource() {
+  local resource
+
+  resource="$(trim_space "$1")"
+  if [[ -z "$resource" ]]; then
+    echo "--resources contains an empty entry" >&2
+    exit 2
+  fi
+
+  case "$resource" in
+    zia/*)
+      resource="${resource#zia/}"
+      ;;
+    */*)
+      echo "--resources only supports ZIA resources; got: $resource" >&2
+      exit 2
+      ;;
+  esac
+
+  if [[ -z "$resource" ]]; then
+    echo "--resources contains an empty resource name" >&2
+    exit 2
+  fi
+
+  printf '%s' "$resource"
+}
+
+add_requested_resources() {
+  local list="$1"
+  local entry
+
+  IFS=',' read -r -a entries <<<"$list"
+  for entry in "${entries[@]}"; do
+    requested_resources+=("$(normalize_requested_resource "$entry")")
+  done
 }
 
 while (($#)); do
@@ -60,6 +108,14 @@ while (($#)); do
         exit 2
       fi
       ZSCALERCTL_BIN="$2"
+      shift 2
+      ;;
+    --resources)
+      if (($# < 2)); then
+        echo "--resources requires a comma-separated list" >&2
+        exit 2
+      fi
+      add_requested_resources "$2"
       shift 2
       ;;
     --require-credentials)
@@ -301,6 +357,8 @@ load_zia_resources() {
   local schema_file="$1"
   local stderr_file="$2"
   local resource
+  local requested
+  local all_resources=()
 
   if "${cli[@]}" --format json schema list >"$schema_file" 2>"$stderr_file"; then
     pass "schema list command completed"
@@ -316,7 +374,7 @@ load_zia_resources() {
   pass "schema list returned a JSON array"
 
   while IFS= read -r resource; do
-    resources+=("$resource")
+    all_resources+=("$resource")
   done < <(jq -r '
     [
       .[]
@@ -328,13 +386,55 @@ load_zia_resources() {
     | .[]
   ' "$schema_file")
 
-  if ((${#resources[@]} == 0)); then
+  if ((${#all_resources[@]} == 0)); then
     fail "schema list contains no ZIA read/list resources"
     return 1
   fi
 
-  pass "schema list found ${#resources[@]} ZIA read/list resource(s): ${resources[*]}"
+  if ((${#requested_resources[@]} == 0)); then
+    resources=("${all_resources[@]}")
+  else
+    for requested in "${requested_resources[@]}"; do
+      if ! resource_in_list "$requested" "${all_resources[@]}"; then
+        fail "requested resource is not a ZIA read/list resource: zia/$requested"
+        return 1
+      fi
+      if ! resource_in_list "$requested" "${resources[@]}"; then
+        resources+=("$requested")
+      fi
+    done
+  fi
+
+  pass "schema list found ${#all_resources[@]} ZIA read/list resource(s)"
+  pass "live smoke selected ${#resources[@]} ZIA resource(s): ${resources[*]}"
   return 0
+}
+
+resource_in_list() {
+  local needle="$1"
+  shift
+
+  local item
+  for item in "$@"; do
+    if [[ "$item" == "$needle" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+join_csv() {
+  local first=1
+  local item
+
+  for item in "$@"; do
+    if ((first)); then
+      first=0
+    else
+      printf ','
+    fi
+    printf '%s' "$item"
+  done
 }
 
 compare_counts() {
@@ -527,8 +627,13 @@ done
 dump_dir="$out_dir/dump"
 dump_stdout="$out_dir/dump.stdout"
 dump_stderr="$out_dir/dump.stderr"
+dump_args=(dump --products zia)
+if ((${#requested_resources[@]} != 0)); then
+  dump_args+=(--resources "$(join_csv "${resources[@]}")")
+fi
+dump_args+=(--out "$dump_dir")
 
-if "${cli[@]}" dump --products zia --out "$dump_dir" >"$dump_stdout" 2>"$dump_stderr"; then
+if "${cli[@]}" "${dump_args[@]}" >"$dump_stdout" 2>"$dump_stderr"; then
   pass "zia dump command completed"
 else
   fail "zia dump command failed; stderr captured at $dump_stderr"

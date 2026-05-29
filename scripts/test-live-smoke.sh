@@ -104,10 +104,15 @@ write_resource() {
 
 write_dump() {
   local out=""
+  local selected_resources=("${resources[@]}")
   shift
   while (($#)); do
     case "$1" in
       --products)
+        shift 2
+        ;;
+      --resources)
+        IFS=',' read -r -a selected_resources <<<"$2"
         shift 2
         ;;
       --out)
@@ -128,11 +133,11 @@ write_dump() {
   mkdir -p "$out/resources/zia"
   chmod 700 "$out" "$out/resources" "$out/resources/zia"
 
-  write_resource locations >"$out/resources/zia/locations.json"
-  write_resource location-groups >"$out/resources/zia/location-groups.json"
-  write_resource rule-labels >"$out/resources/zia/rule-labels.json"
-  write_resource static-ips >"$out/resources/zia/static-ips.json"
-  write_resource gre-tunnels >"$out/resources/zia/gre-tunnels.json"
+  local resource
+  for resource in "${selected_resources[@]}"; do
+    resource="${resource#zia/}"
+    write_resource "$resource" >"$out/resources/zia/$resource.json"
+  done
 
   if [[ "$mode" == "missing-manifest-resource" ]]; then
     cat >"$out/manifest.json" <<'JSON'
@@ -149,21 +154,31 @@ write_dump() {
 }
 JSON
   else
-    cat >"$out/manifest.json" <<'JSON'
+    {
+      cat <<'JSON'
 {
   "schema": "zscalerctl.dump.manifest.v1",
   "redaction": "standard",
   "warning": "sanitized dumps remain confidential operational data",
   "status": "complete",
   "resources": [
-    {"product": "zia", "name": "locations", "status": "complete", "path": "resources/zia/locations.json", "records": 1},
-    {"product": "zia", "name": "location-groups", "status": "complete", "path": "resources/zia/location-groups.json", "records": 1},
-    {"product": "zia", "name": "rule-labels", "status": "complete", "path": "resources/zia/rule-labels.json", "records": 1},
-    {"product": "zia", "name": "static-ips", "status": "complete", "path": "resources/zia/static-ips.json", "records": 1},
-    {"product": "zia", "name": "gre-tunnels", "status": "complete", "path": "resources/zia/gre-tunnels.json", "records": 1}
+JSON
+      local first=1
+      for resource in "${selected_resources[@]}"; do
+        resource="${resource#zia/}"
+        if ((first)); then
+          first=0
+        else
+          printf ',\n'
+        fi
+        printf '    {"product": "zia", "name": "%s", "status": "complete", "path": "resources/zia/%s.json", "records": 1}' "$resource" "$resource"
+      done
+      cat <<'JSON'
+
   ]
 }
 JSON
+    } >"$out/manifest.json"
   fi
 
   cat >"$out/redaction_report.json" <<'JSON'
@@ -340,6 +355,38 @@ fi
 if ! grep -q '\[PASS\] dump resource files match ZIA catalog' "$tmp_dir/stdout-good"; then
   echo "live-smoke good fixture did not validate dump file set" >&2
   cat "$tmp_dir/stdout-good" >&2
+  exit 1
+fi
+
+if ! ZSCALERCTL_BIN="$fake_bin" "$repo_root/scripts/live-smoke.sh" --skip-credential-check --resources zia/locations,rule-labels --out "$tmp_dir/out-subset" >"$tmp_dir/stdout-subset" 2>"$tmp_dir/stderr-subset"; then
+  echo "live-smoke rejected a valid resource subset" >&2
+  cat "$tmp_dir/stdout-subset" >&2
+  cat "$tmp_dir/stderr-subset" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] live smoke selected 2 ZIA resource(s): locations rule-labels' "$tmp_dir/stdout-subset"; then
+  echo "live-smoke subset fixture did not report selected resources" >&2
+  cat "$tmp_dir/stdout-subset" >&2
+  exit 1
+fi
+
+if grep -q 'zia static-ips list command completed' "$tmp_dir/stdout-subset"; then
+  echo "live-smoke subset fixture listed an unselected resource" >&2
+  cat "$tmp_dir/stdout-subset" >&2
+  exit 1
+fi
+
+if ZSCALERCTL_BIN="$fake_bin" "$repo_root/scripts/live-smoke.sh" --skip-credential-check --resources zia/not-real --out "$tmp_dir/out-unknown-resource" >"$tmp_dir/stdout-unknown-resource" 2>"$tmp_dir/stderr-unknown-resource"; then
+  echo "live-smoke accepted an unknown requested resource" >&2
+  cat "$tmp_dir/stdout-unknown-resource" >&2
+  cat "$tmp_dir/stderr-unknown-resource" >&2
+  exit 1
+fi
+
+if ! grep -q 'requested resource is not a ZIA read/list resource: zia/not-real' "$tmp_dir/stderr-unknown-resource"; then
+  echo "live-smoke unknown-resource failure did not mention the requested resource" >&2
+  cat "$tmp_dir/stderr-unknown-resource" >&2
   exit 1
 fi
 

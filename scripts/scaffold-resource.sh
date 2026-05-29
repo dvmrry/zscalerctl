@@ -235,6 +235,22 @@ Notes:
 - State any free-text fields and their standard-only reason.
 EOF
 
+if [[ "$product" == "zia" ]]; then
+  live_smoke_focus="To limit a focused retry to this resource only, run:
+
+\`\`\`sh
+make live-smoke LIVE_SMOKE_RESOURCES=$product/$resource
+\`\`\`"
+else
+  live_smoke_focus="The default live smoke currently validates ZIA resources. For this non-ZIA
+resource, run direct read commands and a focused dump with read-only credentials:
+
+\`\`\`sh
+zscalerctl $product $resource list
+zscalerctl dump --products $product --resources $product/$resource --out ./scratch-live-smoke
+\`\`\`"
+fi
+
 cat > "$out/validation.md" <<EOF
 # Validation
 
@@ -249,8 +265,12 @@ make fuzz-smoke FUZZTIME=1s
 Run with read-only tenant credentials before merge when available:
 
 \`\`\`sh
-scripts/live-smoke.sh --require-credentials --resources $product/$resource --out ./scratch-live-smoke
+make live-smoke
 \`\`\`
+
+The default live smoke validates every current ZIA dump-supported resource.
+
+$live_smoke_focus
 
 Inspect the live smoke output for:
 

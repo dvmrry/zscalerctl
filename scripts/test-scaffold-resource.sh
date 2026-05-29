@@ -31,7 +31,9 @@ grep -q "== internal/zscaler SDK shape-review seed ==" "$out/catalog-and-shape-r
 grep -q 'Name:           "value"' "$out/catalog-and-shape-review.txt"
 grep -q 'Classification: ClassSecret' "$out/catalog-and-shape-review.txt"
 grep -q 'newListGetHandler\[fixture.Example\]' "$out/reader-wiring.md"
-grep -q 'scripts/live-smoke.sh --require-credentials --resources zpa/fixture-resources' "$out/validation.md"
+grep -q 'make live-smoke' "$out/validation.md"
+grep -q 'The default live smoke currently validates ZIA resources' "$out/validation.md"
+grep -q 'zscalerctl zpa fixture-resources list' "$out/validation.md"
 grep -q '## ZPA Fixture Resources' "$out/docs.md"
 
 if bash scripts/scaffold-resource.sh \

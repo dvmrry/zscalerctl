@@ -99,6 +99,7 @@ zscalerctl version
 zscalerctl dump --products zia --out ./dump
 zscalerctl dump --products zia --resources locations,static-ips --out ./dump-subset
 zscalerctl dump --products zia --continue-on-error --out ./partial-dump
+make live-smoke
 ```
 
 Key design docs:
