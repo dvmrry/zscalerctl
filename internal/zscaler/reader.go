@@ -42,9 +42,7 @@ import (
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
-	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments"
 	usergroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups"
-	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/users"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 
 	"github.com/dvmrry/zscalerctl/internal/resources"
@@ -89,10 +87,7 @@ const (
 	resourceDNSGateways      = "dns-gateways"
 	resourceNATRules         = "nat-control-rules"
 	resourceGroups           = "groups"
-	resourceDepartments      = "departments"
-	resourceUsers            = "users"
 	resourceDeviceGroups     = "device-groups"
-	resourceDevices          = "devices"
 	resourceWorkloadGroups   = "workload-groups"
 )
 
@@ -580,26 +575,6 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 			}),
 			groupSourceRecord,
 		),
-		{product: resources.ProductZIA, name: resourceDepartments}: newListGetHandler(
-			resourceDepartments,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]departments.Department, error) {
-				return departments.GetAll(ctx, service, nil)
-			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*departments.Department, error) {
-				return departments.GetDepartments(ctx, service, id)
-			}),
-			departmentSourceRecord,
-		),
-		{product: resources.ProductZIA, name: resourceUsers}: newListGetHandler(
-			resourceUsers,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]users.Users, error) {
-				return users.GetAllUsers(ctx, service, nil)
-			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*users.Users, error) {
-				return users.Get(ctx, service, id)
-			}),
-			userSourceRecord,
-		),
 		{product: resources.ProductZIA, name: resourceDeviceGroups}: newListGetHandler(
 			resourceDeviceGroups,
 			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]devicegroups.DeviceGroups, error) {
@@ -613,16 +588,6 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				func(item devicegroups.DeviceGroups) int { return item.ID },
 			),
 			deviceGroupSourceRecord,
-		),
-		{product: resources.ProductZIA, name: resourceDevices}: newListGetHandler(
-			resourceDevices,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]devicegroups.Devices, error) {
-				return devicegroups.GetAllDevices(ctx, service)
-			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*devicegroups.Devices, error) {
-				return devicegroups.GetDevicesByID(ctx, service, id)
-			}),
-			deviceSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceWorkloadGroups}: newListGetHandler(
 			resourceWorkloadGroups,
@@ -1744,35 +1709,6 @@ func groupSourceRecord(group usergroups.Groups) resources.SourceRecord {
 	return resources.NewSourceRecord(fields)
 }
 
-func departmentSourceRecord(department departments.Department) resources.SourceRecord {
-	fields := map[string]any{
-		"id":       department.ID,
-		"name":     department.Name,
-		"idpId":    department.IdpID,
-		"comments": department.Comments,
-		"deleted":  department.Deleted,
-	}
-	return resources.NewSourceRecord(fields)
-}
-
-func userSourceRecord(user users.Users) resources.SourceRecord {
-	fields := map[string]any{
-		"id":            user.ID,
-		"name":          user.Name,
-		"email":         user.Email,
-		"comments":      user.Comments,
-		"tempAuthEmail": user.TempAuthEmail,
-		"password":      user.Password,
-		"adminUser":     user.AdminUser,
-		"type":          user.Type,
-		"deleted":       user.Deleted,
-	}
-	addStringSlice(fields, "authMethods", user.AuthMethods)
-	addUserGroupsSlice(fields, "groups", user.Groups)
-	addUserDepartmentPtr(fields, "department", user.Department)
-	return resources.NewSourceRecord(fields)
-}
-
 func deviceGroupSourceRecord(group devicegroups.DeviceGroups) resources.SourceRecord {
 	fields := map[string]any{
 		"id":          group.ID,
@@ -1783,22 +1719,6 @@ func deviceGroupSourceRecord(group devicegroups.DeviceGroups) resources.SourceRe
 		"predefined":  group.Predefined,
 		"deviceNames": group.DeviceNames,
 		"deviceCount": group.DeviceCount,
-	}
-	return resources.NewSourceRecord(fields)
-}
-
-func deviceSourceRecord(device devicegroups.Devices) resources.SourceRecord {
-	fields := map[string]any{
-		"id":              device.ID,
-		"name":            device.Name,
-		"deviceGroupType": device.DeviceGroupType,
-		"deviceModel":     device.DeviceModel,
-		"osType":          device.OSType,
-		"osVersion":       device.OSVersion,
-		"description":     device.Description,
-		"ownerUserId":     device.OwnerUserId,
-		"ownerName":       device.OwnerName,
-		"hostName":        device.HostName,
 	}
 	return resources.NewSourceRecord(fields)
 }
@@ -1845,22 +1765,6 @@ func addIDNameExtensionsPtr(fields map[string]any, name string, value *ziacommon
 func addIDNameExtensionsSlice(fields map[string]any, name string, values []ziacommon.IDNameExtensions) {
 	if len(values) > 0 {
 		fields[name] = idNameExtensionsSliceSource(values)
-	}
-}
-
-func addUserGroupsSlice(fields map[string]any, name string, values []ziacommon.UserGroups) {
-	if len(values) > 0 {
-		items := make([]map[string]any, 0, len(values))
-		for _, value := range values {
-			items = append(items, userGroupSource(value))
-		}
-		fields[name] = items
-	}
-}
-
-func addUserDepartmentPtr(fields map[string]any, name string, value *ziacommon.UserDepartment) {
-	if value != nil {
-		fields[name] = userDepartmentSource(value)
 	}
 }
 
@@ -1916,26 +1820,6 @@ func idNameExternalIDSource(value *ziacommon.IDNameExternalID) map[string]any {
 		fields["extensions"] = value.Extensions
 	}
 	return fields
-}
-
-func userGroupSource(value ziacommon.UserGroups) map[string]any {
-	return map[string]any{
-		"id":              value.ID,
-		"name":            value.Name,
-		"idp_id":          value.IdpID,
-		"comments":        value.Comments,
-		"isSystemDefined": value.IsSystemDefined,
-	}
-}
-
-func userDepartmentSource(value *ziacommon.UserDepartment) map[string]any {
-	return map[string]any{
-		"id":       value.ID,
-		"name":     value.Name,
-		"idp_id":   value.IdpID,
-		"comments": value.Comments,
-		"deleted":  value.Deleted,
-	}
 }
 
 func idNameExtensionsSliceSource(values []ziacommon.IDNameExtensions) []any {

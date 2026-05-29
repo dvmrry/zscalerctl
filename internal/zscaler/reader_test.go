@@ -36,9 +36,7 @@ import (
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
-	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments"
 	usergroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups"
-	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/users"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 
 	"github.com/dvmrry/zscalerctl/internal/redact"
@@ -1987,110 +1985,6 @@ func TestReaderListGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
 	}
 }
 
-func TestReaderListDepartmentsProjectsSDKShapeThroughAllowList(t *testing.T) {
-	t.Parallel()
-
-	const (
-		canary            = "department-psk-canary"
-		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
-	)
-	reader := &SDKReader{
-		cfg: validReaderConfig(),
-		handlers: map[resourceKey]resourceHandler{
-			{product: resources.ProductZIA, name: resourceDepartments}: newListGetHandler(
-				resourceDepartments,
-				func(context.Context) ([]departments.Department, error) {
-					return []departments.Department{
-						{
-							ID:       802,
-							Name:     "Engineering psk=" + canary,
-							IdpID:    18,
-							Comments: "temporary psk=" + canary + " " + bareFreeTextToken,
-							Deleted:  false,
-						},
-					}, nil
-				},
-				intIDGetter(func(context.Context, int) (*departments.Department, error) { return nil, nil }),
-				departmentSourceRecord,
-			),
-		},
-	}
-
-	records, err := reader.List(context.Background(), resources.ProductZIA, resourceDepartments)
-	if err != nil {
-		t.Fatalf("SDKReader.List(zia, departments) error = %v, want nil", err)
-	}
-	got := projectOneRecord(t, resources.ProductZIA, resourceDepartments, records)
-	assertNoCanaries(t, "departments", got, canary, bareFreeTextToken)
-	if got["idpId"] != 18 {
-		t.Errorf("projected departments idpId = %v, want 18", got["idpId"])
-	}
-}
-
-func TestReaderListUsersProjectsSDKShapeThroughAllowList(t *testing.T) {
-	t.Parallel()
-
-	const (
-		canary            = "user-psk-canary"
-		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
-	)
-	reader := &SDKReader{
-		cfg: validReaderConfig(),
-		handlers: map[resourceKey]resourceHandler{
-			{product: resources.ProductZIA, name: resourceUsers}: newListGetHandler(
-				resourceUsers,
-				func(context.Context) ([]users.Users, error) {
-					return []users.Users{
-						{
-							ID:            803,
-							Name:          "Alice psk=" + canary,
-							Email:         "alice@example.invalid",
-							Comments:      "temporary psk=" + canary + " " + bareFreeTextToken,
-							TempAuthEmail: "alice-temp@example.invalid",
-							AuthMethods:   []string{"BASIC"},
-							Password:      "psk=" + canary,
-							AdminUser:     true,
-							Type:          "END_USER",
-							Deleted:       false,
-							Groups: []ziacommon.UserGroups{
-								{
-									ID:              31,
-									Name:            "Finance psk=" + canary,
-									IdpID:           71,
-									Comments:        "group psk=" + canary,
-									IsSystemDefined: "false",
-								},
-							},
-							Department: &ziacommon.UserDepartment{
-								ID:       41,
-								Name:     "Engineering psk=" + canary,
-								IdpID:    81,
-								Comments: "department psk=" + canary,
-								Deleted:  false,
-							},
-						},
-					}, nil
-				},
-				intIDGetter(func(context.Context, int) (*users.Users, error) { return nil, nil }),
-				userSourceRecord,
-			),
-		},
-	}
-
-	records, err := reader.List(context.Background(), resources.ProductZIA, resourceUsers)
-	if err != nil {
-		t.Fatalf("SDKReader.List(zia, users) error = %v, want nil", err)
-	}
-	got := projectOneRecord(t, resources.ProductZIA, resourceUsers, records)
-	assertNoCanaries(t, "users", got, canary, bareFreeTextToken)
-	if _, ok := got["password"]; ok {
-		t.Errorf("projected users = %#v, want no password", got)
-	}
-	if got["adminUser"] != true {
-		t.Errorf("projected users adminUser = %v, want true", got["adminUser"])
-	}
-}
-
 func TestReaderListDeviceGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
 	t.Parallel()
 
@@ -2131,51 +2025,6 @@ func TestReaderListDeviceGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
 	assertNoCanaries(t, "device-groups", got, canary, bareFreeTextToken)
 	if got["deviceCount"] != 12 {
 		t.Errorf("projected device-groups deviceCount = %v, want 12", got["deviceCount"])
-	}
-}
-
-func TestReaderListDevicesProjectsSDKShapeThroughAllowList(t *testing.T) {
-	t.Parallel()
-
-	const (
-		canary            = "device-psk-canary"
-		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
-	)
-	reader := &SDKReader{
-		cfg: validReaderConfig(),
-		handlers: map[resourceKey]resourceHandler{
-			{product: resources.ProductZIA, name: resourceDevices}: newListGetHandler(
-				resourceDevices,
-				func(context.Context) ([]devicegroups.Devices, error) {
-					return []devicegroups.Devices{
-						{
-							ID:              805,
-							Name:            "Laptop psk=" + canary,
-							DeviceGroupType: "STATIC",
-							DeviceModel:     "Model psk=" + canary,
-							OSType:          "MACOS",
-							OSVersion:       "14.5",
-							Description:     "temporary psk=" + canary + " " + bareFreeTextToken,
-							OwnerUserId:     1111,
-							OwnerName:       "Owner psk=" + canary,
-							HostName:        "host-psk=" + canary,
-						},
-					}, nil
-				},
-				intIDGetter(func(context.Context, int) (*devicegroups.Devices, error) { return nil, nil }),
-				deviceSourceRecord,
-			),
-		},
-	}
-
-	records, err := reader.List(context.Background(), resources.ProductZIA, resourceDevices)
-	if err != nil {
-		t.Fatalf("SDKReader.List(zia, devices) error = %v, want nil", err)
-	}
-	got := projectOneRecord(t, resources.ProductZIA, resourceDevices, records)
-	assertNoCanaries(t, "devices", got, canary, bareFreeTextToken)
-	if got["osType"] != "MACOS" {
-		t.Errorf("projected devices osType = %v, want MACOS", got["osType"])
 	}
 }
 

@@ -1621,54 +1621,6 @@ func Catalog() ResourceCatalog {
 		},
 		{
 			Product:    ProductZIA,
-			Name:       "departments",
-			Operations: ReadOperations(),
-			Fields: []FieldSpec{
-				operationalField("id", allModes()),
-				tenantConfigField("name", standardShareModes()),
-				tenantConfigField("idpId", standardShareModes()),
-				freeTextField("comments", "ZIA department comments"),
-				operationalField("deleted", allModes()),
-			},
-		},
-		{
-			Product:    ProductZIA,
-			Name:       "users",
-			Operations: ReadOperations(),
-			Fields: []FieldSpec{
-				operationalField("id", allModes()),
-				tenantConfigField("name", standardShareModes()),
-				sensitiveIdentifierField("email"),
-				FieldSpec{
-					Name:           "groups",
-					Classification: ClassTenantConfig,
-					AllowedModes:   standardShareModes(),
-					Fields: []FieldSpec{
-						operationalField("id", allModes()),
-						tenantConfigField("name", standardShareModes()),
-					},
-				},
-				FieldSpec{
-					Name:           "department",
-					Classification: ClassTenantConfig,
-					AllowedModes:   standardShareModes(),
-					Fields: []FieldSpec{
-						operationalField("id", allModes()),
-						tenantConfigField("name", standardShareModes()),
-						operationalField("deleted", allModes()),
-					},
-				},
-				freeTextField("comments", "ZIA user comments"),
-				sensitiveIdentifierField("tempAuthEmail"),
-				tenantConfigField("authMethods", standardShareModes()),
-				secretField("password"),
-				operationalField("adminUser", allModes()),
-				operationalField("type", allModes()),
-				operationalField("deleted", allModes()),
-			},
-		},
-		{
-			Product:    ProductZIA,
 			Name:       "device-groups",
 			Operations: ReadOperations(),
 			Fields: []FieldSpec{
@@ -1680,23 +1632,6 @@ func Catalog() ResourceCatalog {
 				operationalField("predefined", allModes()),
 				sensitiveIdentifierField("deviceNames"),
 				operationalField("deviceCount", allModes()),
-			},
-		},
-		{
-			Product:    ProductZIA,
-			Name:       "devices",
-			Operations: ReadOperations(),
-			Fields: []FieldSpec{
-				operationalField("id", allModes()),
-				tenantConfigField("name", standardShareModes()),
-				operationalField("deviceGroupType", allModes()),
-				tenantConfigField("deviceModel", standardShareModes()),
-				operationalField("osType", allModes()),
-				tenantConfigField("osVersion", standardShareModes()),
-				freeTextField("description", "ZIA device description"),
-				sensitiveIdentifierField("ownerUserId"),
-				sensitiveIdentifierField("ownerName"),
-				sensitiveIdentifierField("hostName"),
 			},
 		},
 		{
