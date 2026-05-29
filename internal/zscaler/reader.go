@@ -22,7 +22,6 @@ import (
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
-	emailprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/email_profiles"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -97,7 +96,6 @@ const (
 	resourceWorkloadGroups   = "workload-groups"
 	resourceAlertSubs        = "alert-subscriptions"
 	resourceCloudAppInsts    = "cloud-app-instances"
-	resourceEmailProfiles    = "email-profiles"
 	resourceTenancyProfiles  = "tenancy-restriction-profiles"
 	resourceVZENClusters     = "vzen-clusters"
 	resourceVZENNodes        = "vzen-nodes"
@@ -630,16 +628,6 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return cloudappinstances.Get(ctx, service, id)
 			}),
 			cloudAppInstanceSourceRecord,
-		),
-		{product: resources.ProductZIA, name: resourceEmailProfiles}: newListGetHandler(
-			resourceEmailProfiles,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]emailprofiles.EmailProfiles, error) {
-				return emailprofiles.GetAll(ctx, service, nil)
-			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*emailprofiles.EmailProfiles, error) {
-				return emailprofiles.Get(ctx, service, id)
-			}),
-			emailProfileSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceTenancyProfiles}: newListGetHandler(
 			resourceTenancyProfiles,
@@ -1834,16 +1822,6 @@ func cloudAppInstanceSourceRecord(instance cloudappinstances.CloudApplicationIns
 	}
 	addIDNameExtensionsPtr(fields, "modifiedBy", instance.ModifiedBy)
 	addCloudInstanceIdentifiers(fields, "instanceIdentifiers", instance.InstanceIdentifiers)
-	return resources.NewSourceRecord(fields)
-}
-
-func emailProfileSourceRecord(profile emailprofiles.EmailProfiles) resources.SourceRecord {
-	fields := map[string]any{
-		"id":          profile.ID,
-		"name":        profile.Name,
-		"description": profile.Description,
-	}
-	addStringSlice(fields, "emails", profile.Emails)
 	return resources.NewSourceRecord(fields)
 }
 

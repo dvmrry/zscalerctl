@@ -14,7 +14,6 @@ import (
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
-	emailprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/email_profiles"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -1312,18 +1311,6 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"modifiedAt",
 				"modifiedBy",
 			),
-		},
-		{
-			name:         "emailprofiles.EmailProfiles",
-			resource:     resources.ProductZIA,
-			resourceName: resourceEmailProfiles,
-			typ:          reflect.TypeOf(emailprofiles.EmailProfiles{}),
-			catalogFields: []string{
-				"id",
-				"name",
-				"description",
-				"emails",
-			},
 		},
 		{
 			name:         "tenancyrestriction.TenancyRestrictionProfile",

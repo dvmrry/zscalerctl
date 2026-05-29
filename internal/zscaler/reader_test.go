@@ -16,7 +16,6 @@ import (
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
-	emailprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/email_profiles"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -2204,45 +2203,6 @@ func TestReaderListCloudAppInstancesProjectsSDKShapeThroughAllowList(t *testing.
 	}
 	if got["instanceId"] != 902 {
 		t.Errorf("projected cloud-app-instances instanceId = %v, want 902", got["instanceId"])
-	}
-}
-
-func TestReaderListEmailProfilesProjectsSDKShapeThroughAllowList(t *testing.T) {
-	t.Parallel()
-
-	const (
-		canary            = "email-profile-psk-canary"
-		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
-	)
-	reader := &SDKReader{
-		cfg: validReaderConfig(),
-		handlers: map[resourceKey]resourceHandler{
-			{product: resources.ProductZIA, name: resourceEmailProfiles}: newListGetHandler(
-				resourceEmailProfiles,
-				func(context.Context) ([]emailprofiles.EmailProfiles, error) {
-					return []emailprofiles.EmailProfiles{
-						{
-							ID:          903,
-							Name:        "Security recipients psk=" + canary,
-							Description: "temporary psk=" + canary + " " + bareFreeTextToken,
-							Emails:      []string{"security@example.invalid"},
-						},
-					}, nil
-				},
-				intIDGetter(func(context.Context, int) (*emailprofiles.EmailProfiles, error) { return nil, nil }),
-				emailProfileSourceRecord,
-			),
-		},
-	}
-
-	records, err := reader.List(context.Background(), resources.ProductZIA, resourceEmailProfiles)
-	if err != nil {
-		t.Fatalf("SDKReader.List(zia, email-profiles) error = %v, want nil", err)
-	}
-	got := projectOneRecord(t, resources.ProductZIA, resourceEmailProfiles, records)
-	assertNoCanaries(t, "email-profiles", got, canary, bareFreeTextToken)
-	if got["id"] != 903 {
-		t.Errorf("projected email-profiles id = %v, want 903", got["id"])
 	}
 }
 

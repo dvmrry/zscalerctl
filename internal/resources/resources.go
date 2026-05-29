@@ -1677,17 +1677,6 @@ func Catalog() ResourceCatalog {
 		},
 		{
 			Product:    ProductZIA,
-			Name:       "email-profiles",
-			Operations: ReadOperations(),
-			Fields: []FieldSpec{
-				operationalField("id", allModes()),
-				tenantConfigField("name", standardShareModes()),
-				freeTextField("description", "ZIA email profile description"),
-				sensitiveIdentifierField("emails"),
-			},
-		},
-		{
-			Product:    ProductZIA,
 			Name:       "tenancy-restriction-profiles",
 			Operations: ReadOperations(),
 			Fields: []FieldSpec{

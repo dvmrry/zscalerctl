@@ -6,7 +6,6 @@
 
 zia/alert-subscriptions
 zia/cloud-app-instances
-zia/email-profiles
 zia/tenancy-restriction-profiles
 zia/vzen-clusters
 zia/vzen-nodes

@@ -748,24 +748,6 @@ Fields:
 | `instanceName` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
 | `modifiedBy`, `instanceIdentifiers` | Secret | never | Admin references and tenant identifiers are mapped into source records and dropped by projection. |
 
-## ZIA Email Profiles
-
-Commands:
-
-```sh
-zscalerctl zia email-profiles list
-zscalerctl zia email-profiles get <id>
-```
-
-Fields:
-
-| Field | Classification | Modes | Notes |
-| --- | --- | --- | --- |
-| `id` | Operational metadata | `standard`, `share`, `paranoid` | Profile identifier. |
-| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
-| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
-| `emails` | Sensitive identifier | `standard` | Local-only recipient address list. |
-
 ## ZIA Tenancy Restriction Profiles
 
 Commands:
@@ -840,6 +822,10 @@ Fields:
   before enabling it in the catalog.
 - `zia/devices`: generated and locally validated, but removed from the
   identity-reference batch after live smoke reported a list request failure under
+  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  before enabling it in the catalog.
+- `zia/email-profiles`: generated and locally validated, but removed from the
+  security-profile batch after live smoke reported a list request failure under
   ZIA legacy credentials. Investigate the live endpoint behavior separately
   before enabling it in the catalog.
 
