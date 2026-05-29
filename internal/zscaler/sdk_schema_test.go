@@ -11,6 +11,7 @@ import (
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -33,6 +34,10 @@ import (
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments"
+	usergroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/users"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 )
 
 func TestReviewedSDKShapesMatchCatalogOrIgnoredRegistry(t *testing.T) {
@@ -1211,6 +1216,164 @@ func reviewedSDKShapes() []sdkShapeReview {
 			ignoredFields: ignoredBecause(
 				"admin references are mapped then dropped by projection",
 				"lastModifiedBy",
+			),
+		},
+		{
+			name:         "usergroups.Groups",
+			resource:     resources.ProductZIA,
+			resourceName: resourceGroups,
+			typ:          reflect.TypeOf(usergroups.Groups{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"idpId",
+				"comments",
+				"isSystemDefined",
+			},
+		},
+		{
+			name:         "departments.Department",
+			resource:     resources.ProductZIA,
+			resourceName: resourceDepartments,
+			typ:          reflect.TypeOf(departments.Department{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"idpId",
+				"comments",
+				"deleted",
+			},
+		},
+		{
+			name:         "users.Users",
+			resource:     resources.ProductZIA,
+			resourceName: resourceUsers,
+			typ:          reflect.TypeOf(users.Users{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"email",
+				"groups",
+				"department",
+				"comments",
+				"tempAuthEmail",
+				"authMethods",
+				"password",
+				"adminUser",
+				"type",
+				"deleted",
+			},
+		},
+		{
+			name: "ziacommon.UserGroups",
+			typ:  reflect.TypeOf(ziacommon.UserGroups{}),
+			ignoredFields: ignoredBecause(
+				"used inside modeled user group references; parent catalog fields decide whether id/name can render",
+				"id",
+				"name",
+				"idp_id",
+				"comments",
+				"isSystemDefined",
+			),
+		},
+		{
+			name: "ziacommon.UserDepartment",
+			typ:  reflect.TypeOf(ziacommon.UserDepartment{}),
+			ignoredFields: ignoredBecause(
+				"used inside modeled user department references; parent catalog fields decide whether id/name/deleted can render",
+				"id",
+				"name",
+				"idp_id",
+				"comments",
+				"deleted",
+			),
+		},
+		{
+			name:         "devicegroups.DeviceGroups",
+			resource:     resources.ProductZIA,
+			resourceName: resourceDeviceGroups,
+			typ:          reflect.TypeOf(devicegroups.DeviceGroups{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"groupType",
+				"description",
+				"osType",
+				"predefined",
+				"deviceNames",
+				"deviceCount",
+			},
+		},
+		{
+			name:         "devicegroups.Devices",
+			resource:     resources.ProductZIA,
+			resourceName: resourceDevices,
+			typ:          reflect.TypeOf(devicegroups.Devices{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"deviceGroupType",
+				"deviceModel",
+				"osType",
+				"osVersion",
+				"description",
+				"ownerUserId",
+				"ownerName",
+				"hostName",
+			},
+		},
+		{
+			name:         "workloadgroups.WorkloadGroup",
+			resource:     resources.ProductZIA,
+			resourceName: resourceWorkloadGroups,
+			typ:          reflect.TypeOf(workloadgroups.WorkloadGroup{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"expression",
+				"lastModifiedTime",
+			},
+			ignoredFields: ignoredBecause(
+				"structured expression details and admin references are mapped then dropped by projection",
+				"expressionJson",
+				"lastModifiedBy",
+			),
+		},
+		{
+			name: "workloadgroups.WorkloadTagExpression",
+			typ:  reflect.TypeOf(workloadgroups.WorkloadTagExpression{}),
+			ignoredFields: ignoredBecause(
+				"covered by dropped expressionJson parent",
+				"expressionContainers",
+			),
+		},
+		{
+			name: "workloadgroups.ExpressionContainer",
+			typ:  reflect.TypeOf(workloadgroups.ExpressionContainer{}),
+			ignoredFields: ignoredBecause(
+				"covered by dropped expressionJson parent",
+				"tagType",
+				"operator",
+				"tagContainer",
+			),
+		},
+		{
+			name: "workloadgroups.TagContainer",
+			typ:  reflect.TypeOf(workloadgroups.TagContainer{}),
+			ignoredFields: ignoredBecause(
+				"covered by dropped expressionJson parent",
+				"tags",
+				"operator",
+			),
+		},
+		{
+			name: "workloadgroups.Tags",
+			typ:  reflect.TypeOf(workloadgroups.Tags{}),
+			ignoredFields: ignoredBecause(
+				"covered by dropped expressionJson parent",
+				"key",
+				"value",
 			),
 		},
 		{

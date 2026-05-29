@@ -13,6 +13,7 @@ import (
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -35,6 +36,10 @@ import (
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments"
+	usergroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/users"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/resources"
@@ -1939,6 +1944,306 @@ func TestReaderListNATControlRulesProjectsSDKShapeThroughAllowList(t *testing.T)
 	}
 	if got["redirectPort"] != 443 {
 		t.Errorf("projected nat-control-rules redirectPort = %v, want 443", got["redirectPort"])
+	}
+}
+
+func TestReaderListGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "group-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceGroups}: newListGetHandler(
+				resourceGroups,
+				func(context.Context) ([]usergroups.Groups, error) {
+					return []usergroups.Groups{
+						{
+							ID:              801,
+							Name:            "Finance psk=" + canary,
+							IdpID:           17,
+							Comments:        "temporary psk=" + canary + " " + bareFreeTextToken,
+							IsSystemDefined: true,
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*usergroups.Groups, error) { return nil, nil }),
+				groupSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceGroups)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, groups) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceGroups, records)
+	assertNoCanaries(t, "groups", got, canary, bareFreeTextToken)
+	if got["isSystemDefined"] != true {
+		t.Errorf("projected groups isSystemDefined = %v, want true", got["isSystemDefined"])
+	}
+}
+
+func TestReaderListDepartmentsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "department-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceDepartments}: newListGetHandler(
+				resourceDepartments,
+				func(context.Context) ([]departments.Department, error) {
+					return []departments.Department{
+						{
+							ID:       802,
+							Name:     "Engineering psk=" + canary,
+							IdpID:    18,
+							Comments: "temporary psk=" + canary + " " + bareFreeTextToken,
+							Deleted:  false,
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*departments.Department, error) { return nil, nil }),
+				departmentSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceDepartments)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, departments) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceDepartments, records)
+	assertNoCanaries(t, "departments", got, canary, bareFreeTextToken)
+	if got["idpId"] != 18 {
+		t.Errorf("projected departments idpId = %v, want 18", got["idpId"])
+	}
+}
+
+func TestReaderListUsersProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "user-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceUsers}: newListGetHandler(
+				resourceUsers,
+				func(context.Context) ([]users.Users, error) {
+					return []users.Users{
+						{
+							ID:            803,
+							Name:          "Alice psk=" + canary,
+							Email:         "alice@example.invalid",
+							Comments:      "temporary psk=" + canary + " " + bareFreeTextToken,
+							TempAuthEmail: "alice-temp@example.invalid",
+							AuthMethods:   []string{"BASIC"},
+							Password:      "psk=" + canary,
+							AdminUser:     true,
+							Type:          "END_USER",
+							Deleted:       false,
+							Groups: []ziacommon.UserGroups{
+								{
+									ID:              31,
+									Name:            "Finance psk=" + canary,
+									IdpID:           71,
+									Comments:        "group psk=" + canary,
+									IsSystemDefined: "false",
+								},
+							},
+							Department: &ziacommon.UserDepartment{
+								ID:       41,
+								Name:     "Engineering psk=" + canary,
+								IdpID:    81,
+								Comments: "department psk=" + canary,
+								Deleted:  false,
+							},
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*users.Users, error) { return nil, nil }),
+				userSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceUsers)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, users) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceUsers, records)
+	assertNoCanaries(t, "users", got, canary, bareFreeTextToken)
+	if _, ok := got["password"]; ok {
+		t.Errorf("projected users = %#v, want no password", got)
+	}
+	if got["adminUser"] != true {
+		t.Errorf("projected users adminUser = %v, want true", got["adminUser"])
+	}
+}
+
+func TestReaderListDeviceGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "device-group-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceDeviceGroups}: newListGetHandler(
+				resourceDeviceGroups,
+				func(context.Context) ([]devicegroups.DeviceGroups, error) {
+					return []devicegroups.DeviceGroups{
+						{
+							ID:          804,
+							Name:        "Managed laptops psk=" + canary,
+							GroupType:   "STATIC",
+							Description: "temporary psk=" + canary + " " + bareFreeTextToken,
+							OSType:      "WINDOWS",
+							Predefined:  false,
+							DeviceNames: "device psk=" + canary,
+							DeviceCount: 12,
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*devicegroups.DeviceGroups, error) { return nil, nil }),
+				deviceGroupSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceDeviceGroups)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, device-groups) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceDeviceGroups, records)
+	assertNoCanaries(t, "device-groups", got, canary, bareFreeTextToken)
+	if got["deviceCount"] != 12 {
+		t.Errorf("projected device-groups deviceCount = %v, want 12", got["deviceCount"])
+	}
+}
+
+func TestReaderListDevicesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "device-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceDevices}: newListGetHandler(
+				resourceDevices,
+				func(context.Context) ([]devicegroups.Devices, error) {
+					return []devicegroups.Devices{
+						{
+							ID:              805,
+							Name:            "Laptop psk=" + canary,
+							DeviceGroupType: "STATIC",
+							DeviceModel:     "Model psk=" + canary,
+							OSType:          "MACOS",
+							OSVersion:       "14.5",
+							Description:     "temporary psk=" + canary + " " + bareFreeTextToken,
+							OwnerUserId:     1111,
+							OwnerName:       "Owner psk=" + canary,
+							HostName:        "host-psk=" + canary,
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*devicegroups.Devices, error) { return nil, nil }),
+				deviceSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceDevices)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, devices) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceDevices, records)
+	assertNoCanaries(t, "devices", got, canary, bareFreeTextToken)
+	if got["osType"] != "MACOS" {
+		t.Errorf("projected devices osType = %v, want MACOS", got["osType"])
+	}
+}
+
+func TestReaderListWorkloadGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary            = "workload-group-psk-canary"
+		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+		adminCanary       = "workload-group-admin-canary"
+		tagCanary         = "workload-group-tag-canary"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceWorkloadGroups}: newListGetHandler(
+				resourceWorkloadGroups,
+				func(context.Context) ([]workloadgroups.WorkloadGroup, error) {
+					return []workloadgroups.WorkloadGroup{
+						{
+							ID:               806,
+							Name:             "Workload group psk=" + canary,
+							Description:      "temporary psk=" + canary + " " + bareFreeTextToken,
+							Expression:       "tag.value psk=" + canary,
+							LastModifiedTime: 1700000000,
+							LastModifiedBy: &ziacommon.IDNameExtensions{
+								ID:   9004,
+								Name: adminCanary,
+							},
+							WorkloadTagExpression: workloadgroups.WorkloadTagExpression{
+								ExpressionContainers: []workloadgroups.ExpressionContainer{
+									{
+										TagType:  "TAG",
+										Operator: "AND",
+										TagContainer: workloadgroups.TagContainer{
+											Operator: "OR",
+											Tags: []workloadgroups.Tags{
+												{
+													Key:   "env",
+													Value: tagCanary,
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*workloadgroups.WorkloadGroup, error) { return nil, nil }),
+				workloadGroupSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceWorkloadGroups)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, workload-groups) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceWorkloadGroups, records)
+	assertNoCanaries(t, "workload-groups", got, canary, bareFreeTextToken, adminCanary, tagCanary)
+	for _, field := range []string{"lastModifiedBy", "expressionJson"} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected workload-groups = %#v, want no %s", got, field)
+		}
+	}
+	if got["lastModifiedTime"] != 1700000000 {
+		t.Errorf("projected workload-groups lastModifiedTime = %v, want 1700000000", got["lastModifiedTime"])
 	}
 }
 

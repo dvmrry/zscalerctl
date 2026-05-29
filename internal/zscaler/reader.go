@@ -19,6 +19,7 @@ import (
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -41,6 +42,10 @@ import (
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments"
+	usergroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/users"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 
 	"github.com/dvmrry/zscalerctl/internal/resources"
 	"github.com/dvmrry/zscalerctl/internal/secret"
@@ -83,6 +88,12 @@ const (
 	resourceBandwidthRules   = "bandwidth-control-rules"
 	resourceDNSGateways      = "dns-gateways"
 	resourceNATRules         = "nat-control-rules"
+	resourceGroups           = "groups"
+	resourceDepartments      = "departments"
+	resourceUsers            = "users"
+	resourceDeviceGroups     = "device-groups"
+	resourceDevices          = "devices"
+	resourceWorkloadGroups   = "workload-groups"
 )
 
 type AuthMode string
@@ -558,6 +569,70 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return natcontrol.Get(ctx, service, id)
 			}),
 			natControlRuleSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceGroups}: newListGetHandler(
+			resourceGroups,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]usergroups.Groups, error) {
+				return usergroups.GetAllGroups(ctx, service, nil)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*usergroups.Groups, error) {
+				return usergroups.GetGroups(ctx, service, id)
+			}),
+			groupSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceDepartments}: newListGetHandler(
+			resourceDepartments,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]departments.Department, error) {
+				return departments.GetAll(ctx, service, nil)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*departments.Department, error) {
+				return departments.GetDepartments(ctx, service, id)
+			}),
+			departmentSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceUsers}: newListGetHandler(
+			resourceUsers,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]users.Users, error) {
+				return users.GetAllUsers(ctx, service, nil)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*users.Users, error) {
+				return users.Get(ctx, service, id)
+			}),
+			userSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceDeviceGroups}: newListGetHandler(
+			resourceDeviceGroups,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]devicegroups.DeviceGroups, error) {
+				return devicegroups.GetAllDevicesGroups(ctx, service)
+			}),
+			ziaSDKListGetByIntID(
+				ziaClient,
+				func(ctx context.Context, service *zsdk.Service) ([]devicegroups.DeviceGroups, error) {
+					return devicegroups.GetAllDevicesGroups(ctx, service)
+				},
+				func(item devicegroups.DeviceGroups) int { return item.ID },
+			),
+			deviceGroupSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceDevices}: newListGetHandler(
+			resourceDevices,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]devicegroups.Devices, error) {
+				return devicegroups.GetAllDevices(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*devicegroups.Devices, error) {
+				return devicegroups.GetDevicesByID(ctx, service, id)
+			}),
+			deviceSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceWorkloadGroups}: newListGetHandler(
+			resourceWorkloadGroups,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]workloadgroups.WorkloadGroup, error) {
+				return workloadgroups.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*workloadgroups.WorkloadGroup, error) {
+				return workloadgroups.Get(ctx, service, id)
+			}),
+			workloadGroupSourceRecord,
 		),
 	}
 }
@@ -1658,6 +1733,91 @@ func natControlRuleSourceRecord(rule natcontrol.NatControlPolicies) resources.So
 	return resources.NewSourceRecord(fields)
 }
 
+func groupSourceRecord(group usergroups.Groups) resources.SourceRecord {
+	fields := map[string]any{
+		"id":              group.ID,
+		"name":            group.Name,
+		"idpId":           group.IdpID,
+		"comments":        group.Comments,
+		"isSystemDefined": group.IsSystemDefined,
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func departmentSourceRecord(department departments.Department) resources.SourceRecord {
+	fields := map[string]any{
+		"id":       department.ID,
+		"name":     department.Name,
+		"idpId":    department.IdpID,
+		"comments": department.Comments,
+		"deleted":  department.Deleted,
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func userSourceRecord(user users.Users) resources.SourceRecord {
+	fields := map[string]any{
+		"id":            user.ID,
+		"name":          user.Name,
+		"email":         user.Email,
+		"comments":      user.Comments,
+		"tempAuthEmail": user.TempAuthEmail,
+		"password":      user.Password,
+		"adminUser":     user.AdminUser,
+		"type":          user.Type,
+		"deleted":       user.Deleted,
+	}
+	addStringSlice(fields, "authMethods", user.AuthMethods)
+	addUserGroupsSlice(fields, "groups", user.Groups)
+	addUserDepartmentPtr(fields, "department", user.Department)
+	return resources.NewSourceRecord(fields)
+}
+
+func deviceGroupSourceRecord(group devicegroups.DeviceGroups) resources.SourceRecord {
+	fields := map[string]any{
+		"id":          group.ID,
+		"name":        group.Name,
+		"groupType":   group.GroupType,
+		"description": group.Description,
+		"osType":      group.OSType,
+		"predefined":  group.Predefined,
+		"deviceNames": group.DeviceNames,
+		"deviceCount": group.DeviceCount,
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func deviceSourceRecord(device devicegroups.Devices) resources.SourceRecord {
+	fields := map[string]any{
+		"id":              device.ID,
+		"name":            device.Name,
+		"deviceGroupType": device.DeviceGroupType,
+		"deviceModel":     device.DeviceModel,
+		"osType":          device.OSType,
+		"osVersion":       device.OSVersion,
+		"description":     device.Description,
+		"ownerUserId":     device.OwnerUserId,
+		"ownerName":       device.OwnerName,
+		"hostName":        device.HostName,
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func workloadGroupSourceRecord(group workloadgroups.WorkloadGroup) resources.SourceRecord {
+	fields := map[string]any{
+		"id":               group.ID,
+		"name":             group.Name,
+		"description":      group.Description,
+		"expression":       group.Expression,
+		"lastModifiedTime": group.LastModifiedTime,
+	}
+	addIDNameExtensionsPtr(fields, "lastModifiedBy", group.LastModifiedBy)
+	if len(group.WorkloadTagExpression.ExpressionContainers) > 0 {
+		fields["expressionJson"] = workloadTagExpressionSource(group.WorkloadTagExpression)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
 func addStringSlice(fields map[string]any, name string, values []string) {
 	if len(values) > 0 {
 		fields[name] = append([]string(nil), values...)
@@ -1685,6 +1845,22 @@ func addIDNameExtensionsPtr(fields map[string]any, name string, value *ziacommon
 func addIDNameExtensionsSlice(fields map[string]any, name string, values []ziacommon.IDNameExtensions) {
 	if len(values) > 0 {
 		fields[name] = idNameExtensionsSliceSource(values)
+	}
+}
+
+func addUserGroupsSlice(fields map[string]any, name string, values []ziacommon.UserGroups) {
+	if len(values) > 0 {
+		items := make([]map[string]any, 0, len(values))
+		for _, value := range values {
+			items = append(items, userGroupSource(value))
+		}
+		fields[name] = items
+	}
+}
+
+func addUserDepartmentPtr(fields map[string]any, name string, value *ziacommon.UserDepartment) {
+	if value != nil {
+		fields[name] = userDepartmentSource(value)
 	}
 }
 
@@ -1742,6 +1918,26 @@ func idNameExternalIDSource(value *ziacommon.IDNameExternalID) map[string]any {
 	return fields
 }
 
+func userGroupSource(value ziacommon.UserGroups) map[string]any {
+	return map[string]any{
+		"id":              value.ID,
+		"name":            value.Name,
+		"idp_id":          value.IdpID,
+		"comments":        value.Comments,
+		"isSystemDefined": value.IsSystemDefined,
+	}
+}
+
+func userDepartmentSource(value *ziacommon.UserDepartment) map[string]any {
+	return map[string]any{
+		"id":       value.ID,
+		"name":     value.Name,
+		"idp_id":   value.IdpID,
+		"comments": value.Comments,
+		"deleted":  value.Deleted,
+	}
+}
+
 func idNameExtensionsSliceSource(values []ziacommon.IDNameExtensions) []any {
 	out := make([]any, 0, len(values))
 	for i := range values {
@@ -1767,6 +1963,43 @@ func networkPortsSource(values []networkservices.NetworkPorts) []any {
 		})
 	}
 	return out
+}
+
+func workloadTagExpressionSource(value workloadgroups.WorkloadTagExpression) map[string]any {
+	fields := map[string]any{}
+	if len(value.ExpressionContainers) > 0 {
+		items := make([]map[string]any, 0, len(value.ExpressionContainers))
+		for _, container := range value.ExpressionContainers {
+			items = append(items, expressionContainerSource(container))
+		}
+		fields["expressionContainers"] = items
+	}
+	return fields
+}
+
+func expressionContainerSource(value workloadgroups.ExpressionContainer) map[string]any {
+	return map[string]any{
+		"tagType":      value.TagType,
+		"operator":     value.Operator,
+		"tagContainer": tagContainerSource(value.TagContainer),
+	}
+}
+
+func tagContainerSource(value workloadgroups.TagContainer) map[string]any {
+	fields := map[string]any{
+		"operator": value.Operator,
+	}
+	if len(value.Tags) > 0 {
+		items := make([]map[string]any, 0, len(value.Tags))
+		for _, tag := range value.Tags {
+			items = append(items, map[string]any{
+				"key":   tag.Key,
+				"value": tag.Value,
+			})
+		}
+		fields["tags"] = items
+	}
+	return fields
 }
 
 func zpaAppSegmentsSource(values []ziacommon.ZPAAppSegments) []any {
