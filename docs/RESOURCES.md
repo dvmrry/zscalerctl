@@ -166,9 +166,10 @@ them.
 
 Before enabling another resource:
 
-- Start with `go run ./scripts/catalog-draft.go --package <sdk-package> --type
-  <sdk-type> --product <zia|zpa> --resource <name>` to generate a classified
-  catalog and SDK shape-review scaffold from the SDK struct.
+- Start with `scripts/scaffold-resource.sh --product <zia|zpa> --resource
+  <name> --package <sdk-package> --type <sdk-type>` to create a review bundle
+  under `scratch/resource-drafts/`. The bundle wraps `catalog-draft.go`, adds
+  reader/docs/validation notes, and does not mutate production files.
 - Treat the generated scaffold as a fail-closed starting point: only approved
   global field names render by default, while ambiguous names such as `value`,
   `key`, `data`, `content`, and `metadata` stay `secret` unless modeled with

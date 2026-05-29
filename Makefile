@@ -2,7 +2,7 @@ STATICCHECK_VERSION ?= v0.7.0
 SEMGREP_VERSION ?= 1.164.0
 FUZZTIME ?= 5s
 
-.PHONY: fmt-check test race vet vuln staticcheck docs-check semgrep-check vendor verify-vendor verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-live-smoke-script verify-release-automation verify-catalog-draft fuzz-smoke check release-check
+.PHONY: fmt-check test race vet vuln staticcheck docs-check semgrep-check vendor verify-vendor verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-live-smoke-script verify-release-automation verify-catalog-draft verify-resource-scaffold scaffold-resource fuzz-smoke check release-check
 
 fmt-check:
 	@files="$$(find . -path ./vendor -prune -o -name '*.go' -print0 | xargs -0 gofmt -l)"; \
@@ -59,11 +59,21 @@ verify-release-automation:
 verify-catalog-draft:
 	bash scripts/test-catalog-draft.sh
 
+verify-resource-scaffold:
+	bash scripts/test-scaffold-resource.sh
+
+scaffold-resource:
+	@test -n "$(PRODUCT)" || (echo "PRODUCT is required" >&2; exit 2)
+	@test -n "$(RESOURCE)" || (echo "RESOURCE is required" >&2; exit 2)
+	@test -n "$(PACKAGE)" || (echo "PACKAGE is required" >&2; exit 2)
+	@test -n "$(TYPE)" || (echo "TYPE is required" >&2; exit 2)
+	bash scripts/scaffold-resource.sh --product "$(PRODUCT)" --resource "$(RESOURCE)" --package "$(PACKAGE)" --type "$(TYPE)" $(if $(OUT),--out "$(OUT)") $(if $(FORCE),--force)
+
 fuzz-smoke:
 	go test -mod=vendor ./internal/redact -run '^$$' -fuzz FuzzRedactorPreservesValidJSON -fuzztime=$(FUZZTIME)
 	go test -mod=vendor ./internal/redact -run '^$$' -fuzz FuzzScanRenderedStringRedactsBareHighEntropyCanary -fuzztime=$(FUZZTIME)
 	go test -mod=vendor ./internal/resources -run '^$$' -fuzz FuzzProjectRecordSubsetAndCanaryRedaction -fuzztime=$(FUZZTIME)
 
-check: fmt-check test race vet vuln staticcheck docs-check semgrep-check verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-live-smoke-script verify-release-automation verify-catalog-draft
+check: fmt-check test race vet vuln staticcheck docs-check semgrep-check verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-live-smoke-script verify-release-automation verify-catalog-draft verify-resource-scaffold
 
 release-check: verify-vendor check
