@@ -240,13 +240,13 @@ run_smoke() {
   local stderr="$tmp_dir/stderr-$mode"
 
   if ZSCALERCTL_BIN="$fake_bin" ZSCALERCTL_FAKE_MODE="$mode" \
-    "$repo_root/scripts/live-smoke.sh" --skip-credential-check --out "$out" >"$stdout" 2>"$stderr"; then
+    "$repo_root/scripts/live-smoke.sh" --skip-credential-check --no-manifest --out "$out" >"$stdout" 2>"$stderr"; then
     return 0
   fi
   return 1
 }
 
-if ! "${without_live_creds[@]}" "$repo_root/scripts/live-smoke.sh" --out "$tmp_dir/out-skip" >"$tmp_dir/stdout-skip" 2>"$tmp_dir/stderr-skip"; then
+if ! "${without_live_creds[@]}" "$repo_root/scripts/live-smoke.sh" --no-manifest --out "$tmp_dir/out-skip" >"$tmp_dir/stdout-skip" 2>"$tmp_dir/stderr-skip"; then
   echo "live-smoke without credentials did not skip cleanly" >&2
   cat "$tmp_dir/stdout-skip" >&2
   cat "$tmp_dir/stderr-skip" >&2
@@ -259,7 +259,7 @@ if ! grep -q '\[SKIP\] no supported live credentials configured' "$tmp_dir/stdou
   exit 1
 fi
 
-if "${without_live_creds[@]}" "$repo_root/scripts/live-smoke.sh" --require-credentials --out "$tmp_dir/out-require-creds" >"$tmp_dir/stdout-require-creds" 2>"$tmp_dir/stderr-require-creds"; then
+if "${without_live_creds[@]}" "$repo_root/scripts/live-smoke.sh" --no-manifest --require-credentials --out "$tmp_dir/out-require-creds" >"$tmp_dir/stdout-require-creds" 2>"$tmp_dir/stderr-require-creds"; then
   echo "live-smoke --require-credentials accepted missing credentials" >&2
   cat "$tmp_dir/stdout-require-creds" >&2
   cat "$tmp_dir/stderr-require-creds" >&2
@@ -272,7 +272,7 @@ if ! grep -q '\[FAIL\] no supported live credentials configured' "$tmp_dir/stder
   exit 1
 fi
 
-if "$repo_root/scripts/live-smoke.sh" --skip-credential-check --bin "$tmp_dir/missing-zscalerctl" --out "$tmp_dir/out-missing-bin" >"$tmp_dir/stdout-missing-bin" 2>"$tmp_dir/stderr-missing-bin"; then
+if "$repo_root/scripts/live-smoke.sh" --skip-credential-check --no-manifest --bin "$tmp_dir/missing-zscalerctl" --out "$tmp_dir/out-missing-bin" >"$tmp_dir/stdout-missing-bin" 2>"$tmp_dir/stderr-missing-bin"; then
   echo "live-smoke accepted a missing --bin path" >&2
   cat "$tmp_dir/stdout-missing-bin" >&2
   cat "$tmp_dir/stderr-missing-bin" >&2
@@ -370,7 +370,7 @@ if ! grep -q '\[PASS\] dump resource files match ZIA catalog' "$tmp_dir/stdout-g
   exit 1
 fi
 
-if ! ZSCALERCTL_BIN="$fake_bin" "$repo_root/scripts/live-smoke.sh" --skip-credential-check --resources zia/locations,rule-labels --out "$tmp_dir/out-subset" >"$tmp_dir/stdout-subset" 2>"$tmp_dir/stderr-subset"; then
+if ! ZSCALERCTL_BIN="$fake_bin" "$repo_root/scripts/live-smoke.sh" --skip-credential-check --no-manifest --resources zia/locations,rule-labels --out "$tmp_dir/out-subset" >"$tmp_dir/stdout-subset" 2>"$tmp_dir/stderr-subset"; then
   echo "live-smoke rejected a valid resource subset" >&2
   cat "$tmp_dir/stdout-subset" >&2
   cat "$tmp_dir/stderr-subset" >&2
@@ -389,7 +389,52 @@ if grep -q 'zia static-ips list command completed' "$tmp_dir/stdout-subset"; the
   exit 1
 fi
 
-if ZSCALERCTL_BIN="$fake_bin" "$repo_root/scripts/live-smoke.sh" --skip-credential-check --resources zia/not-real --out "$tmp_dir/out-unknown-resource" >"$tmp_dir/stdout-unknown-resource" 2>"$tmp_dir/stderr-unknown-resource"; then
+manifest="$tmp_dir/live-smoke.manifest"
+cat >"$manifest" <<'EOF'
+# focused branch smoke
+- zia/locations
+* rule-labels
+EOF
+
+if ! ZSCALERCTL_BIN="$fake_bin" "$repo_root/scripts/live-smoke.sh" --skip-credential-check --manifest "$manifest" --out "$tmp_dir/out-manifest" >"$tmp_dir/stdout-manifest" 2>"$tmp_dir/stderr-manifest"; then
+  echo "live-smoke rejected a valid manifest resource subset" >&2
+  cat "$tmp_dir/stdout-manifest" >&2
+  cat "$tmp_dir/stderr-manifest" >&2
+  exit 1
+fi
+
+if ! grep -q '\[INFO\] using live smoke manifest:' "$tmp_dir/stdout-manifest"; then
+  echo "live-smoke manifest fixture did not report manifest usage" >&2
+  cat "$tmp_dir/stdout-manifest" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] live smoke selected 2 ZIA resource(s): locations rule-labels' "$tmp_dir/stdout-manifest"; then
+  echo "live-smoke manifest fixture did not report selected resources" >&2
+  cat "$tmp_dir/stdout-manifest" >&2
+  exit 1
+fi
+
+if grep -q 'zia static-ips list command completed' "$tmp_dir/stdout-manifest"; then
+  echo "live-smoke manifest fixture listed an unselected resource" >&2
+  cat "$tmp_dir/stdout-manifest" >&2
+  exit 1
+fi
+
+if ZSCALERCTL_BIN="$fake_bin" "$repo_root/scripts/live-smoke.sh" --skip-credential-check --manifest "$tmp_dir/missing.manifest" --out "$tmp_dir/out-missing-manifest" >"$tmp_dir/stdout-missing-manifest" 2>"$tmp_dir/stderr-missing-manifest"; then
+  echo "live-smoke accepted a missing manifest path" >&2
+  cat "$tmp_dir/stdout-missing-manifest" >&2
+  cat "$tmp_dir/stderr-missing-manifest" >&2
+  exit 1
+fi
+
+if ! grep -q 'live smoke manifest not found' "$tmp_dir/stderr-missing-manifest"; then
+  echo "live-smoke missing-manifest failure did not mention the manifest path problem" >&2
+  cat "$tmp_dir/stderr-missing-manifest" >&2
+  exit 1
+fi
+
+if ZSCALERCTL_BIN="$fake_bin" "$repo_root/scripts/live-smoke.sh" --skip-credential-check --no-manifest --resources zia/not-real --out "$tmp_dir/out-unknown-resource" >"$tmp_dir/stdout-unknown-resource" 2>"$tmp_dir/stderr-unknown-resource"; then
   echo "live-smoke accepted an unknown requested resource" >&2
   cat "$tmp_dir/stdout-unknown-resource" >&2
   cat "$tmp_dir/stderr-unknown-resource" >&2

@@ -713,6 +713,95 @@ The SDK also returns structured expression JSON and `lastModifiedBy`. The
 reader maps those structures, but the catalog does not allow them to render, so
 projection drops them.
 
+## ZIA Alert Subscriptions
+
+Commands:
+
+```sh
+zscalerctl zia alert-subscriptions list
+zscalerctl zia alert-subscriptions get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `deleted` | Operational metadata | `standard`, `share`, `paranoid` | Subscription identifier and deletion state. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `email` | Sensitive identifier | `standard` | Local-only notification recipient address. |
+| `pt0Severities`, `secureSeverities`, `manageSeverities`, `complySeverities`, `systemSeverities` | Tenant configuration | `standard`, `share` | Reviewed alert severity selections. |
+
+## ZIA Cloud App Instances
+
+Commands:
+
+```sh
+zscalerctl zia cloud-app-instances list
+zscalerctl zia cloud-app-instances get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `instanceId`, `instanceType`, `modifiedAt` | Operational metadata | `standard`, `share`, `paranoid` for ID/type; `standard`, `share` for modified time | Instance identity, type, and timestamp metadata. |
+| `instanceName` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `modifiedBy`, `instanceIdentifiers` | Secret | never | Admin references and tenant identifiers are mapped into source records and dropped by projection. |
+
+## ZIA Tenancy Restriction Profiles
+
+Commands:
+
+```sh
+zscalerctl zia tenancy-restriction-profiles list
+zscalerctl zia tenancy-restriction-profiles get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `appType`, `itemTypePrimary`, `itemTypeSecondary`, `lastModifiedTime` | Operational metadata | `standard`, `share`, `paranoid` for identifiers/types; `standard`, `share` for modified time | Profile identity, app type, item type, and timestamp metadata. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `restrictPersonalO365Domains`, `allowGoogleConsumers`, `msLoginServicesTrV2`, `allowGoogleVisitors`, `allowGcpCloudStorageRead` | Tenant configuration | `standard`, `share` | Reviewed tenancy restriction flags. |
+| `itemDataPrimary`, `itemDataSecondary`, `itemValue`, `lastModifiedUserId` | Sensitive identifier | `standard` | Local-only tenant data values and admin identifier. |
+
+## ZIA Vzen Clusters
+
+Commands:
+
+```sh
+zscalerctl zia vzen-clusters list
+zscalerctl zia vzen-clusters get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `status`, `type`, `ipSecEnabled` | Operational metadata | `standard`, `share`, `paranoid` | Cluster identifier, state, type, and IPSec flag. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `ipAddress`, `subnetMask`, `defaultGateway` | Sensitive identifier | `standard` | Local-only network addressing. |
+| `virtualZenNodes` | Tenant configuration | `standard` | Local-only node references render reviewed `id`/`name` fields only; external IDs and extensions drop. |
+
+## ZIA Vzen Nodes
+
+Commands:
+
+```sh
+zscalerctl zia vzen-nodes list
+zscalerctl zia vzen-nodes get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `zgatewayId`, `status`, `inProduction`, `type`, `ipSecEnabled`, `onDemandSupportTunnelEnabled`, `establishSupportTunnelEnabled`, `deploymentMode`, `vzenSkuType` | Operational metadata | `standard`, `share`, `paranoid` | Node identity, status, deployment, support-tunnel, and SKU metadata. |
+| `name`, `clusterName` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `ipAddress`, `subnetMask`, `defaultGateway`, `loadBalancerIpAddress` | Sensitive identifier | `standard` | Local-only network addressing. |
+
 ## Deferred Resource Follow-Ups
 
 - `zia/network-service-groups`: generated and locally validated, but removed
@@ -733,6 +822,10 @@ projection drops them.
   before enabling it in the catalog.
 - `zia/devices`: generated and locally validated, but removed from the
   identity-reference batch after live smoke reported a list request failure under
+  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  before enabling it in the catalog.
+- `zia/email-profiles`: generated and locally validated, but removed from the
+  security-profile batch after live smoke reported a list request failure under
   ZIA legacy credentials. Investigate the live endpoint behavior separately
   before enabling it in the catalog.
 

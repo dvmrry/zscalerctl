@@ -8,8 +8,10 @@ import (
 
 	"github.com/dvmrry/zscalerctl/internal/resources"
 
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts"
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
+	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
@@ -29,12 +31,15 @@ import (
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
+	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
 	usergroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups"
+	vzenclusters "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_clusters"
+	vzennodes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_nodes"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 )
 
@@ -1262,6 +1267,115 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"expressionJson",
 				"lastModifiedBy",
 			),
+		},
+		{
+			name:         "alerts.AlertSubscriptions",
+			resource:     resources.ProductZIA,
+			resourceName: resourceAlertSubs,
+			typ:          reflect.TypeOf(alerts.AlertSubscriptions{}),
+			catalogFields: []string{
+				"id",
+				"description",
+				"email",
+				"deleted",
+				"pt0Severities",
+				"secureSeverities",
+				"manageSeverities",
+				"complySeverities",
+				"systemSeverities",
+			},
+		},
+		{
+			name:         "cloudappinstances.CloudApplicationInstances",
+			resource:     resources.ProductZIA,
+			resourceName: resourceCloudAppInsts,
+			typ:          reflect.TypeOf(cloudappinstances.CloudApplicationInstances{}),
+			catalogFields: []string{
+				"instanceId",
+				"instanceType",
+				"instanceName",
+				"modifiedAt",
+				"modifiedBy",
+				"instanceIdentifiers",
+			},
+		},
+		{
+			name: "cloudappinstances.InstanceIdentifiers",
+			typ:  reflect.TypeOf(cloudappinstances.InstanceIdentifiers{}),
+			ignoredFields: ignoredBecause(
+				"covered by dropped instanceIdentifiers parent",
+				"instanceId",
+				"instanceIdentifier",
+				"instanceIdentifierName",
+				"identifierType",
+				"modifiedAt",
+				"modifiedBy",
+			),
+		},
+		{
+			name:         "tenancyrestriction.TenancyRestrictionProfile",
+			resource:     resources.ProductZIA,
+			resourceName: resourceTenancyProfiles,
+			typ:          reflect.TypeOf(tenancyrestriction.TenancyRestrictionProfile{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"appType",
+				"description",
+				"itemTypePrimary",
+				"itemTypeSecondary",
+				"restrictPersonalO365Domains",
+				"allowGoogleConsumers",
+				"msLoginServicesTrV2",
+				"allowGoogleVisitors",
+				"allowGcpCloudStorageRead",
+				"itemDataPrimary",
+				"itemDataSecondary",
+				"itemValue",
+				"lastModifiedTime",
+				"lastModifiedUserId",
+			},
+		},
+		{
+			name:         "vzenclusters.VZENClusters",
+			resource:     resources.ProductZIA,
+			resourceName: resourceVZENClusters,
+			typ:          reflect.TypeOf(vzenclusters.VZENClusters{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"status",
+				"ipAddress",
+				"subnetMask",
+				"defaultGateway",
+				"type",
+				"ipSecEnabled",
+				"virtualZenNodes",
+			},
+		},
+		{
+			name:         "vzennodes.VZENNodes",
+			resource:     resources.ProductZIA,
+			resourceName: resourceVZENNodes,
+			typ:          reflect.TypeOf(vzennodes.VZENNodes{}),
+			catalogFields: []string{
+				"id",
+				"zgatewayId",
+				"name",
+				"status",
+				"inProduction",
+				"ipAddress",
+				"subnetMask",
+				"defaultGateway",
+				"type",
+				"ipSecEnabled",
+				"onDemandSupportTunnelEnabled",
+				"establishSupportTunnelEnabled",
+				"loadBalancerIpAddress",
+				"deploymentMode",
+				"clusterName",
+				"vzenSkuType",
+			},
 		},
 		{
 			name: "workloadgroups.WorkloadTagExpression",

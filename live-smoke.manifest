@@ -1,0 +1,11 @@
+# zscalerctl live smoke manifest
+#
+# scripts/live-smoke.sh auto-uses this file on feature branches when it differs
+# from origin/main and no explicit --resources or LIVE_SMOKE_RESOURCES was set.
+# Keep this focused on the resources changed by the current branch.
+
+zia/alert-subscriptions
+zia/cloud-app-instances
+zia/tenancy-restriction-profiles
+zia/vzen-clusters
+zia/vzen-nodes

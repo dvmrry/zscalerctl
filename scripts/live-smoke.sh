@@ -10,6 +10,9 @@ denied_key_pattern='(?i)(password|secret|token|api[_-]?key|preSharedKey|credenti
 manifest_warning='sanitized dumps remain confidential operational data'
 
 out_dir=""
+default_manifest="live-smoke.manifest"
+manifest_path=""
+disable_manifest=0
 require_nonempty=0
 require_credentials=0
 skip_credential_check=0
@@ -20,7 +23,7 @@ requested_resources=()
 
 usage() {
   cat <<'EOF'
-usage: scripts/live-smoke.sh [--out DIR] [--bin PATH] [--resources LIST] [--require-credentials] [--require-nonempty] [--strict-counts]
+usage: scripts/live-smoke.sh [--out DIR] [--bin PATH] [--resources LIST] [--manifest FILE] [--no-manifest] [--require-credentials] [--require-nonempty] [--strict-counts]
 
 Runs a read-only live smoke against the currently configured zscalerctl
 credentials and prints PASS/FAIL markers for pre-PR validation.
@@ -33,6 +36,10 @@ Options:
                        "go run -mod=vendor ./cmd/zscalerctl".
   --resources LIST     Optional comma-separated ZIA resource filter, using
                        bare names or zia/name. Defaults to all ZIA resources.
+  --manifest FILE      Read the resource filter from a line-oriented manifest.
+                       Comments, Markdown bullets, and comma-separated entries
+                       are accepted.
+  --no-manifest        Disable automatic live-smoke.manifest discovery.
   --require-credentials
                        Fail instead of SKIP when no supported live credential
                        family is configured. Use this for release gating.
@@ -86,11 +93,88 @@ normalize_requested_resource() {
 add_requested_resources() {
   local list="$1"
   local entry
+  local entries
 
   IFS=',' read -r -a entries <<<"$list"
   for entry in "${entries[@]}"; do
     requested_resources+=("$(normalize_requested_resource "$entry")")
   done
+}
+
+add_manifest_resources() {
+  local path="$1"
+  local before="${#requested_resources[@]}"
+  local line
+
+  if [[ ! -f "$path" ]]; then
+    echo "live smoke manifest not found: $path" >&2
+    exit 2
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    line="$(trim_space "$line")"
+    case "$line" in
+      "- "*|"* "*)
+        line="$(trim_space "${line#?}")"
+        ;;
+    esac
+    if [[ -z "$line" ]]; then
+      continue
+    fi
+    add_requested_resources "$line"
+  done <"$path"
+
+  if ((${#requested_resources[@]} == before)); then
+    echo "live smoke manifest contains no resources: $path" >&2
+    exit 2
+  fi
+}
+
+git_branch_name() {
+  git branch --show-current 2>/dev/null || true
+}
+
+manifest_changed_from_base() {
+  local base="${LIVE_SMOKE_MANIFEST_BASE:-origin/main}"
+
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! git rev-parse --verify -q "$base" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! git diff --quiet "$base"...HEAD -- "$default_manifest"; then
+    return 0
+  fi
+  if ! git diff --quiet -- "$default_manifest"; then
+    return 0
+  fi
+  [[ -n "$(git ls-files --others --exclude-standard -- "$default_manifest")" ]]
+}
+
+should_use_default_manifest() {
+  local branch
+
+  if ((disable_manifest)); then
+    return 1
+  fi
+  if ((${#requested_resources[@]} != 0)); then
+    return 1
+  fi
+  if [[ ! -f "$default_manifest" ]]; then
+    return 1
+  fi
+
+  branch="$(git_branch_name)"
+  case "$branch" in
+    ""|main|master)
+      return 1
+      ;;
+  esac
+
+  manifest_changed_from_base
 }
 
 while (($#)); do
@@ -118,6 +202,18 @@ while (($#)); do
       fi
       add_requested_resources "$2"
       shift 2
+      ;;
+    --manifest)
+      if (($# < 2)); then
+        echo "--manifest requires a file" >&2
+        exit 2
+      fi
+      manifest_path="$2"
+      shift 2
+      ;;
+    --no-manifest)
+      disable_manifest=1
+      shift
       ;;
     --require-credentials)
       require_credentials=1
@@ -163,6 +259,14 @@ fail() {
   printf '[FAIL] %s\n' "$*" >&2
   failures=$((failures + 1))
 }
+
+if [[ -n "$manifest_path" ]]; then
+  add_manifest_resources "$manifest_path"
+  info "using live smoke manifest: $manifest_path"
+elif should_use_default_manifest; then
+  add_manifest_resources "$default_manifest"
+  info "using live smoke manifest: $default_manifest"
+fi
 
 is_set() {
   [[ -n "${!1:-}" ]]

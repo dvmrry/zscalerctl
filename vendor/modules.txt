@@ -72,8 +72,10 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/errorx
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zdx
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices
@@ -93,12 +95,15 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanag
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_clusters
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_nodes
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw
