@@ -239,14 +239,14 @@ Fields:
 | `type` | Operational metadata | `standard`, `share`, `paranoid` | Category type. |
 | `customCategory` | Operational metadata | `standard`, `share`, `paranoid` | Whether the category is custom. |
 | `editable` | Operational metadata | `standard`, `share` | Whether the caller can edit the category. |
-| `customUrlsCount`, `customIpRangesCount` | Operational metadata | `standard`, `share`, `paranoid` | Counts only; raw URLs and IP ranges are dropped. |
+| `customUrlsCount`, `customIpRangesCount`, `urlsRetainingParentCategoryCount`, `ipRangesRetainingParentCategoryCount` | Operational metadata | `standard`, `share`, `paranoid` | Category member counts. |
 | `categoryGroup`, `superCategory` | Tenant configuration | `standard`, `share` | Category grouping metadata. |
 | `urlType` | Operational metadata | `standard`, `share` | Match type such as exact or regex. |
 | `urlKeywordCounts.*` | Operational metadata | `standard`, `share`, `paranoid` | URL and keyword counts only. |
+| `urls`, `dbCategorizedUrls`, `ipRanges`, `ipRangesRetainingParentCategory`, `keywords`, `keywordsRetainingParentCategory`, `regexPatterns`, `regexPatternsRetainingParentCategory` | Sensitive identifier | `standard` | Raw category members. Values are scanned before output. |
 
-The SDK also returns raw URLs, IP ranges, keywords, regex patterns, scopes, and
-retaining-parent details. The reader maps those fields, but the catalog keeps
-the first URL-category surface to metadata and counts.
+The SDK also returns scope details. The reader maps those fields, but the
+catalog drops `scopes` until they are separately classified.
 
 ## Adding A Resource
 

@@ -747,7 +747,7 @@ func TestReaderListURLCategoriesProjectsSDKShapeThroughAllowList(t *testing.T) {
 	const (
 		canary            = "url-category-psk-canary"
 		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
-		urlCanary         = "secret.example.invalid"
+		urlCanary         = "https://operator:url-category-secret@example.invalid"
 		scopeCanary       = "url-category-scope-canary"
 	)
 	reader := &SDKReader{
@@ -758,20 +758,27 @@ func TestReaderListURLCategoriesProjectsSDKShapeThroughAllowList(t *testing.T) {
 				func(context.Context) ([]urlcategories.URLCategory, error) {
 					return []urlcategories.URLCategory{
 						{
-							ID:                  "CUSTOM_01",
-							ConfiguredName:      "Category psk=" + canary,
-							Description:         "temporary psk=" + canary + " " + bareFreeTextToken,
-							Type:                "URL_CATEGORY",
-							CustomCategory:      true,
-							Editable:            true,
-							CustomUrlsCount:     1,
-							CustomIpRangesCount: 2,
-							CategoryGroup:       "User Defined",
-							SuperCategory:       "CUSTOM",
-							UrlType:             "EXACT",
-							Urls:                []string{urlCanary},
-							Keywords:            []string{canary},
-							RegexPatterns:       []string{urlCanary},
+							ID:                                   "CUSTOM_01",
+							ConfiguredName:                       "Category psk=" + canary,
+							Description:                          "temporary psk=" + canary + " " + bareFreeTextToken,
+							Type:                                 "URL_CATEGORY",
+							CustomCategory:                       true,
+							Editable:                             true,
+							CustomUrlsCount:                      1,
+							CustomIpRangesCount:                  2,
+							UrlsRetainingParentCategoryCount:     3,
+							IPRangesRetainingParentCategoryCount: 4,
+							CategoryGroup:                        "User Defined",
+							SuperCategory:                        "CUSTOM",
+							UrlType:                              "EXACT",
+							Urls:                                 []string{"example.invalid/path", urlCanary},
+							DBCategorizedUrls:                    []string{"retained.example.invalid"},
+							Keywords:                             []string{"finance", "psk=" + canary},
+							KeywordsRetainingParentCategory:      []string{"retained-keyword"},
+							IPRanges:                             []string{"203.0.113.0/24"},
+							IPRangesRetainingParentCategory:      []string{"198.51.100.0/24"},
+							RegexPatterns:                        []string{"^https://example\\.invalid/.*", "token=" + canary},
+							RegexPatternsRetainingParentCategory: []string{"^https://retained\\.example\\.invalid/.*"},
 							Scopes: []urlcategories.Scopes{
 								{
 									Type: "LOCATION",
@@ -820,9 +827,26 @@ func TestReaderListURLCategoriesProjectsSDKShapeThroughAllowList(t *testing.T) {
 			t.Errorf("projected url-categories %s = %v, want no bare token", field, got[field])
 		}
 	}
-	for _, field := range []string{"urls", "keywords", "regexPatterns", "scopes"} {
+	for _, field := range []string{"urls", "keywords", "regexPatterns"} {
+		values, ok := got[field].([]string)
+		if !ok || len(values) == 0 {
+			t.Fatalf("projected url-categories %s = %T %#v, want non-empty []string", field, got[field], got[field])
+		}
+	}
+	for _, field := range []string{"dbCategorizedUrls", "keywordsRetainingParentCategory", "ipRanges", "ipRangesRetainingParentCategory", "regexPatternsRetainingParentCategory"} {
+		values, ok := got[field].([]string)
+		if !ok || len(values) == 0 {
+			t.Fatalf("projected url-categories %s = %T %#v, want non-empty []string", field, got[field], got[field])
+		}
+	}
+	if _, ok := got["scopes"]; ok {
+		t.Errorf("projected url-categories = %#v, want no scopes", got)
+	}
+	for _, field := range []string{"urls", "keywords", "regexPatterns"} {
 		if _, ok := got[field]; ok {
-			t.Errorf("projected url-categories = %#v, want no %s", got, field)
+			if strings.Contains(fmt.Sprint(got[field]), canary) || strings.Contains(fmt.Sprint(got[field]), "url-category-secret") {
+				t.Errorf("projected url-categories %s = %#v, want secret-shaped values redacted", field, got[field])
+			}
 		}
 	}
 	for _, forbidden := range []string{canary, urlCanary, scopeCanary} {

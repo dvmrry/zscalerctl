@@ -1011,7 +1011,17 @@ func Catalog() ResourceCatalog {
 					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
 				},
 				{
+					Name:           "urlsRetainingParentCategoryCount",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
 					Name:           "customIpRangesCount",
+					Classification: ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
+				},
+				{
+					Name:           "ipRangesRetainingParentCategoryCount",
 					Classification: ClassOperational,
 					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
 				},
@@ -1056,6 +1066,46 @@ func Catalog() ResourceCatalog {
 							AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid},
 						},
 					},
+				},
+				{
+					Name:           "keywords",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "keywordsRetainingParentCategory",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "urls",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "dbCategorizedUrls",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "ipRanges",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "ipRangesRetainingParentCategory",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "regexPatterns",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "regexPatternsRetainingParentCategory",
+					Classification: ClassSensitiveIdentifier,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
 				},
 			},
 		},
