@@ -105,6 +105,75 @@ func TestNewSDKConfigurationDoesNotUseSDKDiscoveryOrLogging(t *testing.T) {
 	}
 }
 
+func TestNewSDKConfigurationCanUseExplicitEnvironmentProxy(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://proxy.example.invalid:8080")
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("NO_PROXY", "")
+
+	cfg := validReaderConfig()
+	cfg.Proxy.FromEnvironment = true
+	sdkCfg := newSDKConfiguration(context.Background(), cfg)
+	transport, ok := sdkCfg.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("newSDKConfiguration().HTTPClient.Transport = %T, want *http.Transport", sdkCfg.HTTPClient.Transport)
+	}
+	if transport.Proxy == nil {
+		t.Fatal("newSDKConfiguration().HTTPClient.Transport.Proxy = nil, want environment proxy")
+	}
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.example.invalid", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v, want nil", err)
+	}
+	proxyURL, err := transport.Proxy(request)
+	if err != nil {
+		t.Fatalf("transport.Proxy() error = %v, want nil", err)
+	}
+	if got := proxyURL.String(); got != "http://proxy.example.invalid:8080" {
+		t.Errorf("transport.Proxy() = %q, want http://proxy.example.invalid:8080", got)
+	}
+}
+
+func TestNewSDKConfigurationCanUseExplicitProxyURL(t *testing.T) {
+	cfg := validReaderConfig()
+	cfg.Proxy.URL = "http://proxy.example.invalid:8080"
+	sdkCfg := newSDKConfiguration(context.Background(), cfg)
+	transport, ok := sdkCfg.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("newSDKConfiguration().HTTPClient.Transport = %T, want *http.Transport", sdkCfg.HTTPClient.Transport)
+	}
+	if transport.Proxy == nil {
+		t.Fatal("newSDKConfiguration().HTTPClient.Transport.Proxy = nil, want explicit proxy")
+	}
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.example.invalid", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v, want nil", err)
+	}
+	proxyURL, err := transport.Proxy(request)
+	if err != nil {
+		t.Fatalf("transport.Proxy() error = %v, want nil", err)
+	}
+	if got := proxyURL.String(); got != "http://proxy.example.invalid:8080" {
+		t.Errorf("transport.Proxy() = %q, want http://proxy.example.invalid:8080", got)
+	}
+}
+
+func TestNewReaderRejectsInvalidProxyConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := validReaderConfig()
+	cfg.Proxy.URL = "proxy.example.invalid:8080"
+	if _, err := NewReader(cfg); !errors.Is(err, ErrInvalidProxyConfig) {
+		t.Fatalf("NewReader(invalid proxy URL) error = %v, want ErrInvalidProxyConfig", err)
+	}
+
+	cfg = validReaderConfig()
+	cfg.Proxy.URL = "http://proxy.example.invalid:8080"
+	cfg.Proxy.FromEnvironment = true
+	if _, err := NewReader(cfg); !errors.Is(err, ErrInvalidProxyConfig) {
+		t.Fatalf("NewReader(conflicting proxy config) error = %v, want ErrInvalidProxyConfig", err)
+	}
+}
+
 func TestNewLegacyZIAConfigurationDoesNotUseSDKDiscoveryOrProxy(t *testing.T) {
 	t.Setenv("ZIA_USERNAME", "sdk-legacy-admin@example.invalid")
 	t.Setenv("ZIA_PASSWORD", "sdk-legacy-password")
@@ -146,6 +215,26 @@ func TestNewLegacyZIAConfigurationDoesNotUseSDKDiscoveryOrProxy(t *testing.T) {
 	}
 	if transport.Proxy != nil {
 		t.Errorf("newLegacyZIAConfiguration().HTTPClient.Transport.Proxy is non-nil, want nil")
+	}
+}
+
+func TestNewLegacyZIAConfigurationCanUseExplicitEnvironmentProxy(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://proxy.example.invalid:8080")
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("NO_PROXY", "")
+
+	cfg := validLegacyReaderConfig()
+	cfg.Proxy.FromEnvironment = true
+	ziaCfg, err := newLegacyZIAConfiguration(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("newLegacyZIAConfiguration(proxy from env) error = %v, want nil", err)
+	}
+	transport, ok := ziaCfg.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("newLegacyZIAConfiguration().HTTPClient.Transport = %T, want *http.Transport", ziaCfg.HTTPClient.Transport)
+	}
+	if transport.Proxy == nil {
+		t.Fatal("newLegacyZIAConfiguration().HTTPClient.Transport.Proxy = nil, want environment proxy")
 	}
 }
 

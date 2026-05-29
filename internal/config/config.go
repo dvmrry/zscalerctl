@@ -24,6 +24,8 @@ const (
 	EnvZIAAPIKey        = "ZSCALERCTL_ZIA_API_KEY"
 	EnvZIAAPIKeyFile    = "ZSCALERCTL_ZIA_API_KEY_FILE"
 	EnvZIACloud         = "ZSCALERCTL_ZIA_CLOUD"
+	EnvProxyURL         = "ZSCALERCTL_PROXY_URL"
+	EnvProxyFromEnv     = "ZSCALERCTL_PROXY_FROM_ENV"
 	EnvRedaction        = "ZSCALERCTL_REDACTION"
 	EnvNoCache          = "ZSCALERCTL_NO_CACHE"
 )
@@ -42,6 +44,7 @@ type Config struct {
 	Cloud        string
 	Credentials  Credentials
 	ZIALegacy    ZIALegacyCredentials
+	Proxy        Proxy
 	Defaults     Defaults
 }
 
@@ -60,6 +63,11 @@ type ZIALegacyCredentials struct {
 	Cloud        string
 }
 
+type Proxy struct {
+	URL             string
+	FromEnvironment bool
+}
+
 type Defaults struct {
 	Redaction redact.Mode
 	NoCache   bool
@@ -72,6 +80,7 @@ type SafeConfig struct {
 	Cloud           string           `json:"cloud,omitempty"`
 	Credentials     CredentialStatus `json:"credentials"`
 	ZIALegacy       ZIALegacyStatus  `json:"zia_legacy"`
+	Proxy           ProxyStatus      `json:"proxy"`
 	Defaults        DefaultsView     `json:"defaults"`
 }
 
@@ -90,6 +99,11 @@ type ZIALegacyStatus struct {
 	APIKeySet       bool `json:"api_key_set"`
 	APIKeyFileSet   bool `json:"api_key_file_set"`
 	CloudSet        bool `json:"cloud_set"`
+}
+
+type ProxyStatus struct {
+	URLSet          bool `json:"url_set"`
+	FromEnvironment bool `json:"from_environment"`
 }
 
 type DefaultsView struct {
@@ -111,6 +125,10 @@ func LoadEnv(environ []string) (Config, error) {
 	noCache, err := parseBoolEnv(env[EnvNoCache])
 	if err != nil {
 		return Config{}, fmt.Errorf("parse %s: %w", EnvNoCache, err)
+	}
+	proxyFromEnv, err := parseBoolEnv(env[EnvProxyFromEnv])
+	if err != nil {
+		return Config{}, fmt.Errorf("parse %s: %w", EnvProxyFromEnv, err)
 	}
 	authMode, err := parseAuthMode(env[EnvAuthMode])
 	if err != nil {
@@ -166,6 +184,10 @@ func LoadEnv(environ []string) (Config, error) {
 			APIKeyFile:   env[EnvZIAAPIKeyFile],
 			Cloud:        strings.TrimSpace(env[EnvZIACloud]),
 		},
+		Proxy: Proxy{
+			URL:             strings.TrimSpace(env[EnvProxyURL]),
+			FromEnvironment: proxyFromEnv,
+		},
 		Defaults: Defaults{
 			Redaction: mode,
 			NoCache:   noCache,
@@ -198,6 +220,10 @@ func (c Config) Safe() SafeConfig {
 			APIKeySet:       c.ZIALegacy.APIKey.IsSet(),
 			APIKeyFileSet:   c.ZIALegacy.APIKeyFile != "",
 			CloudSet:        c.ZIALegacy.Cloud != "",
+		},
+		Proxy: ProxyStatus{
+			URLSet:          c.Proxy.URL != "",
+			FromEnvironment: c.Proxy.FromEnvironment,
 		},
 		Defaults: DefaultsView{
 			Redaction: string(c.Defaults.Redaction),

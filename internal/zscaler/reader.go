@@ -37,6 +37,7 @@ var (
 	ErrUnsupportedResource = errors.New("unsupported zscaler resource")
 	ErrInvalidResourceID   = errors.New("invalid zscaler resource id")
 	ErrLiveAccessFailed    = errors.New("zscaler API request failed")
+	ErrInvalidProxyConfig  = errors.New("invalid zscaler proxy config")
 )
 
 const defaultTimeout = 30 * time.Second
@@ -69,6 +70,7 @@ type ReaderConfig struct {
 	Cloud        string
 	AuthMode     AuthMode
 	ZIALegacy    ZIALegacyConfig
+	Proxy        ProxyConfig
 	Timeout      time.Duration
 	NoCache      bool
 }
@@ -78,6 +80,11 @@ type ZIALegacyConfig struct {
 	Password secret.Secret
 	APIKey   secret.Secret
 	Cloud    string
+}
+
+type ProxyConfig struct {
+	URL             string
+	FromEnvironment bool
 }
 
 type SDKReader struct {
@@ -560,7 +567,7 @@ func newSDKConfiguration(ctx context.Context, cfg ReaderConfig) *zsdk.Configurat
 	timeout := effectiveTimeout(cfg.Timeout)
 	httpClient := &http.Client{
 		Timeout:   timeout,
-		Transport: directTransport(),
+		Transport: directTransport(cfg.Proxy),
 	}
 	sdkCfg := &zsdk.Configuration{
 		Logger:        sdklogger.NewNopLogger(),
@@ -600,7 +607,7 @@ func newLegacyZIAConfiguration(ctx context.Context, cfg ReaderConfig) (*sdkzia.C
 	}
 	httpClient := &http.Client{
 		Timeout:   timeout,
-		Transport: directTransport(),
+		Transport: directTransport(cfg.Proxy),
 	}
 	ziaCfg := &sdkzia.Configuration{
 		Logger:        sdklogger.NewNopLogger(),
@@ -646,13 +653,28 @@ func effectiveContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-func directTransport() http.RoundTripper {
+func directTransport(proxy ProxyConfig) http.RoundTripper {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
+	transport.Proxy = proxyFunc(proxy)
 	return transport
 }
 
+func proxyFunc(proxy ProxyConfig) func(*http.Request) (*url.URL, error) {
+	if proxy.FromEnvironment {
+		return http.ProxyFromEnvironment
+	}
+	proxyURL := strings.TrimSpace(proxy.URL)
+	if proxyURL == "" {
+		return nil
+	}
+	parsed, _ := url.Parse(proxyURL)
+	return http.ProxyURL(parsed)
+}
+
 func validateReaderConfig(cfg ReaderConfig) error {
+	if err := validateProxyConfig(cfg.Proxy); err != nil {
+		return err
+	}
 	switch effectiveAuthMode(cfg.AuthMode) {
 	case AuthModeZIALegacy:
 		switch {
@@ -680,6 +702,28 @@ func validateReaderConfig(cfg ReaderConfig) error {
 		}
 	default:
 		return fmt.Errorf("%w: unsupported auth mode %q", ErrMissingCredentials, cfg.AuthMode)
+	}
+}
+
+func validateProxyConfig(proxy ProxyConfig) error {
+	if strings.TrimSpace(proxy.URL) != "" && proxy.FromEnvironment {
+		return fmt.Errorf("%w: set only one of ZSCALERCTL_PROXY_URL or ZSCALERCTL_PROXY_FROM_ENV", ErrInvalidProxyConfig)
+	}
+	if strings.TrimSpace(proxy.URL) == "" {
+		return nil
+	}
+	parsed, err := url.Parse(strings.TrimSpace(proxy.URL))
+	if err != nil {
+		return fmt.Errorf("%w: parse ZSCALERCTL_PROXY_URL: %w", ErrInvalidProxyConfig, err)
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("%w: ZSCALERCTL_PROXY_URL must include scheme and host", ErrInvalidProxyConfig)
+	}
+	switch parsed.Scheme {
+	case "http", "https", "socks5":
+		return nil
+	default:
+		return fmt.Errorf("%w: ZSCALERCTL_PROXY_URL unsupported scheme %q", ErrInvalidProxyConfig, parsed.Scheme)
 	}
 }
 
