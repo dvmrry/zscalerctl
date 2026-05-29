@@ -335,6 +335,73 @@ The SDK also returns admin, user, group, department, device, and ZPA segment
 objects. The reader maps those structures, but the catalog keeps them out of
 rendered output until they are separately modeled.
 
+## ZIA IP Source Groups
+
+Commands:
+
+```sh
+zscalerctl zia ip-source-groups list
+zscalerctl zia ip-source-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Source IP group identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `ipAddresses` | Sensitive identifier | `standard` | Local-only source IP addresses/ranges. |
+| `isNonEditable` | Operational metadata | `standard`, `share`, `paranoid` | Whether the group is predefined/non-editable. |
+
+## ZIA IP Destination Groups
+
+Commands:
+
+```sh
+zscalerctl zia ip-destination-groups list
+zscalerctl zia ip-destination-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Destination IP group identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `type` | Operational metadata | `standard`, `share`, `paranoid` | Destination group type. |
+| `addresses`, `ipCategories` | Sensitive identifier | `standard` | Local-only destination addresses, FQDNs, wildcard FQDNs, and URL category references. |
+| `countries` | Operational metadata | `standard`, `share` | Destination country criteria. |
+| `isNonEditable` | Operational metadata | `standard`, `share`, `paranoid` | Whether the group is predefined/non-editable. |
+
+## ZIA Network Services
+
+Commands:
+
+```sh
+zscalerctl zia network-services list
+zscalerctl zia network-services get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Network service identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `tag`, `protocol` | Tenant configuration | `standard`, `share` | Service tag and protocol metadata. |
+| `type`, `isNameL10nTag` | Operational metadata | `standard`, `share`, `paranoid` | Service type and localization flag. |
+| `srcTcpPorts`, `destTcpPorts`, `srcUdpPorts`, `destUdpPorts` | Tenant configuration | `standard`, `share` | Port ranges render reviewed `start`/`end` values only. |
+
+## Deferred Resource Follow-Ups
+
+- `zia/network-service-groups`: generated and locally validated, but removed
+  from the first policy-reference batch after live smoke reported a request
+  failure. Investigate the live endpoint behavior separately before enabling it
+  in the catalog.
+
 ## Adding A Resource
 
 Before enabling another resource:

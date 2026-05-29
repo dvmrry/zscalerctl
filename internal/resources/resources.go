@@ -699,6 +699,18 @@ func idNameField(name string, allowed []redact.Mode) FieldSpec {
 	}
 }
 
+func networkPortsField(name string, allowed []redact.Mode) FieldSpec {
+	return FieldSpec{
+		Name:           name,
+		Classification: ClassTenantConfig,
+		AllowedModes:   allowed,
+		Fields: []FieldSpec{
+			operationalField("start", allModes()),
+			operationalField("end", allModes()),
+		},
+	}
+}
+
 func Catalog() ResourceCatalog {
 	return ResourceCatalog{
 		{
@@ -1323,6 +1335,51 @@ func Catalog() ResourceCatalog {
 				idNameField("proxyGateway", standardOnlyMode()),
 				idNameField("dedicatedIPGateway", standardOnlyMode()),
 				idNameField("zpaGateway", standardOnlyMode()),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "ip-source-groups",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				freeTextField("description", "ZIA IP source group description"),
+				sensitiveIdentifierField("ipAddresses"),
+				operationalField("isNonEditable", allModes()),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "ip-destination-groups",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				freeTextField("description", "ZIA IP destination group description"),
+				operationalField("type", allModes()),
+				sensitiveIdentifierField("addresses"),
+				sensitiveIdentifierField("ipCategories"),
+				operationalField("countries", standardShareModes()),
+				operationalField("isNonEditable", allModes()),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "network-services",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				freeTextField("description", "ZIA network service description"),
+				tenantConfigField("tag", standardShareModes()),
+				operationalField("type", allModes()),
+				tenantConfigField("protocol", standardShareModes()),
+				operationalField("isNameL10nTag", allModes()),
+				networkPortsField("srcTcpPorts", standardShareModes()),
+				networkPortsField("destTcpPorts", standardShareModes()),
+				networkPortsField("srcUdpPorts", standardShareModes()),
+				networkPortsField("destUdpPorts", standardShareModes()),
 			},
 		},
 	}

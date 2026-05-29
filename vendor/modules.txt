@@ -74,6 +74,9 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zdx
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/filteringrules
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipdestinationgroups
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipsourcegroups
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/networkservices
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement
