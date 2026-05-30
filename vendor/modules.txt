@@ -78,6 +78,11 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/band
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_engines
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_incident_receiver_servers
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_notification_templates
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlpdictionaries
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways
