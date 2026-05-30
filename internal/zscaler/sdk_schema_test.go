@@ -14,11 +14,7 @@ import (
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
-	dlpengines "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_engines"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
-	dlpincidentreceivers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_incident_receiver_servers"
-	dlpnotificationtemplates "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_notification_templates"
-	dlpdictionaries "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlpdictionaries"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -1383,96 +1379,6 @@ func reviewedSDKShapes() []sdkShapeReview {
 			},
 		},
 		{
-			name:         "dlpengines.DLPEngines",
-			resource:     resources.ProductZIA,
-			resourceName: resourceDLPEngines,
-			typ:          reflect.TypeOf(dlpengines.DLPEngines{}),
-			catalogFields: []string{
-				"id",
-				"name",
-				"description",
-				"predefinedEngineName",
-				"engineExpression",
-				"customDlpEngine",
-			},
-		},
-		{
-			name:         "dlpdictionaries.DlpDictionary",
-			resource:     resources.ProductZIA,
-			resourceName: resourceDLPDictionaries,
-			typ:          reflect.TypeOf(dlpdictionaries.DlpDictionary{}),
-			catalogFields: []string{
-				"id",
-				"name",
-				"description",
-				"confidenceThreshold",
-				"customPhraseMatchType",
-				"nameL10nTag",
-				"custom",
-				"thresholdType",
-				"dictionaryType",
-				"proximity",
-				"phrases",
-				"patterns",
-				"exactDataMatchDetails",
-				"idmProfileMatchAccuracyDetails",
-				"ignoreExactMatchIdmDict",
-				"includeBinNumbers",
-				"binNumbers",
-				"dictTemplateId",
-				"predefinedClone",
-				"predefinedCountActionType",
-				"proximityLengthEnabled",
-				"proximityEnabledForCustomDictionary",
-				"dictionaryCloningEnabled",
-				"customPhraseSupported",
-				"hierarchicalDictionary",
-				"hierarchicalIdentifiers",
-				"predefinedPhrases",
-				"thresholdAllowed",
-				"confidenceLevelForPredefinedDict",
-			},
-		},
-		{
-			name: "dlpdictionaries.Phrases",
-			typ:  reflect.TypeOf(dlpdictionaries.Phrases{}),
-			ignoredFields: ignoredBecause(
-				"covered by dropped phrases parent",
-				"action",
-				"phrase",
-			),
-		},
-		{
-			name: "dlpdictionaries.Patterns",
-			typ:  reflect.TypeOf(dlpdictionaries.Patterns{}),
-			ignoredFields: ignoredBecause(
-				"covered by dropped patterns parent",
-				"action",
-				"pattern",
-			),
-		},
-		{
-			name: "dlpdictionaries.EDMMatchDetails",
-			typ:  reflect.TypeOf(dlpdictionaries.EDMMatchDetails{}),
-			ignoredFields: ignoredBecause(
-				"covered by dropped exactDataMatchDetails parent",
-				"dictionaryEdmMappingId",
-				"schemaId",
-				"primaryFields",
-				"secondaryFields",
-				"secondaryFieldMatchOn",
-			),
-		},
-		{
-			name: "dlpdictionaries.IDMProfileMatchAccuracy",
-			typ:  reflect.TypeOf(dlpdictionaries.IDMProfileMatchAccuracy{}),
-			ignoredFields: ignoredBecause(
-				"covered by dropped idmProfileMatchAccuracyDetails parent",
-				"adpIdmProfile",
-				"matchAccuracy",
-			),
-		},
-		{
 			name:         "dlpicapservers.DLPICAPServers",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDLPICAPServers,
@@ -1482,34 +1388,6 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"name",
 				"url",
 				"status",
-			},
-		},
-		{
-			name:         "dlpincidentreceivers.IncidentReceiverServers",
-			resource:     resources.ProductZIA,
-			resourceName: resourceDLPReceivers,
-			typ:          reflect.TypeOf(dlpincidentreceivers.IncidentReceiverServers{}),
-			catalogFields: []string{
-				"id",
-				"name",
-				"url",
-				"status",
-				"flags",
-			},
-		},
-		{
-			name:         "dlpnotificationtemplates.DlpNotificationTemplates",
-			resource:     resources.ProductZIA,
-			resourceName: resourceDLPTemplates,
-			typ:          reflect.TypeOf(dlpnotificationtemplates.DlpNotificationTemplates{}),
-			catalogFields: []string{
-				"id",
-				"name",
-				"subject",
-				"attachContent",
-				"plainTextMessage",
-				"htmlMessage",
-				"tlsEnabled",
 			},
 		},
 		{

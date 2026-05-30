@@ -802,43 +802,6 @@ Fields:
 | `name`, `clusterName` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
 | `ipAddress`, `subnetMask`, `defaultGateway`, `loadBalancerIpAddress` | Sensitive identifier | `standard` | Local-only network addressing. |
 
-## ZIA Dlp Engines
-
-Commands:
-
-```sh
-zscalerctl zia dlp-engines list
-zscalerctl zia dlp-engines get <id>
-```
-
-Fields:
-
-| Field | Classification | Modes | Notes |
-| --- | --- | --- | --- |
-| `id`, `customDlpEngine` | Operational metadata | `standard`, `share`, `paranoid` | Engine identity and custom/predefined status. |
-| `name`, `predefinedEngineName` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
-| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
-| `engineExpression` | Secret | never | Dictionary expression content is mapped into source records and dropped by projection. |
-
-## ZIA Dlp Dictionaries
-
-Commands:
-
-```sh
-zscalerctl zia dlp-dictionaries list
-zscalerctl zia dlp-dictionaries get <id>
-```
-
-Fields:
-
-| Field | Classification | Modes | Notes |
-| --- | --- | --- | --- |
-| `id`, `customPhraseMatchType`, `nameL10nTag`, `custom`, `thresholdType`, `dictionaryType`, `ignoreExactMatchIdmDict`, `includeBinNumbers`, `dictTemplateId`, `predefinedClone`, `predefinedCountActionType`, `proximityLengthEnabled`, `proximityEnabledForCustomDictionary`, `dictionaryCloningEnabled`, `customPhraseSupported`, `hierarchicalDictionary`, `thresholdAllowed` | Operational metadata | `standard`, `share`, `paranoid` | Dictionary identity, type, threshold, clone, and feature-flag metadata. |
-| `proximity` | Operational metadata | `standard`, `share` | Dictionary proximity length. |
-| `name`, `confidenceThreshold`, `confidenceLevelForPredefinedDict` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
-| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
-| `binNumbers`, `phrases`, `patterns`, `exactDataMatchDetails`, `idmProfileMatchAccuracyDetails`, `hierarchicalIdentifiers`, `predefinedPhrases` | Secret | never | Dictionary contents and EDM/IDM matching details are mapped into source records and dropped by projection. |
-
 ## ZIA Dlp Icap Servers
 
 Commands:
@@ -855,40 +818,6 @@ Fields:
 | `id`, `status` | Operational metadata | `standard`, `share`, `paranoid` | ICAP server identity and status. |
 | `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
 | `url` | Sensitive identifier | `standard` | Local-only ICAP server endpoint. |
-
-## ZIA Dlp Incident Receiver Servers
-
-Commands:
-
-```sh
-zscalerctl zia dlp-incident-receiver-servers list
-zscalerctl zia dlp-incident-receiver-servers get <id>
-```
-
-Fields:
-
-| Field | Classification | Modes | Notes |
-| --- | --- | --- | --- |
-| `id`, `status`, `flags` | Operational metadata | `standard`, `share`, `paranoid` | Receiver identity, status, and flag metadata. |
-| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
-| `url` | Sensitive identifier | `standard` | Local-only incident receiver endpoint. |
-
-## ZIA Dlp Notification Templates
-
-Commands:
-
-```sh
-zscalerctl zia dlp-notification-templates list
-zscalerctl zia dlp-notification-templates get <id>
-```
-
-Fields:
-
-| Field | Classification | Modes | Notes |
-| --- | --- | --- | --- |
-| `id`, `attachContent`, `tlsEnabled` | Operational metadata | `standard`, `share`, `paranoid` | Template identity and delivery flags. |
-| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
-| `subject`, `plainTextMessage`, `htmlMessage` | Secret | never | Notification body content is mapped into source records and dropped by projection. |
 
 ## Deferred Resource Follow-Ups
 
@@ -916,6 +845,22 @@ Fields:
   security-profile batch after live smoke reported a list request failure under
   ZIA legacy credentials. Investigate the live endpoint behavior separately
   before enabling it in the catalog.
+- `zia/dlp-engines`: generated and locally validated, but removed from the
+  DLP-reference batch after live smoke reported a list request failure under
+  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  before enabling it in the catalog.
+- `zia/dlp-dictionaries`: generated and locally validated, but removed from the
+  DLP-reference batch after live smoke reported a list request failure under
+  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  before enabling it in the catalog.
+- `zia/dlp-incident-receiver-servers`: generated and locally validated, but
+  removed from the DLP-reference batch after live smoke reported a list request
+  failure under ZIA legacy credentials. Investigate the live endpoint behavior
+  separately before enabling it in the catalog.
+- `zia/dlp-notification-templates`: generated and locally validated, but
+  removed from the DLP-reference batch after live smoke reported a list request
+  failure under ZIA legacy credentials. Investigate the live endpoint behavior
+  separately before enabling it in the catalog.
 
 ## Adding A Resource
 

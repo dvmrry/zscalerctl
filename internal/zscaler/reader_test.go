@@ -16,11 +16,7 @@ import (
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
-	dlpengines "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_engines"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
-	dlpincidentreceivers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_incident_receiver_servers"
-	dlpnotificationtemplates "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_notification_templates"
-	dlpdictionaries "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlpdictionaries"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -2355,115 +2351,6 @@ func TestReaderListVZENNodesProjectsSDKShapeThroughAllowList(t *testing.T) {
 	}
 }
 
-func TestReaderListDLPEnginesProjectsSDKShapeThroughAllowList(t *testing.T) {
-	t.Parallel()
-
-	const (
-		canary            = "dlp-engine-psk-canary"
-		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
-	)
-	reader := &SDKReader{
-		cfg: validReaderConfig(),
-		handlers: map[resourceKey]resourceHandler{
-			{product: resources.ProductZIA, name: resourceDLPEngines}: newListGetHandler(
-				resourceDLPEngines,
-				func(context.Context) ([]dlpengines.DLPEngines, error) {
-					return []dlpengines.DLPEngines{
-						{
-							ID:                   1001,
-							Name:                 "Custom DLP engine psk=" + canary,
-							Description:          "temporary psk=" + canary + " " + bareFreeTextToken,
-							PredefinedEngineName: "PCI",
-							EngineExpression:     "dictionary psk=" + canary,
-							CustomDlpEngine:      true,
-						},
-					}, nil
-				},
-				intIDGetter(func(context.Context, int) (*dlpengines.DLPEngines, error) { return nil, nil }),
-				dlpEngineSourceRecord,
-			),
-		},
-	}
-
-	records, err := reader.List(context.Background(), resources.ProductZIA, resourceDLPEngines)
-	if err != nil {
-		t.Fatalf("SDKReader.List(zia, dlp-engines) error = %v, want nil", err)
-	}
-	got := projectOneRecord(t, resources.ProductZIA, resourceDLPEngines, records)
-	assertNoCanaries(t, "dlp-engines", got, canary, bareFreeTextToken)
-	if _, ok := got["engineExpression"]; ok {
-		t.Errorf("projected dlp-engines = %#v, want no engineExpression", got)
-	}
-	if got["customDlpEngine"] != true {
-		t.Errorf("projected dlp-engines customDlpEngine = %v, want true", got["customDlpEngine"])
-	}
-}
-
-func TestReaderListDLPDictionariesProjectsSDKShapeThroughAllowList(t *testing.T) {
-	t.Parallel()
-
-	const (
-		canary            = "dlp-dictionary-psk-canary"
-		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
-	)
-	reader := &SDKReader{
-		cfg: validReaderConfig(),
-		handlers: map[resourceKey]resourceHandler{
-			{product: resources.ProductZIA, name: resourceDLPDictionaries}: newListGetHandler(
-				resourceDLPDictionaries,
-				func(context.Context) ([]dlpdictionaries.DlpDictionary, error) {
-					return []dlpdictionaries.DlpDictionary{
-						{
-							ID:                                  1002,
-							Name:                                "Custom dictionary psk=" + canary,
-							Description:                         "temporary psk=" + canary + " " + bareFreeTextToken,
-							ConfidenceThreshold:                 "HIGH",
-							CustomPhraseMatchType:               "MATCH_ANY",
-							Custom:                              true,
-							ThresholdType:                       "COUNT",
-							DictionaryType:                      "PATTERNS_AND_PHRASES",
-							Proximity:                           20,
-							Phrases:                             []dlpdictionaries.Phrases{{Action: "INCLUDE", Phrase: "phrase psk=" + canary}},
-							Patterns:                            []dlpdictionaries.Patterns{{Action: "INCLUDE", Pattern: "pattern psk=" + canary}},
-							EDMMatchDetails:                     []dlpdictionaries.EDMMatchDetails{{DictionaryEdmMappingID: 1, SchemaID: 2, SecondaryFieldMatchOn: "field psk=" + canary}},
-							IDMProfileMatchAccuracy:             []dlpdictionaries.IDMProfileMatchAccuracy{{AdpIdmProfile: &ziacommon.IDNameExtensions{ID: 3, Name: "idm psk=" + canary}, MatchAccuracy: "HIGH"}},
-							BinNumbers:                          []int{123456},
-							HierarchicalIdentifiers:             []string{"identifier psk=" + canary},
-							PredefinedPhrases:                   []string{"predefined psk=" + canary},
-							PredefinedClone:                     true,
-							PredefinedCountActionType:           "UNIQUE",
-							ProximityLengthEnabled:              true,
-							ProximityEnabledForCustomDictionary: true,
-							DictionaryCloningEnabled:            true,
-							CustomPhraseSupported:               true,
-							HierarchicalDictionary:              true,
-							ThresholdAllowed:                    true,
-							ConfidenceLevelForPredefinedDict:    "HIGH",
-						},
-					}, nil
-				},
-				intIDGetter(func(context.Context, int) (*dlpdictionaries.DlpDictionary, error) { return nil, nil }),
-				dlpDictionarySourceRecord,
-			),
-		},
-	}
-
-	records, err := reader.List(context.Background(), resources.ProductZIA, resourceDLPDictionaries)
-	if err != nil {
-		t.Fatalf("SDKReader.List(zia, dlp-dictionaries) error = %v, want nil", err)
-	}
-	got := projectOneRecord(t, resources.ProductZIA, resourceDLPDictionaries, records)
-	assertNoCanaries(t, "dlp-dictionaries", got, canary, bareFreeTextToken)
-	for _, field := range []string{"phrases", "patterns", "exactDataMatchDetails", "idmProfileMatchAccuracyDetails", "binNumbers", "hierarchicalIdentifiers", "predefinedPhrases"} {
-		if _, ok := got[field]; ok {
-			t.Errorf("projected dlp-dictionaries = %#v, want no %s", got, field)
-		}
-	}
-	if got["dictionaryType"] != "PATTERNS_AND_PHRASES" {
-		t.Errorf("projected dlp-dictionaries dictionaryType = %v, want PATTERNS_AND_PHRASES", got["dictionaryType"])
-	}
-}
-
 func TestReaderListDLPICAPServersProjectsSDKShapeThroughAllowList(t *testing.T) {
 	t.Parallel()
 
@@ -2497,89 +2384,6 @@ func TestReaderListDLPICAPServersProjectsSDKShapeThroughAllowList(t *testing.T) 
 	assertNoCanaries(t, "dlp-icap-servers", got, canary)
 	if got["status"] != "ENABLED" {
 		t.Errorf("projected dlp-icap-servers status = %v, want ENABLED", got["status"])
-	}
-}
-
-func TestReaderListDLPIncidentReceiversProjectsSDKShapeThroughAllowList(t *testing.T) {
-	t.Parallel()
-
-	const canary = "dlp-receiver-psk-canary"
-	reader := &SDKReader{
-		cfg: validReaderConfig(),
-		handlers: map[resourceKey]resourceHandler{
-			{product: resources.ProductZIA, name: resourceDLPReceivers}: newListGetHandler(
-				resourceDLPReceivers,
-				func(context.Context) ([]dlpincidentreceivers.IncidentReceiverServers, error) {
-					return []dlpincidentreceivers.IncidentReceiverServers{
-						{
-							ID:     1004,
-							Name:   "Incident receiver psk=" + canary,
-							URL:    "https://receiver.example.invalid/dlp",
-							Status: "ENABLED",
-							Flags:  3,
-						},
-					}, nil
-				},
-				intIDGetter(func(context.Context, int) (*dlpincidentreceivers.IncidentReceiverServers, error) { return nil, nil }),
-				dlpIncidentReceiverSourceRecord,
-			),
-		},
-	}
-
-	records, err := reader.List(context.Background(), resources.ProductZIA, resourceDLPReceivers)
-	if err != nil {
-		t.Fatalf("SDKReader.List(zia, dlp-incident-receiver-servers) error = %v, want nil", err)
-	}
-	got := projectOneRecord(t, resources.ProductZIA, resourceDLPReceivers, records)
-	assertNoCanaries(t, "dlp-incident-receiver-servers", got, canary)
-	if got["flags"] != 3 {
-		t.Errorf("projected dlp-incident-receiver-servers flags = %v, want 3", got["flags"])
-	}
-}
-
-func TestReaderListDLPNotificationTemplatesProjectsSDKShapeThroughAllowList(t *testing.T) {
-	t.Parallel()
-
-	const canary = "dlp-template-psk-canary"
-	reader := &SDKReader{
-		cfg: validReaderConfig(),
-		handlers: map[resourceKey]resourceHandler{
-			{product: resources.ProductZIA, name: resourceDLPTemplates}: newListGetHandler(
-				resourceDLPTemplates,
-				func(context.Context) ([]dlpnotificationtemplates.DlpNotificationTemplates, error) {
-					return []dlpnotificationtemplates.DlpNotificationTemplates{
-						{
-							ID:               1005,
-							Name:             "Notification template psk=" + canary,
-							Subject:          "subject psk=" + canary,
-							AttachContent:    true,
-							PlainTextMessage: "plain text psk=" + canary,
-							HtmlMessage:      "<p>html psk=" + canary + "</p>",
-							TLSEnabled:       true,
-						},
-					}, nil
-				},
-				intIDGetter(func(context.Context, int) (*dlpnotificationtemplates.DlpNotificationTemplates, error) {
-					return nil, nil
-				}),
-				dlpNotificationTemplateSourceRecord,
-			),
-		},
-	}
-
-	records, err := reader.List(context.Background(), resources.ProductZIA, resourceDLPTemplates)
-	if err != nil {
-		t.Fatalf("SDKReader.List(zia, dlp-notification-templates) error = %v, want nil", err)
-	}
-	got := projectOneRecord(t, resources.ProductZIA, resourceDLPTemplates, records)
-	assertNoCanaries(t, "dlp-notification-templates", got, canary)
-	for _, field := range []string{"subject", "plainTextMessage", "htmlMessage"} {
-		if _, ok := got[field]; ok {
-			t.Errorf("projected dlp-notification-templates = %#v, want no %s", got, field)
-		}
-	}
-	if got["tlsEnabled"] != true {
-		t.Errorf("projected dlp-notification-templates tlsEnabled = %v, want true", got["tlsEnabled"])
 	}
 }
 

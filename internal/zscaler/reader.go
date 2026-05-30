@@ -22,11 +22,7 @@ import (
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
-	dlpengines "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_engines"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
-	dlpincidentreceivers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_incident_receiver_servers"
-	dlpnotificationtemplates "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_notification_templates"
-	dlpdictionaries "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlpdictionaries"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -104,11 +100,7 @@ const (
 	resourceTenancyProfiles  = "tenancy-restriction-profiles"
 	resourceVZENClusters     = "vzen-clusters"
 	resourceVZENNodes        = "vzen-nodes"
-	resourceDLPEngines       = "dlp-engines"
-	resourceDLPDictionaries  = "dlp-dictionaries"
 	resourceDLPICAPServers   = "dlp-icap-servers"
-	resourceDLPReceivers     = "dlp-incident-receiver-servers"
-	resourceDLPTemplates     = "dlp-notification-templates"
 )
 
 type AuthMode string
@@ -669,26 +661,6 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 			}),
 			vzenNodeSourceRecord,
 		),
-		{product: resources.ProductZIA, name: resourceDLPEngines}: newListGetHandler(
-			resourceDLPEngines,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]dlpengines.DLPEngines, error) {
-				return dlpengines.GetAll(ctx, service)
-			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*dlpengines.DLPEngines, error) {
-				return dlpengines.Get(ctx, service, id)
-			}),
-			dlpEngineSourceRecord,
-		),
-		{product: resources.ProductZIA, name: resourceDLPDictionaries}: newListGetHandler(
-			resourceDLPDictionaries,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]dlpdictionaries.DlpDictionary, error) {
-				return dlpdictionaries.GetAll(ctx, service)
-			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*dlpdictionaries.DlpDictionary, error) {
-				return dlpdictionaries.Get(ctx, service, id)
-			}),
-			dlpDictionarySourceRecord,
-		),
 		{product: resources.ProductZIA, name: resourceDLPICAPServers}: newListGetHandler(
 			resourceDLPICAPServers,
 			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]dlpicapservers.DLPICAPServers, error) {
@@ -698,26 +670,6 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return dlpicapservers.Get(ctx, service, id)
 			}),
 			dlpICAPServerSourceRecord,
-		),
-		{product: resources.ProductZIA, name: resourceDLPReceivers}: newListGetHandler(
-			resourceDLPReceivers,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]dlpincidentreceivers.IncidentReceiverServers, error) {
-				return dlpincidentreceivers.GetAll(ctx, service)
-			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*dlpincidentreceivers.IncidentReceiverServers, error) {
-				return dlpincidentreceivers.Get(ctx, service, id)
-			}),
-			dlpIncidentReceiverSourceRecord,
-		),
-		{product: resources.ProductZIA, name: resourceDLPTemplates}: newListGetHandler(
-			resourceDLPTemplates,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]dlpnotificationtemplates.DlpNotificationTemplates, error) {
-				return dlpnotificationtemplates.GetAll(ctx, service)
-			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*dlpnotificationtemplates.DlpNotificationTemplates, error) {
-				return dlpnotificationtemplates.Get(ctx, service, id)
-			}),
-			dlpNotificationTemplateSourceRecord,
 		),
 	}
 }
@@ -1944,80 +1896,12 @@ func vzenNodeSourceRecord(node vzennodes.VZENNodes) resources.SourceRecord {
 	return resources.NewSourceRecord(fields)
 }
 
-func dlpEngineSourceRecord(engine dlpengines.DLPEngines) resources.SourceRecord {
-	return resources.NewSourceRecord(map[string]any{
-		"id":                   engine.ID,
-		"name":                 engine.Name,
-		"description":          engine.Description,
-		"predefinedEngineName": engine.PredefinedEngineName,
-		"engineExpression":     engine.EngineExpression,
-		"customDlpEngine":      engine.CustomDlpEngine,
-	})
-}
-
-func dlpDictionarySourceRecord(dictionary dlpdictionaries.DlpDictionary) resources.SourceRecord {
-	fields := map[string]any{
-		"id":                                  dictionary.ID,
-		"name":                                dictionary.Name,
-		"description":                         dictionary.Description,
-		"confidenceThreshold":                 dictionary.ConfidenceThreshold,
-		"customPhraseMatchType":               dictionary.CustomPhraseMatchType,
-		"nameL10nTag":                         dictionary.NameL10nTag,
-		"custom":                              dictionary.Custom,
-		"thresholdType":                       dictionary.ThresholdType,
-		"dictionaryType":                      dictionary.DictionaryType,
-		"proximity":                           dictionary.Proximity,
-		"ignoreExactMatchIdmDict":             dictionary.IgnoreExactMatchIdmDict,
-		"includeBinNumbers":                   dictionary.IncludeBinNumbers,
-		"dictTemplateId":                      dictionary.DictTemplateId,
-		"predefinedClone":                     dictionary.PredefinedClone,
-		"predefinedCountActionType":           dictionary.PredefinedCountActionType,
-		"proximityLengthEnabled":              dictionary.ProximityLengthEnabled,
-		"proximityEnabledForCustomDictionary": dictionary.ProximityEnabledForCustomDictionary,
-		"dictionaryCloningEnabled":            dictionary.DictionaryCloningEnabled,
-		"customPhraseSupported":               dictionary.CustomPhraseSupported,
-		"hierarchicalDictionary":              dictionary.HierarchicalDictionary,
-		"thresholdAllowed":                    dictionary.ThresholdAllowed,
-		"confidenceLevelForPredefinedDict":    dictionary.ConfidenceLevelForPredefinedDict,
-	}
-	addIntSlice(fields, "binNumbers", dictionary.BinNumbers)
-	addStringSlice(fields, "hierarchicalIdentifiers", dictionary.HierarchicalIdentifiers)
-	addStringSlice(fields, "predefinedPhrases", dictionary.PredefinedPhrases)
-	addDLPPhrases(fields, "phrases", dictionary.Phrases)
-	addDLPPatterns(fields, "patterns", dictionary.Patterns)
-	addDLPEDMMatchDetails(fields, "exactDataMatchDetails", dictionary.EDMMatchDetails)
-	addDLPIDMProfileMatchAccuracy(fields, "idmProfileMatchAccuracyDetails", dictionary.IDMProfileMatchAccuracy)
-	return resources.NewSourceRecord(fields)
-}
-
 func dlpICAPServerSourceRecord(server dlpicapservers.DLPICAPServers) resources.SourceRecord {
 	return resources.NewSourceRecord(map[string]any{
 		"id":     server.ID,
 		"name":   server.Name,
 		"url":    server.URL,
 		"status": server.Status,
-	})
-}
-
-func dlpIncidentReceiverSourceRecord(receiver dlpincidentreceivers.IncidentReceiverServers) resources.SourceRecord {
-	return resources.NewSourceRecord(map[string]any{
-		"id":     receiver.ID,
-		"name":   receiver.Name,
-		"url":    receiver.URL,
-		"status": receiver.Status,
-		"flags":  receiver.Flags,
-	})
-}
-
-func dlpNotificationTemplateSourceRecord(template dlpnotificationtemplates.DlpNotificationTemplates) resources.SourceRecord {
-	return resources.NewSourceRecord(map[string]any{
-		"id":               template.ID,
-		"name":             template.Name,
-		"subject":          template.Subject,
-		"attachContent":    template.AttachContent,
-		"plainTextMessage": template.PlainTextMessage,
-		"htmlMessage":      template.HtmlMessage,
-		"tlsEnabled":       template.TLSEnabled,
 	})
 }
 
@@ -2031,67 +1915,6 @@ func addIntSlice(fields map[string]any, name string, values []int) {
 	if len(values) > 0 {
 		fields[name] = append([]int(nil), values...)
 	}
-}
-
-func addDLPPhrases(fields map[string]any, name string, values []dlpdictionaries.Phrases) {
-	if len(values) == 0 {
-		return
-	}
-	items := make([]any, 0, len(values))
-	for _, value := range values {
-		items = append(items, map[string]any{
-			"action": value.Action,
-			"phrase": value.Phrase,
-		})
-	}
-	fields[name] = items
-}
-
-func addDLPPatterns(fields map[string]any, name string, values []dlpdictionaries.Patterns) {
-	if len(values) == 0 {
-		return
-	}
-	items := make([]any, 0, len(values))
-	for _, value := range values {
-		items = append(items, map[string]any{
-			"action":  value.Action,
-			"pattern": value.Pattern,
-		})
-	}
-	fields[name] = items
-}
-
-func addDLPEDMMatchDetails(fields map[string]any, name string, values []dlpdictionaries.EDMMatchDetails) {
-	if len(values) == 0 {
-		return
-	}
-	items := make([]any, 0, len(values))
-	for _, value := range values {
-		item := map[string]any{
-			"dictionaryEdmMappingId": value.DictionaryEdmMappingID,
-			"schemaId":               value.SchemaID,
-			"secondaryFieldMatchOn":  value.SecondaryFieldMatchOn,
-		}
-		addIntSlice(item, "primaryFields", value.PrimaryFields)
-		addIntSlice(item, "secondaryFields", value.SecondaryFields)
-		items = append(items, item)
-	}
-	fields[name] = items
-}
-
-func addDLPIDMProfileMatchAccuracy(fields map[string]any, name string, values []dlpdictionaries.IDMProfileMatchAccuracy) {
-	if len(values) == 0 {
-		return
-	}
-	items := make([]any, 0, len(values))
-	for _, value := range values {
-		item := map[string]any{
-			"matchAccuracy": value.MatchAccuracy,
-		}
-		addIDNameExtensionsPtr(item, "adpIdmProfile", value.AdpIdmProfile)
-		items = append(items, item)
-	}
-	fields[name] = items
 }
 
 func addIDNameExternalIDPtr(fields map[string]any, name string, value *ziacommon.IDNameExternalID) {

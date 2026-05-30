@@ -4,8 +4,4 @@
 # from origin/main and no explicit --resources or LIVE_SMOKE_RESOURCES was set.
 # Keep this focused on the resources changed by the current branch.
 
-zia/dlp-engines
-zia/dlp-dictionaries
 zia/dlp-icap-servers
-zia/dlp-incident-receiver-servers
-zia/dlp-notification-templates
