@@ -14,10 +14,12 @@ make sdk-surface-inventory FORMAT=json
 
 The script parses Go source under `vendor/github.com/zscaler/zscaler-sdk-go/v3`
 with the Go AST. It records exported structs, exported read-like functions,
-mutating-looking functions, static endpoint literals, and product/client
-packages. It is intentionally conservative: SDK packages that contain both read
-and write helpers are marked as mixed, and zscalerctl must wire only the read
-functions.
+mutating-looking functions, exported functions with unknown verbs, name/method
+ambiguities, static endpoint literals, and product/client packages. It is
+intentionally conservative: SDK packages that contain both read and write
+helpers are marked as mixed, and zscalerctl must wire only the read functions.
+The JSON output carries the same scout-only notice and SDK provenance as the
+Markdown output so generated inventory cannot be mistaken for validation data.
 
 ## Current Findings
 
@@ -58,8 +60,9 @@ Use the inventory before adding non-ZIA surfaces:
 2. Look for the product/package you want to explore.
 3. Queue only `ordinary-list-get` or carefully reviewed
    `list-get-with-mutating-neighbors` read surfaces.
-4. Move `read-only-nonstandard`, singleton, parameterized, identity-plane,
-   versioned, file-like, or client/config surfaces to shape-decision work.
+4. Move packages with unknown exported functions, ambiguous function signals,
+   `read-only-nonstandard`, singleton, parameterized, identity-plane, versioned,
+   file-like, or client/config surfaces to shape-decision work.
 5. Use dev OneAPI only as endpoint availability scouting unless production
    OneAPI smoke has been explicitly run.
 
