@@ -17,32 +17,45 @@ import (
 )
 
 type surface struct {
-	Product      string   `json:"product"`
-	Package      string   `json:"package"`
-	RelativePath string   `json:"relative_path"`
-	PackageName  string   `json:"package_name"`
-	Category     string   `json:"category"`
-	Structs      []string `json:"structs,omitempty"`
-	ReadFuncs    []string `json:"read_funcs,omitempty"`
-	MutateFuncs  []string `json:"mutate_funcs,omitempty"`
-	OtherFuncs   []string `json:"other_funcs,omitempty"`
-	HTTPMethods  []string `json:"http_methods,omitempty"`
-	Endpoints    []string `json:"endpoints,omitempty"`
-	Notes        []string `json:"notes,omitempty"`
+	Product        string   `json:"product"`
+	Package        string   `json:"package"`
+	RelativePath   string   `json:"relative_path"`
+	PackageName    string   `json:"package_name"`
+	Category       string   `json:"category"`
+	Structs        []string `json:"structs,omitempty"`
+	ReadFuncs      []string `json:"read_funcs,omitempty"`
+	MutateFuncs    []string `json:"mutate_funcs,omitempty"`
+	UnknownFuncs   []string `json:"unknown_funcs,omitempty"`
+	AmbiguousFuncs []string `json:"ambiguous_funcs,omitempty"`
+	OtherFuncs     []string `json:"other_funcs,omitempty"`
+	HTTPMethods    []string `json:"http_methods,omitempty"`
+	Endpoints      []string `json:"endpoints,omitempty"`
+	Notes          []string `json:"notes,omitempty"`
+}
+
+type inventory struct {
+	Schema     string    `json:"schema"`
+	Notice     string    `json:"notice"`
+	SDKModule  string    `json:"sdk_module"`
+	SDKVersion string    `json:"sdk_version,omitempty"`
+	SDKDir     string    `json:"sdk_dir"`
+	Surfaces   []surface `json:"surfaces"`
 }
 
 type packageScan struct {
-	product       string
-	importPath    string
-	relativePath  string
-	packageName   string
-	structs       set
-	readFuncs     set
-	mutateFuncs   set
-	otherFuncs    set
-	httpMethods   set
-	endpoints     set
-	endpointHints set
+	product        string
+	importPath     string
+	relativePath   string
+	packageName    string
+	structs        set
+	readFuncs      set
+	mutateFuncs    set
+	unknownFuncs   set
+	ambiguousFuncs set
+	otherFuncs     set
+	httpMethods    set
+	endpoints      set
+	endpointHints  set
 }
 
 type set map[string]bool
@@ -62,6 +75,11 @@ func (s set) values() []string {
 	return out
 }
 
+const (
+	inventorySchema = "zscalerctl.sdk_surface_inventory.v1"
+	inventoryNotice = "scout only: this inventory is not an enabled catalog, safety proof, entitlement check, or live response-shape validation"
+)
+
 func main() {
 	var sdkDir string
 	var modulePath string
@@ -71,7 +89,7 @@ func main() {
 	flag.StringVar(&format, "format", "markdown", "output format: markdown or json")
 	flag.Parse()
 
-	surfaces, err := scanSDK(sdkDir, modulePath)
+	report, err := buildInventory(sdkDir, modulePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sdk-surface-inventory: %v\n", err)
 		os.Exit(1)
@@ -79,11 +97,11 @@ func main() {
 
 	switch format {
 	case "markdown":
-		writeMarkdown(os.Stdout, surfaces)
+		writeMarkdown(os.Stdout, report)
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(surfaces); err != nil {
+		if err := enc.Encode(report); err != nil {
 			fmt.Fprintf(os.Stderr, "sdk-surface-inventory: encode json: %v\n", err)
 			os.Exit(1)
 		}
@@ -91,6 +109,38 @@ func main() {
 		fmt.Fprintf(os.Stderr, "sdk-surface-inventory: unsupported format %q\n", format)
 		os.Exit(2)
 	}
+}
+
+func buildInventory(sdkDir, modulePath string) (inventory, error) {
+	surfaces, err := scanSDK(sdkDir, modulePath)
+	if err != nil {
+		return inventory{}, err
+	}
+	return inventory{
+		Schema:     inventorySchema,
+		Notice:     inventoryNotice,
+		SDKModule:  modulePath,
+		SDKVersion: moduleVersion(modulePath),
+		SDKDir:     filepath.Clean(sdkDir),
+		Surfaces:   surfaces,
+	}, nil
+}
+
+func moduleVersion(modulePath string) string {
+	data, err := os.ReadFile("vendor/modules.txt")
+	if err != nil {
+		return ""
+	}
+	prefix := "# " + modulePath + " "
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				return fields[2]
+			}
+		}
+	}
+	return ""
 }
 
 func scanSDK(sdkDir, modulePath string) ([]surface, error) {
@@ -170,16 +220,18 @@ func scanPackageDir(root, modulePath, dir string) (packageScan, bool, error) {
 	}
 
 	scan := packageScan{
-		product:       productForRelativePath(filepath.ToSlash(rel)),
-		importPath:    importPath,
-		relativePath:  filepath.ToSlash(rel),
-		structs:       set{},
-		readFuncs:     set{},
-		mutateFuncs:   set{},
-		otherFuncs:    set{},
-		httpMethods:   set{},
-		endpoints:     set{},
-		endpointHints: set{},
+		product:        productForRelativePath(filepath.ToSlash(rel)),
+		importPath:     importPath,
+		relativePath:   filepath.ToSlash(rel),
+		structs:        set{},
+		readFuncs:      set{},
+		mutateFuncs:    set{},
+		unknownFuncs:   set{},
+		ambiguousFuncs: set{},
+		otherFuncs:     set{},
+		httpMethods:    set{},
+		endpoints:      set{},
+		endpointHints:  set{},
 	}
 
 	fset := token.NewFileSet()
@@ -278,11 +330,17 @@ func scanFuncDecl(decl *ast.FuncDecl, scan *packageScan) {
 		}
 	}
 
-	switch classifyFunction(decl.Name.Name, methods) {
+	classification := classifyFunction(decl.Name.Name, methods)
+	for _, reason := range classification.ambiguous {
+		scan.ambiguousFuncs.add(name + ": " + reason)
+	}
+	switch classification.kind {
 	case "read":
 		scan.readFuncs.add(name)
 	case "mutate":
 		scan.mutateFuncs.add(name)
+	case "unknown":
+		scan.unknownFuncs.add(name)
 	default:
 		scan.otherFuncs.add(name)
 	}
@@ -338,14 +396,66 @@ func classifyLiteralValue(value string) string {
 	return ""
 }
 
-func classifyFunction(name string, methods set) string {
-	if hasMutatingMethod(methods) || hasMutatingPrefix(name) {
+type functionClassification struct {
+	kind      string
+	ambiguous []string
+}
+
+func classifyFunction(name string, methods set) functionClassification {
+	nameKind := classifyFunctionName(name)
+	methodKind := classifyHTTPMethods(methods)
+
+	switch methodKind {
+	case "mixed":
+		return functionClassification{kind: "mutate", ambiguous: []string{"mixed read and mutating HTTP methods"}}
+	case "mutate":
+		classification := functionClassification{kind: "mutate"}
+		if nameKind == "read" {
+			classification.ambiguous = append(classification.ambiguous, "read-like name with mutating HTTP method")
+		}
+		return classification
+	case "read":
+		switch nameKind {
+		case "mutate":
+			return functionClassification{kind: "mutate", ambiguous: []string{"mutating-like name with read HTTP method"}}
+		case "unknown":
+			return functionClassification{kind: "read", ambiguous: []string{"unknown name with read HTTP method"}}
+		default:
+			return functionClassification{kind: "read"}
+		}
+	default:
+		switch nameKind {
+		case "read", "mutate":
+			return functionClassification{kind: nameKind}
+		default:
+			return functionClassification{kind: "unknown"}
+		}
+	}
+}
+
+func classifyFunctionName(name string) string {
+	if hasMutatingPrefix(name) {
 		return "mutate"
 	}
-	if hasReadMethod(methods) || hasReadPrefix(name) {
+	if hasReadPrefix(name) {
 		return "read"
 	}
-	return "other"
+	return "unknown"
+}
+
+func classifyHTTPMethods(methods set) string {
+	hasRead := hasReadMethod(methods)
+	hasMutate := hasMutatingMethod(methods)
+	switch {
+	case hasRead && hasMutate:
+		return "mixed"
+	case hasMutate:
+		return "mutate"
+	case hasRead:
+		return "read"
+	default:
+		return "unknown"
+	}
 }
 
 func hasReadMethod(methods set) bool {
@@ -362,7 +472,7 @@ func hasMutatingMethod(methods set) bool {
 }
 
 func hasReadPrefix(name string) bool {
-	for _, prefix := range []string{"Get", "List", "Search", "Lookup", "Download"} {
+	for _, prefix := range []string{"Get", "List", "Read", "Search", "Lookup", "Download"} {
 		if strings.HasPrefix(name, prefix) {
 			return true
 		}
@@ -372,9 +482,12 @@ func hasReadPrefix(name string) bool {
 
 func hasMutatingPrefix(name string) bool {
 	for _, prefix := range []string{
-		"Add", "Assign", "Bulk", "Clone", "Create", "Delete", "Disable",
-		"Enable", "Import", "Invalidate", "Patch", "Refresh", "Remove",
-		"Reorder", "Set", "Submit", "Unassign", "Update", "Upload",
+		"Activate", "Add", "Apply", "Approve", "Assign", "Bulk", "Cancel",
+		"Clone", "Create", "Delete", "Disable", "Enable", "Generate",
+		"Import", "Invalidate", "Move", "Patch", "Provision", "Refresh",
+		"Register", "Remove", "Renew", "Reorder", "Resume", "Revoke",
+		"Rotate", "Set", "Submit", "Suspend", "Sync", "Trigger",
+		"Unassign", "Update", "Upload",
 	} {
 		if strings.HasPrefix(name, prefix) {
 			return true
@@ -390,16 +503,18 @@ func (scan packageScan) toSurface() surface {
 		product = "zidentity"
 	}
 	out := surface{
-		Product:      product,
-		Package:      scan.importPath,
-		RelativePath: scan.relativePath,
-		PackageName:  scan.packageName,
-		Structs:      scan.structs.values(),
-		ReadFuncs:    scan.readFuncs.values(),
-		MutateFuncs:  scan.mutateFuncs.values(),
-		OtherFuncs:   scan.otherFuncs.values(),
-		HTTPMethods:  scan.httpMethods.values(),
-		Endpoints:    endpoints,
+		Product:        product,
+		Package:        scan.importPath,
+		RelativePath:   scan.relativePath,
+		PackageName:    scan.packageName,
+		Structs:        scan.structs.values(),
+		ReadFuncs:      scan.readFuncs.values(),
+		MutateFuncs:    scan.mutateFuncs.values(),
+		UnknownFuncs:   scan.unknownFuncs.values(),
+		AmbiguousFuncs: scan.ambiguousFuncs.values(),
+		OtherFuncs:     scan.otherFuncs.values(),
+		HTTPMethods:    scan.httpMethods.values(),
+		Endpoints:      endpoints,
 	}
 	out.Category = categoryFor(out)
 	out.Notes = notesFor(out)
@@ -479,6 +594,12 @@ func baseFunctionName(name string) string {
 
 func notesFor(item surface) []string {
 	var notes []string
+	if len(item.AmbiguousFuncs) > 0 {
+		notes = append(notes, "ambiguous function signals detected; manual review required before queueing")
+	}
+	if len(item.UnknownFuncs) > 0 {
+		notes = append(notes, "exported funcs with unknown verb detected; treat as shape-decision work")
+	}
 	if item.Product == "zidentity" {
 		notes = append(notes, "admin/zidentity URL routing appears in core client code; treat as identity-plane work")
 	}
@@ -497,21 +618,29 @@ func notesFor(item surface) []string {
 	return notes
 }
 
-func writeMarkdown(out *os.File, surfaces []surface) {
+func writeMarkdown(out *os.File, report inventory) {
 	fmt.Fprintln(out, "# SDK Surface Inventory")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Generated from the vendored Zscaler SDK. This is a scouting report, not an enabled resource catalog.")
+	fmt.Fprintf(out, "Notice: %s.\n", report.Notice)
+	if report.SDKVersion != "" {
+		fmt.Fprintf(out, "SDK module: `%s` `%s` from `%s`.\n", report.SDKModule, report.SDKVersion, report.SDKDir)
+	} else {
+		fmt.Fprintf(out, "SDK module: `%s` from `%s`.\n", report.SDKModule, report.SDKDir)
+	}
 	fmt.Fprintln(out)
-	writeSummary(out, surfaces)
+	writeSummary(out, report.Surfaces)
 	fmt.Fprintln(out)
-	writeSurfaceTable(out, surfaces)
+	writeSurfaceTable(out, report.Surfaces)
 }
 
 func writeSummary(out *os.File, surfaces []surface) {
 	type counts struct {
-		packages int
-		read     int
-		listGet  int
+		packages  int
+		read      int
+		listGet   int
+		unknown   int
+		ambiguous int
 	}
 	byProduct := map[string]*counts{}
 	for _, item := range surfaces {
@@ -525,6 +654,12 @@ func writeSummary(out *os.File, surfaces []surface) {
 		if item.Category == "ordinary-list-get" || item.Category == "list-get-with-mutating-neighbors" {
 			byProduct[item.Product].listGet++
 		}
+		if len(item.UnknownFuncs) > 0 {
+			byProduct[item.Product].unknown++
+		}
+		if len(item.AmbiguousFuncs) > 0 {
+			byProduct[item.Product].ambiguous++
+		}
 	}
 	var products []string
 	for product := range byProduct {
@@ -533,31 +668,33 @@ func writeSummary(out *os.File, surfaces []surface) {
 	sort.Strings(products)
 	fmt.Fprintln(out, "## Summary")
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "| Product | Packages | Packages with read funcs | List/get-shaped packages |")
-	fmt.Fprintln(out, "| --- | ---: | ---: | ---: |")
+	fmt.Fprintln(out, "| Product | Packages | Packages with read funcs | List/get-shaped packages | Packages with unknown funcs | Packages with ambiguous funcs |")
+	fmt.Fprintln(out, "| --- | ---: | ---: | ---: | ---: | ---: |")
 	for _, product := range products {
 		count := byProduct[product]
-		fmt.Fprintf(out, "| `%s` | %d | %d | %d |\n", product, count.packages, count.read, count.listGet)
+		fmt.Fprintf(out, "| `%s` | %d | %d | %d | %d | %d |\n", product, count.packages, count.read, count.listGet, count.unknown, count.ambiguous)
 	}
 }
 
 func writeSurfaceTable(out *os.File, surfaces []surface) {
 	fmt.Fprintln(out, "## Surfaces")
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "| Product | Package | Category | Read funcs | Mutating funcs | Endpoints | Notes |")
-	fmt.Fprintln(out, "| --- | --- | --- | --- | --- | --- | --- |")
+	fmt.Fprintln(out, "| Product | Package | Category | Read funcs | Mutating funcs | Unknown funcs | Ambiguous funcs | Endpoints | Notes |")
+	fmt.Fprintln(out, "| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 	for _, item := range surfaces {
-		if item.Category == "other" && len(item.Endpoints) == 0 {
+		if item.Category == "other" && len(item.Endpoints) == 0 && len(item.UnknownFuncs) == 0 && len(item.AmbiguousFuncs) == 0 {
 			continue
 		}
 		fmt.Fprintf(
 			out,
-			"| `%s` | `%s` | `%s` | %s | %s | %s | %s |\n",
+			"| `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s |\n",
 			item.Product,
 			escapeTable(item.RelativePath),
 			item.Category,
 			inlineList(item.ReadFuncs, 8),
 			inlineList(item.MutateFuncs, 8),
+			inlineList(item.UnknownFuncs, 6),
+			inlineList(item.AmbiguousFuncs, 6),
 			inlineList(item.Endpoints, 4),
 			inlineList(item.Notes, 3),
 		)
