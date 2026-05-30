@@ -16,6 +16,7 @@ import (
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
+	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -2347,6 +2348,42 @@ func TestReaderListVZENNodesProjectsSDKShapeThroughAllowList(t *testing.T) {
 	got := projectOneRecord(t, resources.ProductZIA, resourceVZENNodes, records)
 	if got["zgatewayId"] != 11 {
 		t.Errorf("projected vzen-nodes zgatewayId = %v, want 11", got["zgatewayId"])
+	}
+}
+
+func TestReaderListDLPICAPServersProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const canary = "dlp-icap-psk-canary"
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceDLPICAPServers}: newListGetHandler(
+				resourceDLPICAPServers,
+				func(context.Context) ([]dlpicapservers.DLPICAPServers, error) {
+					return []dlpicapservers.DLPICAPServers{
+						{
+							ID:     1003,
+							Name:   "ICAP server psk=" + canary,
+							URL:    "icap://icap.example.invalid/scan",
+							Status: "ENABLED",
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*dlpicapservers.DLPICAPServers, error) { return nil, nil }),
+				dlpICAPServerSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceDLPICAPServers)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, dlp-icap-servers) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceDLPICAPServers, records)
+	assertNoCanaries(t, "dlp-icap-servers", got, canary)
+	if got["status"] != "ENABLED" {
+		t.Errorf("projected dlp-icap-servers status = %v, want ENABLED", got["status"])
 	}
 }
 

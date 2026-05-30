@@ -1737,6 +1737,17 @@ func Catalog() ResourceCatalog {
 				operationalField("vzenSkuType", allModes()),
 			},
 		},
+		{
+			Product:    ProductZIA,
+			Name:       "dlp-icap-servers",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				sensitiveIdentifierField("url"),
+				operationalField("status", allModes()),
+			},
+		},
 	}
 }
 

@@ -802,6 +802,23 @@ Fields:
 | `name`, `clusterName` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
 | `ipAddress`, `subnetMask`, `defaultGateway`, `loadBalancerIpAddress` | Sensitive identifier | `standard` | Local-only network addressing. |
 
+## ZIA Dlp Icap Servers
+
+Commands:
+
+```sh
+zscalerctl zia dlp-icap-servers list
+zscalerctl zia dlp-icap-servers get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `status` | Operational metadata | `standard`, `share`, `paranoid` | ICAP server identity and status. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `url` | Sensitive identifier | `standard` | Local-only ICAP server endpoint. |
+
 ## Deferred Resource Follow-Ups
 
 - `zia/network-service-groups`: generated and locally validated, but removed
@@ -828,6 +845,22 @@ Fields:
   security-profile batch after live smoke reported a list request failure under
   ZIA legacy credentials. Investigate the live endpoint behavior separately
   before enabling it in the catalog.
+- `zia/dlp-engines`: generated and locally validated, but removed from the
+  DLP-reference batch after live smoke reported a list request failure under
+  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  before enabling it in the catalog.
+- `zia/dlp-dictionaries`: generated and locally validated, but removed from the
+  DLP-reference batch after live smoke reported a list request failure under
+  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  before enabling it in the catalog.
+- `zia/dlp-incident-receiver-servers`: generated and locally validated, but
+  removed from the DLP-reference batch after live smoke reported a list request
+  failure under ZIA legacy credentials. Investigate the live endpoint behavior
+  separately before enabling it in the catalog.
+- `zia/dlp-notification-templates`: generated and locally validated, but
+  removed from the DLP-reference batch after live smoke reported a list request
+  failure under ZIA legacy credentials. Investigate the live endpoint behavior
+  separately before enabling it in the catalog.
 
 ## Adding A Resource
 

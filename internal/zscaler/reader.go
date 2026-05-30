@@ -22,6 +22,7 @@ import (
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
+	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -99,6 +100,7 @@ const (
 	resourceTenancyProfiles  = "tenancy-restriction-profiles"
 	resourceVZENClusters     = "vzen-clusters"
 	resourceVZENNodes        = "vzen-nodes"
+	resourceDLPICAPServers   = "dlp-icap-servers"
 )
 
 type AuthMode string
@@ -658,6 +660,16 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return vzennodes.Get(ctx, service, id)
 			}),
 			vzenNodeSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceDLPICAPServers}: newListGetHandler(
+			resourceDLPICAPServers,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]dlpicapservers.DLPICAPServers, error) {
+				return dlpicapservers.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*dlpicapservers.DLPICAPServers, error) {
+				return dlpicapservers.Get(ctx, service, id)
+			}),
+			dlpICAPServerSourceRecord,
 		),
 	}
 }
@@ -1882,6 +1894,15 @@ func vzenNodeSourceRecord(node vzennodes.VZENNodes) resources.SourceRecord {
 		"vzenSkuType":                   node.VzenSkuType,
 	}
 	return resources.NewSourceRecord(fields)
+}
+
+func dlpICAPServerSourceRecord(server dlpicapservers.DLPICAPServers) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"id":     server.ID,
+		"name":   server.Name,
+		"url":    server.URL,
+		"status": server.Status,
+	})
 }
 
 func addStringSlice(fields map[string]any, name string, values []string) {

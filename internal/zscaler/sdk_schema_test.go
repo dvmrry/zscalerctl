@@ -14,6 +14,7 @@ import (
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
+	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -1375,6 +1376,18 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"deploymentMode",
 				"clusterName",
 				"vzenSkuType",
+			},
+		},
+		{
+			name:         "dlpicapservers.DLPICAPServers",
+			resource:     resources.ProductZIA,
+			resourceName: resourceDLPICAPServers,
+			typ:          reflect.TypeOf(dlpicapservers.DLPICAPServers{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"url",
+				"status",
 			},
 		},
 		{
