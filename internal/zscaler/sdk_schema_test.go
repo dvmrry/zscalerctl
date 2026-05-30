@@ -29,7 +29,6 @@ import (
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxies"
 	proxygateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways"
-	ipssignaturerules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_signature_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
@@ -1451,38 +1450,6 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"type",
 				"icapSvrId",
 			},
-		},
-		{
-			name:         "ipssignaturerules.IPSSignatureRules",
-			resource:     resources.ProductZIA,
-			resourceName: resourceIPSSignatures,
-			typ:          reflect.TypeOf(ipssignaturerules.IPSSignatureRules{}),
-			catalogFields: []string{
-				"id",
-				"name",
-				"ruleText",
-				"description",
-				"category",
-				"enabled",
-				"deleted",
-				"promoteTime",
-				"ruleTextModTime",
-				"dynamicValidationSubmitted",
-				"dynamicValidationRejected",
-				"dynamicValidationSucceeded",
-				"disabledFromZSCM",
-				"dynamicValRejectCode",
-			},
-		},
-		{
-			name: "ipssignaturerules.IPSSignatureCategory",
-			typ:  reflect.TypeOf(ipssignaturerules.IPSSignatureCategory{}),
-			ignoredFields: ignoredBecause(
-				"used inside modeled signature category; parent catalog fields decide whether id/name can render",
-				"id",
-				"name",
-				"isNameL10nTag",
-			),
 		},
 		{
 			name: "workloadgroups.WorkloadTagExpression",

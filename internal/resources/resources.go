@@ -1805,36 +1805,6 @@ func Catalog() ResourceCatalog {
 				sensitiveIdentifierField("icapSvrId"),
 			},
 		},
-		{
-			Product:    ProductZIA,
-			Name:       "ips-signature-rules",
-			Operations: ReadOperations(),
-			Fields: []FieldSpec{
-				operationalField("id", allModes()),
-				tenantConfigField("name", standardShareModes()),
-				freeTextField("description", "ZIA IPS signature rule description"),
-				operationalField("enabled", allModes()),
-				operationalField("deleted", allModes()),
-				operationalField("disabledFromZSCM", allModes()),
-				operationalField("promoteTime", allModes()),
-				operationalField("ruleTextModTime", allModes()),
-				FieldSpec{
-					Name:           "category",
-					Classification: ClassTenantConfig,
-					AllowedModes:   standardShareModes(),
-					Fields: []FieldSpec{
-						operationalField("id", allModes()),
-						tenantConfigField("name", standardShareModes()),
-						secretField("isNameL10nTag"),
-					},
-				},
-				secretField("ruleText"),
-				secretField("dynamicValidationSubmitted"),
-				secretField("dynamicValidationRejected"),
-				secretField("dynamicValidationSucceeded"),
-				secretField("dynamicValRejectCode"),
-			},
-		},
 	}
 }
 

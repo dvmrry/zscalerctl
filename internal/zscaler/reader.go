@@ -37,7 +37,6 @@ import (
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxies"
 	proxygateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways"
-	ipssignaturerules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_signature_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
@@ -106,7 +105,6 @@ const (
 	resourceDLPICAPServers   = "dlp-icap-servers"
 	resourceRiskProfiles     = "risk-profiles"
 	resourceNSSServers       = "nss-servers"
-	resourceIPSSignatures    = "ips-signature-rules"
 )
 
 type AuthMode string
@@ -696,16 +694,6 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return nssservers.Get(ctx, service, id)
 			}),
 			nssServerSourceRecord,
-		),
-		{product: resources.ProductZIA, name: resourceIPSSignatures}: newListGetHandler(
-			resourceIPSSignatures,
-			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]ipssignaturerules.IPSSignatureRules, error) {
-				return ipssignaturerules.GetAll(ctx, service)
-			}),
-			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*ipssignaturerules.IPSSignatureRules, error) {
-				return ipssignaturerules.Get(ctx, service, id)
-			}),
-			ipsSignatureRuleSourceRecord,
 		),
 	}
 }
@@ -1993,36 +1981,6 @@ func nssServerSourceRecord(server nssservers.NSSServers) resources.SourceRecord 
 		"type":      server.Type,
 		"icapSvrId": server.IcapSvrId,
 	})
-}
-
-func ipsSignatureRuleSourceRecord(rule ipssignaturerules.IPSSignatureRules) resources.SourceRecord {
-	fields := map[string]any{
-		"id":                         rule.ID,
-		"name":                       rule.Name,
-		"ruleText":                   rule.RuleText,
-		"description":                rule.Description,
-		"enabled":                    rule.Enabled,
-		"deleted":                    rule.Deleted,
-		"promoteTime":                rule.PromoteTime,
-		"ruleTextModTime":            rule.RuleTextModTime,
-		"dynamicValidationSubmitted": rule.DynamicValidationSubmitted,
-		"dynamicValidationRejected":  rule.DynamicValidationRejected,
-		"dynamicValidationSucceeded": rule.DynamicValidationSucceeded,
-		"disabledFromZSCM":           rule.DisabledFromZSCM,
-		"dynamicValRejectCode":       rule.DynamicValRejectCode,
-	}
-	if rule.Category != nil {
-		fields["category"] = ipsSignatureCategorySource(rule.Category)
-	}
-	return resources.NewSourceRecord(fields)
-}
-
-func ipsSignatureCategorySource(category *ipssignaturerules.IPSSignatureCategory) map[string]any {
-	return map[string]any{
-		"id":            category.ID,
-		"name":          category.Name,
-		"isNameL10nTag": category.IsNameL10nTag,
-	}
 }
 
 func addStringSlice(fields map[string]any, name string, values []string) {

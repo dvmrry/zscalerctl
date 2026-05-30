@@ -31,7 +31,6 @@ import (
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxies"
 	proxygateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways"
-	ipssignaturerules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_signature_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
@@ -2470,60 +2469,6 @@ func TestReaderListNSSServersProjectsSDKShapeThroughAllowList(t *testing.T) {
 	assertNoCanaries(t, "nss-servers", got, canary)
 	if got["type"] != "NSS_FOR_WEB" {
 		t.Errorf("projected nss-servers type = %v, want NSS_FOR_WEB", got["type"])
-	}
-}
-
-func TestReaderListIPSSignatureRulesProjectsSDKShapeThroughAllowList(t *testing.T) {
-	t.Parallel()
-
-	const (
-		canary            = "ips-signature-psk-canary"
-		bareFreeTextToken = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
-	)
-	reader := &SDKReader{
-		cfg: validReaderConfig(),
-		handlers: map[resourceKey]resourceHandler{
-			{product: resources.ProductZIA, name: resourceIPSSignatures}: newListGetHandler(
-				resourceIPSSignatures,
-				func(context.Context) ([]ipssignaturerules.IPSSignatureRules, error) {
-					return []ipssignaturerules.IPSSignatureRules{
-						{
-							ID:                         1008,
-							Name:                       "IPS signature psk=" + canary,
-							Description:                "temporary psk=" + canary + " " + bareFreeTextToken,
-							RuleText:                   "alert tcp any any -> any any (msg:\"psk=" + canary + "\")",
-							Category:                   &ipssignaturerules.IPSSignatureCategory{ID: 9, Name: "category psk=" + canary, IsNameL10nTag: true},
-							Enabled:                    true,
-							Deleted:                    false,
-							PromoteTime:                3,
-							RuleTextModTime:            4,
-							DisabledFromZSCM:           true,
-							DynamicValidationSubmitted: true,
-							DynamicValidationRejected:  true,
-							DynamicValidationSucceeded: true,
-							DynamicValRejectCode:       500,
-						},
-					}, nil
-				},
-				intIDGetter(func(context.Context, int) (*ipssignaturerules.IPSSignatureRules, error) { return nil, nil }),
-				ipsSignatureRuleSourceRecord,
-			),
-		},
-	}
-
-	records, err := reader.List(context.Background(), resources.ProductZIA, resourceIPSSignatures)
-	if err != nil {
-		t.Fatalf("SDKReader.List(zia, ips-signature-rules) error = %v, want nil", err)
-	}
-	got := projectOneRecord(t, resources.ProductZIA, resourceIPSSignatures, records)
-	assertNoCanaries(t, "ips-signature-rules", got, canary, bareFreeTextToken)
-	for _, field := range []string{"ruleText", "dynamicValidationSubmitted", "dynamicValidationRejected", "dynamicValidationSucceeded", "dynamicValRejectCode"} {
-		if _, ok := got[field]; ok {
-			t.Errorf("projected ips-signature-rules = %#v, want no %s", got, field)
-		}
-	}
-	if got["enabled"] != true {
-		t.Errorf("projected ips-signature-rules enabled = %v, want true", got["enabled"])
 	}
 }
 

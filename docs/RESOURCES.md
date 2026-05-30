@@ -854,24 +854,6 @@ Fields:
 | `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
 | `icapSvrId` | Sensitive identifier | `standard` | Local-only ICAP server reference. |
 
-## ZIA IPs Signature Rules
-
-Commands:
-
-```sh
-zscalerctl zia ips-signature-rules list
-zscalerctl zia ips-signature-rules get <id>
-```
-
-Fields:
-
-| Field | Classification | Modes | Notes |
-| --- | --- | --- | --- |
-| `id`, `enabled`, `deleted`, `disabledFromZSCM`, `promoteTime`, `ruleTextModTime` | Operational metadata | `standard`, `share`, `paranoid` | Signature identity, state, deletion, promotion, and rule-text timestamp metadata. |
-| `name`, `category` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
-| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
-| `ruleText`, `dynamicValidationSubmitted`, `dynamicValidationRejected`, `dynamicValidationSucceeded`, `dynamicValRejectCode` | Secret | never | Signature rule text and validation internals are mapped into source records and dropped by projection. |
-
 ## Deferred Resource Follow-Ups
 
 - `zia/network-service-groups`: generated and locally validated, but removed
@@ -913,6 +895,10 @@ Fields:
 - `zia/dlp-notification-templates`: generated and locally validated, but
   removed from the DLP-reference batch after live smoke reported a list request
   failure under ZIA legacy credentials. Investigate the live endpoint behavior
+  separately before enabling it in the catalog.
+- `zia/ips-signature-rules`: generated and locally validated, but removed from
+  the policy-reference batch after live smoke reported a list request failure
+  under ZIA legacy credentials. Investigate the live endpoint behavior
   separately before enabling it in the catalog.
 
 ## Adding A Resource
