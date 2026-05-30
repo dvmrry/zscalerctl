@@ -12,6 +12,8 @@ import (
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
+	riskprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles"
+	nssservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/nss_servers"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
@@ -27,6 +29,7 @@ import (
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxies"
 	proxygateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways"
+	ipssignaturerules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_signature_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
@@ -1389,6 +1392,97 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"url",
 				"status",
 			},
+		},
+		{
+			name:         "riskprofiles.RiskProfiles",
+			resource:     resources.ProductZIA,
+			resourceName: resourceRiskProfiles,
+			typ:          reflect.TypeOf(riskprofiles.RiskProfiles{}),
+			catalogFields: []string{
+				"id",
+				"profileName",
+				"profileType",
+				"status",
+				"excludeCertificates",
+				"poorItemsOfService",
+				"adminAuditLogs",
+				"dataBreach",
+				"sourceIpRestrictions",
+				"mfaSupport",
+				"sslPinned",
+				"httpSecurityHeaders",
+				"evasive",
+				"dnsCaaPolicy",
+				"weakCipherSupport",
+				"passwordStrength",
+				"sslCertValidity",
+				"vulnerability",
+				"malwareScanningForContent",
+				"fileSharing",
+				"sslCertKeySize",
+				"vulnerableToHeartBleed",
+				"vulnerableToLogJam",
+				"vulnerableToPoodle",
+				"vulnerabilityDisclosure",
+				"supportForWaf",
+				"remoteScreenSharing",
+				"senderPolicyFramework",
+				"domainKeysIdentifiedMail",
+				"domainBasedMessageAuth",
+				"lastModTime",
+				"createTime",
+				"certifications",
+				"dataEncryptionInTransit",
+				"riskIndex",
+				"modifiedBy",
+				"customTags",
+			},
+		},
+		{
+			name:         "nssservers.NSSServers",
+			resource:     resources.ProductZIA,
+			resourceName: resourceNSSServers,
+			typ:          reflect.TypeOf(nssservers.NSSServers{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"status",
+				"state",
+				"type",
+				"icapSvrId",
+			},
+		},
+		{
+			name:         "ipssignaturerules.IPSSignatureRules",
+			resource:     resources.ProductZIA,
+			resourceName: resourceIPSSignatures,
+			typ:          reflect.TypeOf(ipssignaturerules.IPSSignatureRules{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"ruleText",
+				"description",
+				"category",
+				"enabled",
+				"deleted",
+				"promoteTime",
+				"ruleTextModTime",
+				"dynamicValidationSubmitted",
+				"dynamicValidationRejected",
+				"dynamicValidationSucceeded",
+				"disabledFromZSCM",
+				"dynamicValRejectCode",
+			},
+		},
+		{
+			name: "ipssignaturerules.IPSSignatureCategory",
+			typ:  reflect.TypeOf(ipssignaturerules.IPSSignatureCategory{}),
+			ignoredFields: ignoredBecause(
+				"used inside modeled signature category; parent catalog fields decide whether id/name can render",
+				"id",
+				"name",
+				"isNameL10nTag",
+			),
 		},
 		{
 			name: "workloadgroups.WorkloadTagExpression",

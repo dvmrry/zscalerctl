@@ -76,6 +76,8 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/nss_servers
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers
@@ -91,6 +93,7 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/timew
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxies
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_signature_rules
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies

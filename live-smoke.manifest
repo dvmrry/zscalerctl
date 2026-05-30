@@ -4,4 +4,6 @@
 # from origin/main and no explicit --resources or LIVE_SMOKE_RESOURCES was set.
 # Keep this focused on the resources changed by the current branch.
 
-zia/dlp-icap-servers
+zia/risk-profiles
+zia/nss-servers
+zia/ips-signature-rules

@@ -20,6 +20,8 @@ import (
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
+	riskprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles"
+	nssservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/nss_servers"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
@@ -35,6 +37,7 @@ import (
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxies"
 	proxygateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways"
+	ipssignaturerules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_signature_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
@@ -101,6 +104,9 @@ const (
 	resourceVZENClusters     = "vzen-clusters"
 	resourceVZENNodes        = "vzen-nodes"
 	resourceDLPICAPServers   = "dlp-icap-servers"
+	resourceRiskProfiles     = "risk-profiles"
+	resourceNSSServers       = "nss-servers"
+	resourceIPSSignatures    = "ips-signature-rules"
 )
 
 type AuthMode string
@@ -670,6 +676,36 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return dlpicapservers.Get(ctx, service, id)
 			}),
 			dlpICAPServerSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceRiskProfiles}: newListGetHandler(
+			resourceRiskProfiles,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]riskprofiles.RiskProfiles, error) {
+				return riskprofiles.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*riskprofiles.RiskProfiles, error) {
+				return riskprofiles.Get(ctx, service, id)
+			}),
+			riskProfileSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceNSSServers}: newListGetHandler(
+			resourceNSSServers,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]nssservers.NSSServers, error) {
+				return nssservers.GetAll(ctx, service, nil)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*nssservers.NSSServers, error) {
+				return nssservers.Get(ctx, service, id)
+			}),
+			nssServerSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceIPSSignatures}: newListGetHandler(
+			resourceIPSSignatures,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]ipssignaturerules.IPSSignatureRules, error) {
+				return ipssignaturerules.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*ipssignaturerules.IPSSignatureRules, error) {
+				return ipssignaturerules.Get(ctx, service, id)
+			}),
+			ipsSignatureRuleSourceRecord,
 		),
 	}
 }
@@ -1903,6 +1939,90 @@ func dlpICAPServerSourceRecord(server dlpicapservers.DLPICAPServers) resources.S
 		"url":    server.URL,
 		"status": server.Status,
 	})
+}
+
+func riskProfileSourceRecord(profile riskprofiles.RiskProfiles) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                        profile.ID,
+		"profileName":               profile.ProfileName,
+		"profileType":               profile.ProfileType,
+		"status":                    profile.Status,
+		"excludeCertificates":       profile.ExcludeCertificates,
+		"poorItemsOfService":        profile.PoorItemsOfService,
+		"adminAuditLogs":            profile.AdminAuditLogs,
+		"dataBreach":                profile.DataBreach,
+		"sourceIpRestrictions":      profile.SourceIpRestrictions,
+		"mfaSupport":                profile.MfaSupport,
+		"sslPinned":                 profile.SslPinned,
+		"httpSecurityHeaders":       profile.HttpSecurityHeaders,
+		"evasive":                   profile.Evasive,
+		"dnsCaaPolicy":              profile.DnsCaaPolicy,
+		"weakCipherSupport":         profile.WeakCipherSupport,
+		"passwordStrength":          profile.PasswordStrength,
+		"sslCertValidity":           profile.SslCertValidity,
+		"vulnerability":             profile.Vulnerability,
+		"malwareScanningForContent": profile.MalwareScanningForContent,
+		"fileSharing":               profile.FileSharing,
+		"sslCertKeySize":            profile.SslCertKeySize,
+		"vulnerableToHeartBleed":    profile.VulnerableToHeartBleed,
+		"vulnerableToLogJam":        profile.VulnerableToLogJam,
+		"vulnerableToPoodle":        profile.VulnerableToPoodle,
+		"vulnerabilityDisclosure":   profile.VulnerabilityDisclosure,
+		"supportForWaf":             profile.SupportForWaf,
+		"remoteScreenSharing":       profile.RemoteScreenSharing,
+		"senderPolicyFramework":     profile.SenderPolicyFramework,
+		"domainKeysIdentifiedMail":  profile.DomainKeysIdentifiedMail,
+		"domainBasedMessageAuth":    profile.DomainBasedMessageAuth,
+		"lastModTime":               profile.LastModTime,
+		"createTime":                profile.CreateTime,
+	}
+	addStringSlice(fields, "certifications", profile.Certifications)
+	addStringSlice(fields, "dataEncryptionInTransit", profile.DataEncryptionInTransit)
+	addIntSlice(fields, "riskIndex", profile.RiskIndex)
+	addIDNameExtensionsPtr(fields, "modifiedBy", profile.ModifiedBy)
+	addIDNameExternalIDSlice(fields, "customTags", profile.CustomTags)
+	return resources.NewSourceRecord(fields)
+}
+
+func nssServerSourceRecord(server nssservers.NSSServers) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"id":        server.ID,
+		"name":      server.Name,
+		"status":    server.Status,
+		"state":     server.State,
+		"type":      server.Type,
+		"icapSvrId": server.IcapSvrId,
+	})
+}
+
+func ipsSignatureRuleSourceRecord(rule ipssignaturerules.IPSSignatureRules) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                         rule.ID,
+		"name":                       rule.Name,
+		"ruleText":                   rule.RuleText,
+		"description":                rule.Description,
+		"enabled":                    rule.Enabled,
+		"deleted":                    rule.Deleted,
+		"promoteTime":                rule.PromoteTime,
+		"ruleTextModTime":            rule.RuleTextModTime,
+		"dynamicValidationSubmitted": rule.DynamicValidationSubmitted,
+		"dynamicValidationRejected":  rule.DynamicValidationRejected,
+		"dynamicValidationSucceeded": rule.DynamicValidationSucceeded,
+		"disabledFromZSCM":           rule.DisabledFromZSCM,
+		"dynamicValRejectCode":       rule.DynamicValRejectCode,
+	}
+	if rule.Category != nil {
+		fields["category"] = ipsSignatureCategorySource(rule.Category)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func ipsSignatureCategorySource(category *ipssignaturerules.IPSSignatureCategory) map[string]any {
+	return map[string]any{
+		"id":            category.ID,
+		"name":          category.Name,
+		"isNameL10nTag": category.IsNameL10nTag,
+	}
 }
 
 func addStringSlice(fields map[string]any, name string, values []string) {
