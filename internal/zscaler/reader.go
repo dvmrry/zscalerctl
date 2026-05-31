@@ -20,6 +20,8 @@ import (
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
+	riskprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles"
+	nssservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/nss_servers"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
@@ -101,6 +103,8 @@ const (
 	resourceVZENClusters     = "vzen-clusters"
 	resourceVZENNodes        = "vzen-nodes"
 	resourceDLPICAPServers   = "dlp-icap-servers"
+	resourceRiskProfiles     = "risk-profiles"
+	resourceNSSServers       = "nss-servers"
 )
 
 type AuthMode string
@@ -670,6 +674,26 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return dlpicapservers.Get(ctx, service, id)
 			}),
 			dlpICAPServerSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceRiskProfiles}: newListGetHandler(
+			resourceRiskProfiles,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]riskprofiles.RiskProfiles, error) {
+				return riskprofiles.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*riskprofiles.RiskProfiles, error) {
+				return riskprofiles.Get(ctx, service, id)
+			}),
+			riskProfileSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceNSSServers}: newListGetHandler(
+			resourceNSSServers,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]nssservers.NSSServers, error) {
+				return nssservers.GetAll(ctx, service, nil)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*nssservers.NSSServers, error) {
+				return nssservers.Get(ctx, service, id)
+			}),
+			nssServerSourceRecord,
 		),
 	}
 }
@@ -1902,6 +1926,60 @@ func dlpICAPServerSourceRecord(server dlpicapservers.DLPICAPServers) resources.S
 		"name":   server.Name,
 		"url":    server.URL,
 		"status": server.Status,
+	})
+}
+
+func riskProfileSourceRecord(profile riskprofiles.RiskProfiles) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                        profile.ID,
+		"profileName":               profile.ProfileName,
+		"profileType":               profile.ProfileType,
+		"status":                    profile.Status,
+		"excludeCertificates":       profile.ExcludeCertificates,
+		"poorItemsOfService":        profile.PoorItemsOfService,
+		"adminAuditLogs":            profile.AdminAuditLogs,
+		"dataBreach":                profile.DataBreach,
+		"sourceIpRestrictions":      profile.SourceIpRestrictions,
+		"mfaSupport":                profile.MfaSupport,
+		"sslPinned":                 profile.SslPinned,
+		"httpSecurityHeaders":       profile.HttpSecurityHeaders,
+		"evasive":                   profile.Evasive,
+		"dnsCaaPolicy":              profile.DnsCaaPolicy,
+		"weakCipherSupport":         profile.WeakCipherSupport,
+		"passwordStrength":          profile.PasswordStrength,
+		"sslCertValidity":           profile.SslCertValidity,
+		"vulnerability":             profile.Vulnerability,
+		"malwareScanningForContent": profile.MalwareScanningForContent,
+		"fileSharing":               profile.FileSharing,
+		"sslCertKeySize":            profile.SslCertKeySize,
+		"vulnerableToHeartBleed":    profile.VulnerableToHeartBleed,
+		"vulnerableToLogJam":        profile.VulnerableToLogJam,
+		"vulnerableToPoodle":        profile.VulnerableToPoodle,
+		"vulnerabilityDisclosure":   profile.VulnerabilityDisclosure,
+		"supportForWaf":             profile.SupportForWaf,
+		"remoteScreenSharing":       profile.RemoteScreenSharing,
+		"senderPolicyFramework":     profile.SenderPolicyFramework,
+		"domainKeysIdentifiedMail":  profile.DomainKeysIdentifiedMail,
+		"domainBasedMessageAuth":    profile.DomainBasedMessageAuth,
+		"lastModTime":               profile.LastModTime,
+		"createTime":                profile.CreateTime,
+	}
+	addStringSlice(fields, "certifications", profile.Certifications)
+	addStringSlice(fields, "dataEncryptionInTransit", profile.DataEncryptionInTransit)
+	addIntSlice(fields, "riskIndex", profile.RiskIndex)
+	addIDNameExtensionsPtr(fields, "modifiedBy", profile.ModifiedBy)
+	addIDNameExternalIDSlice(fields, "customTags", profile.CustomTags)
+	return resources.NewSourceRecord(fields)
+}
+
+func nssServerSourceRecord(server nssservers.NSSServers) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"id":        server.ID,
+		"name":      server.Name,
+		"status":    server.Status,
+		"state":     server.State,
+		"type":      server.Type,
+		"icapSvrId": server.IcapSvrId,
 	})
 }
 

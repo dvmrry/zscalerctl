@@ -14,6 +14,8 @@ import (
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
+	riskprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles"
+	nssservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/nss_servers"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
@@ -2384,6 +2386,89 @@ func TestReaderListDLPICAPServersProjectsSDKShapeThroughAllowList(t *testing.T) 
 	assertNoCanaries(t, "dlp-icap-servers", got, canary)
 	if got["status"] != "ENABLED" {
 		t.Errorf("projected dlp-icap-servers status = %v, want ENABLED", got["status"])
+	}
+}
+
+func TestReaderListRiskProfilesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const canary = "risk-profile-psk-canary"
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceRiskProfiles}: newListGetHandler(
+				resourceRiskProfiles,
+				func(context.Context) ([]riskprofiles.RiskProfiles, error) {
+					return []riskprofiles.RiskProfiles{
+						{
+							ID:                   1006,
+							ProfileName:          "Custom risk profile psk=" + canary,
+							ProfileType:          "CUSTOM",
+							Status:               "ENABLED",
+							PasswordStrength:     "weak psk=" + canary,
+							SourceIpRestrictions: "10.0.0.0/8",
+							CreateTime:           1,
+							LastModTime:          2,
+							ModifiedBy:           &ziacommon.IDNameExtensions{ID: 3, Name: "admin psk=" + canary},
+							CustomTags:           []ziacommon.IDNameExternalID{{ID: 4, Name: "tag psk=" + canary, ExternalID: "external psk=" + canary}},
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*riskprofiles.RiskProfiles, error) { return nil, nil }),
+				riskProfileSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceRiskProfiles)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, risk-profiles) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceRiskProfiles, records)
+	assertNoCanaries(t, "risk-profiles", got, canary)
+	if _, ok := got["passwordStrength"]; ok {
+		t.Errorf("projected risk-profiles = %#v, want no passwordStrength", got)
+	}
+	if got["profileType"] != "CUSTOM" {
+		t.Errorf("projected risk-profiles profileType = %v, want CUSTOM", got["profileType"])
+	}
+}
+
+func TestReaderListNSSServersProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const canary = "nss-server-psk-canary"
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceNSSServers}: newListGetHandler(
+				resourceNSSServers,
+				func(context.Context) ([]nssservers.NSSServers, error) {
+					return []nssservers.NSSServers{
+						{
+							ID:        1007,
+							Name:      "NSS psk=" + canary,
+							Status:    "ENABLED",
+							State:     "ACTIVE",
+							Type:      "NSS_FOR_WEB",
+							IcapSvrId: 10,
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*nssservers.NSSServers, error) { return nil, nil }),
+				nssServerSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceNSSServers)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, nss-servers) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceNSSServers, records)
+	assertNoCanaries(t, "nss-servers", got, canary)
+	if got["type"] != "NSS_FOR_WEB" {
+		t.Errorf("projected nss-servers type = %v, want NSS_FOR_WEB", got["type"])
 	}
 }
 
