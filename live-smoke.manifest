@@ -4,3 +4,7 @@
 zia/file-type-rules
 zia/sandbox-rules
 zia/firewall-dns-rules
+zia/custom-file-types
+zia/traffic-capture-rules
+zia/zpa-gateways
+zia/extranets

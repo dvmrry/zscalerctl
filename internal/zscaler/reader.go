@@ -24,6 +24,7 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
 	filetypecontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol"
+	customfiletypes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol/custom_file_types"
 	firewalldnscontrolpolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewalldnscontrolpolicies"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
@@ -37,6 +38,7 @@ import (
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxies"
 	proxygateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways"
+	zpagateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/zpa_gateways"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
@@ -45,6 +47,8 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
 	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
+	trafficcapture "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/traffic_capture"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/extranet"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
@@ -107,6 +111,10 @@ const (
 	resourceFileTypeRules    = "file-type-rules"
 	resourceSandboxRules     = "sandbox-rules"
 	resourceFirewallDNSRules = "firewall-dns-rules"
+	resourceCustomFileTypes  = "custom-file-types"
+	resourceTrafficCaptRules = "traffic-capture-rules"
+	resourceZPAGateways      = "zpa-gateways"
+	resourceExtranets        = "extranets"
 )
 
 type AuthMode string
@@ -706,6 +714,46 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return firewalldnscontrolpolicies.Get(ctx, service, id)
 			}),
 			firewallDNSRuleSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceCustomFileTypes}: newListGetHandler(
+			resourceCustomFileTypes,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]customfiletypes.CustomFileTypes, error) {
+				return customfiletypes.GetCustomFileTypes(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*customfiletypes.CustomFileTypes, error) {
+				return customfiletypes.Get(ctx, service, id)
+			}),
+			customFileTypeSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceTrafficCaptRules}: newListGetHandler(
+			resourceTrafficCaptRules,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]trafficcapture.TrafficCaptureRules, error) {
+				return trafficcapture.GetAll(ctx, service, nil)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*trafficcapture.TrafficCaptureRules, error) {
+				return trafficcapture.Get(ctx, service, id)
+			}),
+			trafficCaptureRuleSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceZPAGateways}: newListGetHandler(
+			resourceZPAGateways,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]zpagateways.ZPAGateways, error) {
+				return zpagateways.GetAll(ctx, service)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*zpagateways.ZPAGateways, error) {
+				return zpagateways.Get(ctx, service, id)
+			}),
+			zpaGatewaySourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceExtranets}: newListGetHandler(
+			resourceExtranets,
+			ziaSDKList(ziaClient, func(ctx context.Context, service *zsdk.Service) ([]extranet.Extranet, error) {
+				return extranet.GetAll(ctx, service, nil)
+			}),
+			ziaSDKGet(ziaClient, func(ctx context.Context, service *zsdk.Service, id int) (*extranet.Extranet, error) {
+				return extranet.Get(ctx, service, id)
+			}),
+			extranetSourceRecord,
 		),
 	}
 }
@@ -2070,6 +2118,96 @@ func firewallDNSRuleSourceRecord(rule firewalldnscontrolpolicies.FirewallDNSRule
 	return resources.NewSourceRecord(fields)
 }
 
+func customFileTypeSourceRecord(fileType customfiletypes.CustomFileTypes) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"id":          fileType.ID,
+		"name":        fileType.Name,
+		"description": fileType.Description,
+		"extension":   fileType.Extension,
+		"fileTypeId":  fileType.FileTypeID,
+	})
+}
+
+func trafficCaptureRuleSourceRecord(rule trafficcapture.TrafficCaptureRules) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                  rule.ID,
+		"name":                rule.Name,
+		"order":               rule.Order,
+		"rank":                rule.Rank,
+		"accessControl":       rule.AccessControl,
+		"action":              rule.Action,
+		"state":               rule.State,
+		"description":         rule.Description,
+		"lastModifiedTime":    rule.LastModifiedTime,
+		"excludeSrcCountries": rule.ExcludeSrcCountries,
+		"defaultRule":         rule.DefaultRule,
+		"predefined":          rule.Predefined,
+		"txnSizeLimit":        rule.TxnSizeLimit,
+		"txnSampling":         rule.TxnSampling,
+	}
+	addIDNameExtensionsPtr(fields, "lastModifiedBy", rule.LastModifiedBy)
+	addStringSlice(fields, "srcIps", rule.SrcIps)
+	addStringSlice(fields, "destAddresses", rule.DestAddresses)
+	addStringSlice(fields, "destIpCategories", rule.DestIpCategories)
+	addStringSlice(fields, "destCountries", rule.DestCountries)
+	addStringSlice(fields, "sourceCountries", rule.SourceCountries)
+	addStringSlice(fields, "nwApplications", rule.NwApplications)
+	addStringSlice(fields, "deviceTrustLevels", rule.DeviceTrustLevels)
+	addIDNameExtensionsSlice(fields, "locations", rule.Locations)
+	addIDNameExtensionsSlice(fields, "locationGroups", rule.LocationsGroups)
+	addIDNameExtensionsSlice(fields, "departments", rule.Departments)
+	addIDNameExtensionsSlice(fields, "groups", rule.Groups)
+	addIDNameExtensionsSlice(fields, "users", rule.Users)
+	addIDNameExtensionsSlice(fields, "timeWindows", rule.TimeWindows)
+	addIDNameExtensionsSlice(fields, "nwApplicationGroups", rule.NwApplicationGroups)
+	addIDNameExtensionsSlice(fields, "appServiceGroups", rule.AppServiceGroups)
+	addIDNameExtensionsSlice(fields, "labels", rule.Labels)
+	addIDNameExtensionsSlice(fields, "destIpGroups", rule.DestIpGroups)
+	addIDNameExtensionsSlice(fields, "nwServices", rule.NwServices)
+	addIDNameExtensionsSlice(fields, "nwServiceGroups", rule.NwServiceGroups)
+	addIDNameExtensionsSlice(fields, "srcIpGroups", rule.SrcIpGroups)
+	addIDNameExtensionsSlice(fields, "deviceGroups", rule.DeviceGroups)
+	addIDNameExtensionsSlice(fields, "devices", rule.Devices)
+	addIDNameSlice(fields, "workloadGroups", rule.WorkloadGroups)
+	addIDNameExtensionsSlice(fields, "srcIpv6Groups", rule.SrcIpv6Groups)
+	addIDNameExtensionsSlice(fields, "destIpv6Groups", rule.DestIpv6Groups)
+	return resources.NewSourceRecord(fields)
+}
+
+func zpaGatewaySourceRecord(gateway zpagateways.ZPAGateways) resources.SourceRecord {
+	fields := map[string]any{
+		"id":               gateway.ID,
+		"name":             gateway.Name,
+		"description":      gateway.Description,
+		"zpaServerGroup":   zpaGatewayServerGroupSource(gateway.ZPAServerGroup),
+		"zpaTenantId":      gateway.ZPATenantId,
+		"lastModifiedTime": gateway.LastModifiedTime,
+		"type":             gateway.Type,
+	}
+	if len(gateway.ZPAAppSegments) > 0 {
+		fields["zpaAppSegments"] = zpaGatewayAppSegmentsSource(gateway.ZPAAppSegments)
+	}
+	addIDNameExtensionsPtr(fields, "lastModifiedBy", gateway.LastModifiedBy)
+	return resources.NewSourceRecord(fields)
+}
+
+func extranetSourceRecord(item extranet.Extranet) resources.SourceRecord {
+	fields := map[string]any{
+		"id":          item.ID,
+		"name":        item.Name,
+		"description": item.Description,
+		"createdAt":   item.CreatedAt,
+		"modifiedAt":  item.ModifiedAt,
+	}
+	if len(item.ExtranetDNSList) > 0 {
+		fields["extranetDNSList"] = extranetDNSListSource(item.ExtranetDNSList)
+	}
+	if len(item.ExtranetIpPoolList) > 0 {
+		fields["extranetIpPoolList"] = extranetIPPoolListSource(item.ExtranetIpPoolList)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
 func addStringSlice(fields map[string]any, name string, values []string) {
 	if len(values) > 0 {
 		fields[name] = append([]string(nil), values...)
@@ -2255,6 +2393,66 @@ func zpaAppSegmentsSource(values []ziacommon.ZPAAppSegments) []any {
 			fields["externalId"] = value.ExternalID
 		}
 		out = append(out, fields)
+	}
+	return out
+}
+
+func zpaGatewayServerGroupSource(value zpagateways.ZPAServerGroup) map[string]any {
+	fields := map[string]any{
+		"id":   value.ID,
+		"name": value.Name,
+	}
+	if value.ExternalID != "" {
+		fields["externalId"] = value.ExternalID
+	}
+	if len(value.Extensions) > 0 {
+		fields["extensions"] = value.Extensions
+	}
+	return fields
+}
+
+func zpaGatewayAppSegmentsSource(values []zpagateways.ZPAAppSegments) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		fields := map[string]any{
+			"id":   value.ID,
+			"name": value.Name,
+		}
+		if value.ExternalID != "" {
+			fields["externalId"] = value.ExternalID
+		}
+		if len(value.Extensions) > 0 {
+			fields["extensions"] = value.Extensions
+		}
+		out = append(out, fields)
+	}
+	return out
+}
+
+func extranetDNSListSource(values []extranet.ExtranetDNSList) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":                 value.ID,
+			"name":               value.Name,
+			"primaryDNSServer":   value.PrimaryDNSServer,
+			"secondaryDNSServer": value.SecondaryDNSServer,
+			"useAsDefault":       value.UseAsDefault,
+		})
+	}
+	return out
+}
+
+func extranetIPPoolListSource(values []extranet.ExtranetPoolList) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":           value.ID,
+			"name":         value.Name,
+			"ipStart":      value.IPStart,
+			"ipEnd":        value.IPEnd,
+			"useAsDefault": value.UseAsDefault,
+		})
 	}
 	return out
 }

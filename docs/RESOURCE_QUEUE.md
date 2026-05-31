@@ -88,12 +88,11 @@ Open draft PR:
 
 | PR | Resources | Status | Smoke command |
 | --- | --- | --- | --- |
-| `#33` | `zia/risk-profiles`, `zia/nss-servers` | Draft rebased onto current `main`; parked until work-machine live smoke is available | `make live-smoke` |
+| `#39` | `zia/file-type-rules`, `zia/sandbox-rules`, `zia/firewall-dns-rules`, `zia/custom-file-types`, `zia/traffic-capture-rules`, `zia/zpa-gateways`, `zia/extranets` | Smoke-lab draft; non-release-track until work-machine live smoke trims or promotes resources | `make live-smoke` |
 
-Do not start applying the next batch until this PR is either merged or trimmed
-and merged. PR `#33` predates the preferred one-resource PR rule; record smoke
-outcomes for each resource independently and trim only the failing resource if
-they diverge.
+Do not merge this branch as-is. Use it as a broad smoke-lab surface, record
+outcomes for each resource independently, and promote only resources that pass
+focused live validation into release-track work.
 
 ## No-Live Work Mode
 

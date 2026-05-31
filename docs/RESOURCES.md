@@ -877,6 +877,80 @@ Fields:
 | Scope references such as `locations`, `groups`, `dnsGateway`, and IP groups | Tenant configuration | `standard` | Local-only rule target references render reviewed `id`/`name` fields only. |
 | `lastModifiedBy` | Secret | never | Admin reference is mapped into source records but dropped by projection. |
 
+## ZIA Custom File Types
+
+Commands:
+
+```sh
+zscalerctl zia custom-file-types list
+zscalerctl zia custom-file-types get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `fileTypeId` | Operational metadata | `standard`, `share`, `paranoid` | Custom file type identifiers. |
+| `name`, `extension` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+
+## ZIA Traffic Capture Rules
+
+Commands:
+
+```sh
+zscalerctl zia traffic-capture-rules list
+zscalerctl zia traffic-capture-rules get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `order`, `rank`, `accessControl`, `state`, `lastModifiedTime`, `excludeSrcCountries`, `defaultRule`, `predefined` | Operational metadata | varies | Rule identity, ordering, access, and status metadata. |
+| `name`, `action`, `nwApplications`, `txnSizeLimit`, `txnSampling`, `deviceTrustLevels` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `srcIps`, `destAddresses`, `destIpCategories` | Sensitive identifier | `standard` | Local-only network targeting data. |
+| Scope references such as `locations`, `groups`, services, application groups, and IP groups | Tenant configuration | `standard` | Local-only rule target references render reviewed `id`/`name` fields only. |
+| `lastModifiedBy` | Secret | never | Admin reference is mapped into source records but dropped by projection. |
+
+## ZIA Zpa Gateways
+
+Commands:
+
+```sh
+zscalerctl zia zpa-gateways list
+zscalerctl zia zpa-gateways get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `lastModifiedTime`, `type` | Operational metadata | varies | Gateway identity, modified timestamp, and gateway type. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `zpaTenantId`, `zpaServerGroup`, `zpaAppSegments` | Sensitive identifier / tenant configuration | `standard` | Local-only ZPA tenant and reference metadata render reviewed `id`/`name` fields only. |
+| `lastModifiedBy` | Secret | never | Admin reference is mapped into source records but dropped by projection. |
+
+## ZIA Extranets
+
+Commands:
+
+```sh
+zscalerctl zia extranets list
+zscalerctl zia extranets get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `createdAt`, `modifiedAt` | Operational metadata | varies | Extranet identity and timestamp metadata. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `extranetDNSList`, `extranetIpPoolList` | Tenant configuration | `standard` | Local-only nested DNS and IP pool references. DNS servers and pool ranges are sensitive identifiers and only render in `standard`. |
+
 ## Deferred Resource Follow-Ups
 
 - `zia/network-service-groups`: generated and locally validated, but removed

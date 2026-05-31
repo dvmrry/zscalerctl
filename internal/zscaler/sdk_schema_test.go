@@ -16,6 +16,7 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
 	filetypecontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol"
+	customfiletypes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol/custom_file_types"
 	firewalldnscontrolpolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewalldnscontrolpolicies"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
@@ -29,6 +30,7 @@ import (
 	forwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/forwarding_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxies"
 	proxygateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways"
+	zpagateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/zpa_gateways"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
@@ -37,6 +39,8 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
 	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
+	trafficcapture "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/traffic_capture"
+	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/extranet"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
@@ -1523,6 +1527,145 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"users",
 				"zpaIpGroup",
 			},
+		},
+		{
+			name:         "customfiletypes.CustomFileTypes",
+			resource:     resources.ProductZIA,
+			resourceName: resourceCustomFileTypes,
+			typ:          reflect.TypeOf(customfiletypes.CustomFileTypes{}),
+			catalogFields: []string{
+				"description",
+				"extension",
+				"fileTypeId",
+				"id",
+				"name",
+			},
+		},
+		{
+			name:         "traffic_capture.TrafficCaptureRules",
+			resource:     resources.ProductZIA,
+			resourceName: resourceTrafficCaptRules,
+			typ:          reflect.TypeOf(trafficcapture.TrafficCaptureRules{}),
+			catalogFields: []string{
+				"accessControl",
+				"action",
+				"appServiceGroups",
+				"defaultRule",
+				"departments",
+				"description",
+				"destAddresses",
+				"destCountries",
+				"destIpCategories",
+				"destIpGroups",
+				"destIpv6Groups",
+				"deviceGroups",
+				"deviceTrustLevels",
+				"devices",
+				"excludeSrcCountries",
+				"groups",
+				"id",
+				"labels",
+				"lastModifiedBy",
+				"lastModifiedTime",
+				"locationGroups",
+				"locations",
+				"name",
+				"nwApplicationGroups",
+				"nwApplications",
+				"nwServiceGroups",
+				"nwServices",
+				"order",
+				"predefined",
+				"rank",
+				"sourceCountries",
+				"srcIpGroups",
+				"srcIps",
+				"srcIpv6Groups",
+				"state",
+				"timeWindows",
+				"txnSampling",
+				"txnSizeLimit",
+				"users",
+				"workloadGroups",
+			},
+		},
+		{
+			name:         "zpagateways.ZPAGateways",
+			resource:     resources.ProductZIA,
+			resourceName: resourceZPAGateways,
+			typ:          reflect.TypeOf(zpagateways.ZPAGateways{}),
+			catalogFields: []string{
+				"description",
+				"id",
+				"lastModifiedBy",
+				"lastModifiedTime",
+				"name",
+				"type",
+				"zpaAppSegments",
+				"zpaServerGroup",
+				"zpaTenantId",
+			},
+		},
+		{
+			name: "zpagateways.ZPAServerGroup",
+			typ:  reflect.TypeOf(zpagateways.ZPAServerGroup{}),
+			ignoredFields: ignoredBecause(
+				"nested ZPA server-group references are explicitly modeled in the zpa-gateways catalog; this entry catches SDK additions",
+				"id",
+				"name",
+				"externalId",
+				"extensions",
+			),
+		},
+		{
+			name: "zpagateways.ZPAAppSegments",
+			typ:  reflect.TypeOf(zpagateways.ZPAAppSegments{}),
+			ignoredFields: ignoredBecause(
+				"nested ZPA application-segment references are explicitly modeled in the zpa-gateways catalog; this entry catches SDK additions",
+				"id",
+				"name",
+				"externalId",
+				"extensions",
+			),
+		},
+		{
+			name:         "extranet.Extranet",
+			resource:     resources.ProductZIA,
+			resourceName: resourceExtranets,
+			typ:          reflect.TypeOf(extranet.Extranet{}),
+			catalogFields: []string{
+				"createdAt",
+				"description",
+				"extranetDNSList",
+				"extranetIpPoolList",
+				"id",
+				"modifiedAt",
+				"name",
+			},
+		},
+		{
+			name: "extranet.ExtranetDNSList",
+			typ:  reflect.TypeOf(extranet.ExtranetDNSList{}),
+			ignoredFields: ignoredBecause(
+				"nested DNS entries are explicitly modeled in the extranets catalog; this entry catches SDK additions",
+				"id",
+				"name",
+				"primaryDNSServer",
+				"secondaryDNSServer",
+				"useAsDefault",
+			),
+		},
+		{
+			name: "extranet.ExtranetPoolList",
+			typ:  reflect.TypeOf(extranet.ExtranetPoolList{}),
+			ignoredFields: ignoredBecause(
+				"nested IP pool entries are explicitly modeled in the extranets catalog; this entry catches SDK additions",
+				"id",
+				"name",
+				"ipStart",
+				"ipEnd",
+				"useAsDefault",
+			),
 		},
 		{
 			name: "workloadgroups.WorkloadTagExpression",
