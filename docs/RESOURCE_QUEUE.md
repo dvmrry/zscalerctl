@@ -20,6 +20,9 @@ available. Queue entries are not validation evidence.
   trim failed resources instead of blocking proven ones.
 - Do not merge resource PRs without a focused `make live-smoke` pass.
 - Do not stack un-smoked resource branches behind an unmerged resource PR.
+- While live-smoke access is unavailable, do not apply queued resource
+  scaffolds to production files. Use the time for SDK scouting, queue
+  refinement, and shape-decision notes only.
 - Do not commit generated scaffold bundles from `scratch/resource-drafts/`.
 - Regenerate scaffolds from current SDK source and current generator code when a
   batch is ready to apply. Do not replay stale commands blindly.
@@ -84,12 +87,31 @@ Open draft PR:
 
 | PR | Resources | Status | Smoke command |
 | --- | --- | --- | --- |
-| `#33` | `zia/risk-profiles`, `zia/nss-servers` | Awaiting work-machine live smoke | `make live-smoke` |
+| `#33` | `zia/risk-profiles`, `zia/nss-servers` | Draft rebased onto current `main`; parked until work-machine live smoke is available | `make live-smoke` |
 
 Do not start applying the next batch until this PR is either merged or trimmed
 and merged. PR `#33` predates the preferred one-resource PR rule; record smoke
 outcomes for each resource independently and trim only the failing resource if
 they diverge.
+
+## No-Live Work Mode
+
+When read-only tenant credentials are unavailable, do not create more
+production resource branches behind the open draft PR. Safe work during this
+period:
+
+- refresh this queue from `make sdk-surface-inventory`;
+- scout the full SDK module cache with:
+
+  ```sh
+  SDK_DIR="$(go list -m -f '{{.Dir}}' -mod=mod github.com/zscaler/zscaler-sdk-go/v3)"
+  go run ./scripts/sdk-surface-inventory.go --sdk-dir "$SDK_DIR"
+  ```
+
+- add or refine batch notes, shape-decision notes, and deferred-resource notes;
+- regenerate scratch scaffolds locally for review, but do not commit
+  `scratch/resource-drafts/` or apply them to production files until live smoke
+  is available again.
 
 ## Next Apply Batches
 
@@ -148,6 +170,46 @@ Scaffold commands:
 make scaffold-resource PRODUCT=zia RESOURCE=custom-file-types PACKAGE=github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol/custom_file_types TYPE=CustomFileTypes FORCE=1
 ```
 
+## Scouted Backlog
+
+The following candidates came from a full SDK module-cache scout, not from the
+current vendored import set. They are queue evidence only. Re-run the scaffold
+commands from current SDK source before applying any of them.
+
+### Batch D: Traffic Capture Rules
+
+This looks resource-shaped in the SDK, but it is a policy/control surface with
+nested references and filter options. Keep the first pass conservative and use a
+small custom list closure if the SDK requires explicit default options.
+
+| Resource | SDK package | SDK type | List | Get | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `zia/traffic-capture-rules` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/traffic_capture` | `TrafficCaptureRules` | `GetAll` | `Get` | Policy/control surface; expect labels and capture-specific nested references. |
+
+### Batch E: Remaining ZIA Traffic Forwarding References
+
+These are read-like traffic-forwarding references. Avoid `vpncredentials` in
+ordinary batch work; it is credential-bearing by name and should be treated as a
+separate secret-material decision.
+
+| Resource | SDK package | SDK type | List | Get | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `zia/zpa-gateways` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/zpa_gateways` | `ZPAGateways` | `GetAll` | `Get` | ZPA gateway references used by forwarding policy. |
+| `zia/extranets` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/extranet` | `Extranet` | `GetAll` | `Get` | External connectivity metadata; inspect nested refs conservatively. |
+
+### Future Non-ZIA Tracks
+
+These tracks should not be mixed into ZIA batch work. Each needs product/auth
+design and a controlled OneAPI smoke path before any production resource PR.
+
+| Product | Candidate surface | Scout result | Queue posture |
+| --- | --- | --- | --- |
+| ZPA | `servergroup`, `segmentgroup`, `appservercontroller`, `appconnectorgroup`, `cloud_connector`, `cloud_connector_group`, `branch_connector`, `machinegroup`, `postureprofile`, `trustednetwork`, `idpcontroller` | Many ordinary or list/get-with-mutating-neighbor SDK packages exist in the full SDK. | OneAPI-only future track; start with one low-risk reference after production OneAPI smoke is available. |
+| ZCC | `devices`, `notification_template`, `trusted_network_v2`, `zia_posture` | Full SDK exposes high-level read-like packages, but most sit near mutating helpers. | Shape-decision work; define product credentials/auth and live-smoke command first. |
+| ZDX | Reports for applications, devices, and users | SDK exposes report/read surfaces rather than config inventory resources. | Separate report/export model; do not force into config dump semantics. |
+| ZTW | Locations, forwarding gateways, DNS gateways, EC groups, policy resources, workload groups, public cloud account data | Full SDK exposes many list/get-like surfaces. | Separate product track; likely closer to Cloud Connector/Workload than ZIA inventory. |
+| Zidentity | Users, groups, resource servers, entitlements | SDK exposes identity-plane reads with adjacent mutation. | Identity-plane work; requires stricter privacy/classification review before queueing. |
+
 ## Needs A Shape Decision Before Applying
 
 These SDK surfaces are potentially valuable, but they do not fit the current
@@ -160,8 +222,13 @@ reader shape is explicit.
 | Browser isolation profiles | SDK exposes `GetAll` and name lookup, but no integer `Get`; decide whether list-only resources are allowed before enabling. |
 | PAC files | SDK exposes versioned/list functions that do not match the current `list`/`get <id>` model directly. |
 | Cloud application policy lists | SDK functions take parameter maps; decide stable defaults before exposing. |
+| CASB SaaS Security API rules | `GetAll` exists, but `GetByRuleID` requires a rule-type parameter in addition to ID. Decide stable get semantics before exposing. |
+| DC exclusions | SDK exposes `GetAll` and name lookup only. Decide whether list-only/name-get resources are allowed before enabling. |
 | Intermediate CA certificates | Certificate and CSR/download fields need a public-metadata versus material/export decision before cataloging. |
 | IPS policies | Adjacent to the deferred `zia/ips-signature-rules` endpoint; confirm the endpoint and entitlement behavior is genuinely distinct before applying. |
+| Sub-clouds | `GetAll` returns `SubClouds`, but integer `Get` returns `SubCloudCountryDCExclusionInfo`; decide whether this is one resource, two resources, or list-only metadata. |
+| ZIA VPN credentials | SDK exposes read-like functions, but the package and fields are credential-bearing by name. Decide whether any public metadata can render before cataloging. |
+| ZCC/ZDX/ZTW/Zidentity products | Full SDK evidence exists, but product auth, live-smoke commands, and output semantics are not established in this tool. Keep product tracks separate from ZIA breadth work. |
 
 ## Deferred After Live Smoke Failures
 
