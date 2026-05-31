@@ -88,7 +88,7 @@ Open draft PR:
 
 | PR | Resources | Status | Smoke command |
 | --- | --- | --- | --- |
-| `#39` | `zia/file-type-rules`, `zia/sandbox-rules`, `zia/firewall-dns-rules`, `zia/risk-profiles`, `zia/nss-servers`, `zia/c2c-incident-receivers`, `zia/dlp-edm-schemas`, `zia/dlp-idm-profile-lite`, `zia/dlp-idm-profiles`, `zia/custom-file-types`, `zia/traffic-capture-rules`, `zia/zpa-gateways`, `zia/extranets` | Smoke-lab draft; non-release-track until work-machine live smoke trims or promotes resources | `make live-smoke` |
+| `#39` | `zia/file-type-rules`, `zia/sandbox-rules`, `zia/firewall-dns-rules`, `zia/risk-profiles`, `zia/nss-servers`, `zia/nss-feeds`, `zia/c2c-incident-receivers`, `zia/dlp-edm-schemas`, `zia/dlp-idm-profile-lite`, `zia/dlp-idm-profiles`, `zia/dlp-web-rules`, `zia/custom-file-types`, `zia/traffic-capture-rules`, `zia/zpa-gateways`, `zia/extranets` | Smoke-lab draft; non-release-track until work-machine live smoke trims or promotes resources | `make live-smoke` |
 
 Do not merge this branch as-is. Use it as a broad smoke-lab surface, record
 outcomes for each resource independently, and promote only resources that pass
@@ -213,6 +213,57 @@ modeled.
 | `zia/dlp-edm-schemas` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match` | `DLPEDMSchema` | `GetAll` | `GetDLPEDMSchemaID` | EDM schema metadata; token definitions remain dropped. |
 | `zia/dlp-idm-profile-lite` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profile_lite` | `DLPIDMProfileLite` | `GetAll` | `GetDLPProfileLiteID` | Lite IDM template metadata. |
 | `zia/dlp-idm-profiles` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profiles` | `DLPIDMProfile` | `GetAll` | `Get` | IDM template metadata; host/path/user details stay local-only or dropped. |
+
+### Batch G: NSS Feed And Web DLP Rule Metadata
+
+These complete the first two open items from the remaining ZIA list/get queue.
+Both are broad policy/logging surfaces, so the smoke-lab pass keeps credential,
+admin, exception-rule, receiver, and high-risk nested details dropped until live
+data proves the shape is useful.
+
+| Resource | SDK package | SDK type | List | Get | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `zia/nss-feeds` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/cloudnss` | `NSSFeed` | `GetAll` | `Get` | Feed metadata and reviewed filters render; connection auth, headers, certificates, VPN credentials, and collaborator/location refs remain dropped or local-only. |
+| `zia/dlp-web-rules` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_web_rules` | `WebDLPRules` | `GetAll` | `Get` | Web DLP rule metadata; admin, receiver, ICAP/template, auditor, and nested sub-rule details remain dropped or local-only. |
+
+## Remaining SDK Package Review
+
+After Batch G, a full SDK module-cache scout shows 76 ZIA packages with
+ordinary list/get or list/get-with-mutating-neighbor shapes. Forty-eight of
+those package surfaces are represented by the current catalog/shape-review
+graph; the 28 below remain outside the catalog. This count is package-level
+scouting evidence, not a promise that every row should become a resource.
+
+| SDK package | Review posture |
+| --- | --- |
+| `adminauditlogs` | Admin/audit export surface with download helpers and adjacent export/delete operations; keep as a privacy/audit design item, not ordinary inventory. |
+| `adminuserrolemgmt/admins` | Identity/admin plane with adjacent mutation; requires stricter privacy and role review before any catalog work. |
+| `adminuserrolemgmt/roles` | Admin role plane with adjacent mutation; identity/admin design item. |
+| `apptotal` | Application-view helper surface, not a stable list/get config object yet; needs output semantics before queueing. |
+| `auth_settings` | Singleton settings surface; wait for singleton-reader and manifest semantics. |
+| `browser_isolation` | List/name-get only; decide list-only resources before enabling. |
+| `dlp/dlp_engines` | Deferred after legacy live-smoke failure; investigate endpoint/auth behavior before retrying. |
+| `dlp/dlp_exact_data_match_lite` | Potential lite companion to EDM schemas, but list/name-get semantics overlap existing EDM schema coverage; decide whether it adds useful output. |
+| `dlp/dlp_incident_receiver_servers` | Deferred after legacy live-smoke failure. |
+| `dlp/dlp_notification_templates` | Deferred after legacy live-smoke failure. |
+| `dlp/dlpdictionaries` | Deferred after legacy live-smoke failure. |
+| `email_profiles` | Deferred after legacy live-smoke failure. |
+| `firewallpolicies/networkapplications` | Deferred after network-applications live-smoke failure while groups succeeded. |
+| `firewallpolicies/networkservicegroups` | Deferred after network-service-groups live-smoke failure. |
+| `intermediatecacertificates` | Certificate/CSR/download material surface; needs public-metadata versus material/export decision. |
+| `ips_control_policies/ips_policies` | Adjacent to failed IPS signature-rule endpoint; verify endpoint and entitlement behavior separately. |
+| `ips_control_policies/ips_signature_rules` | Deferred after legacy live-smoke failure. |
+| `location/locationlite` | Slim location view overlaps `locations`/`sublocations`; only queue if it resolves a concrete pagination or performance gap. |
+| `saas_security_api` | Parameterized CASB/SaaS helper surface; needs stable defaults and shape semantics. |
+| `saas_security_api/casb_dlp_rules` | CASB rule surface with rule-type get semantics; requires resource/get design before enabling. |
+| `saas_security_api/casb_malware_rules` | CASB rule surface with rule-type get semantics; requires resource/get design before enabling. |
+| `scim_api` | Identity-plane SCIM users/groups with adjacent mutation; stricter privacy/auth design item. |
+| `trafficforwarding/dc_exclusions` | List/name-get plus datacenter helper semantics; shape decision before queueing. |
+| `trafficforwarding/sub_clouds` | `GetAll` and integer `Get` return different shapes; decide resource split or list-only semantics. |
+| `trafficforwarding/virtualipaddress` | Read-only VIP recommendation/source-IP helper surface, not ordinary config inventory; decide output model before queueing. |
+| `trafficforwarding/vpncredentials` | Credential-bearing by name; requires a public-metadata-only decision before any catalog entry. |
+| `usermanagement/departments` | Deferred after legacy live-smoke failure; identity-like data also needs privacy review. |
+| `usermanagement/users` | Deferred after legacy live-smoke failure; identity-like data also needs privacy review. |
 
 ### Future Non-ZIA Tracks
 

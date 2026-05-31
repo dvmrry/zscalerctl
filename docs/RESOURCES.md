@@ -854,6 +854,25 @@ Fields:
 | `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
 | `icapSvrId` | Sensitive identifier | `standard` | Local-only ICAP server reference. |
 
+## ZIA Nss Feeds
+
+Commands:
+
+```sh
+zscalerctl zia nss-feeds list
+zscalerctl zia nss-feeds get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `feedStatus`, `nssLogType`, `nssFeedType`, `epsRateLimit`, `jsonArrayToggle`, `maxBatchSize`, `lastSuccessFullTest`, `testConnectivityCode`, `nssType`, `cloudNss`, `oauthAuthentication` | Operational metadata | varies | Feed identity, status, type, limits, test, and OAuth-state metadata. |
+| `name`, `feedOutputFormat`, `userObfuscation`, `timeZone`, `siemType`, `grantType`, `firewallLoggingMode`, `actionFilter`, `emailDlpPolicyAction`, `direction`, `event`, and reviewed enum/filter lists | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| Network, host, URL, file, project, repository, channel, user-agent, and tunnel fields | Sensitive identifier | `standard` | Local-only feed targeting and logging metadata. |
+| Reference fields such as `urlCategories`, `dlpEngines`, `dlpDictionaries`, `rules`, and `nwServices` | Tenant configuration | `standard` | Local-only references render reviewed `id`/`name` fields only. |
+| Authentication fields, connection headers, certificates, VPN credentials, collaborator/user/location references, and high-risk object/filter fields | Secret | never | Mapped into source records and dropped by projection until separately modeled. |
+
 ## ZIA C2c Incident Receivers
 
 Commands:
@@ -925,6 +944,25 @@ Fields:
 | `profileDesc` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
 | `host`, `profileDirPath` | Sensitive identifier | `standard` | Local-only host and path metadata. |
 | `userName`, `modifiedBy` | Secret | never | User and admin references are mapped into source records and dropped by projection. |
+
+## ZIA Dlp Web Rules
+
+Commands:
+
+```sh
+zscalerctl zia dlp-web-rules list
+zscalerctl zia dlp-web-rules get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `order`, `rank`, `state`, `matchOnly`, `lastModifiedTime`, `withoutContentInspection`, `ocrEnabled`, `dlpDownloadScanEnabled`, `zccNotificationsEnabled`, `zscalerIncidentReceiver`, `parentRule`, `inspectHttpGetEnabled` | Operational metadata | varies | Rule identity, ordering, status, and behavior metadata. |
+| `name`, `accessControl`, `protocols`, `fileTypes`, `cloudApplications`, `action`, `severity`, `urlCategories`, `timeWindows`, `labels`, and `fileTypeCategories` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `eunTemplateId`, `externalAuditorEmail`, `userRiskScoreLevels`, `dlpContentLocationsScopes`, and scope references such as `locations`, `groups`, `users`, and IP/domain profile groups | Sensitive identifier / tenant configuration | `standard` | Local-only rule target and notification metadata. |
+| `auditor`, `lastModifiedBy`, `notificationTemplate`, `icapServer`, `receiver`, and `subRules` | Secret | never | Admin, receiver, server, template, and nested exception-rule details are mapped into source records and dropped by projection. |
 
 ## ZIA File Type Rules
 
