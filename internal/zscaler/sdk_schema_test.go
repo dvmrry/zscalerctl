@@ -12,6 +12,8 @@ import (
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
+	riskprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles"
+	nssservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/nss_servers"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
@@ -1539,6 +1541,65 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"fileTypeId",
 				"id",
 				"name",
+			},
+		},
+		{
+			name:         "riskprofiles.RiskProfiles",
+			resource:     resources.ProductZIA,
+			resourceName: resourceRiskProfiles,
+			typ:          reflect.TypeOf(riskprofiles.RiskProfiles{}),
+			catalogFields: []string{
+				"adminAuditLogs",
+				"certifications",
+				"createTime",
+				"customTags",
+				"dataBreach",
+				"dataEncryptionInTransit",
+				"dnsCaaPolicy",
+				"domainBasedMessageAuth",
+				"domainKeysIdentifiedMail",
+				"evasive",
+				"excludeCertificates",
+				"fileSharing",
+				"httpSecurityHeaders",
+				"id",
+				"lastModTime",
+				"malwareScanningForContent",
+				"mfaSupport",
+				"modifiedBy",
+				"passwordStrength",
+				"poorItemsOfService",
+				"profileName",
+				"profileType",
+				"remoteScreenSharing",
+				"riskIndex",
+				"senderPolicyFramework",
+				"sourceIpRestrictions",
+				"sslCertKeySize",
+				"sslCertValidity",
+				"sslPinned",
+				"status",
+				"supportForWaf",
+				"vulnerability",
+				"vulnerabilityDisclosure",
+				"vulnerableToHeartBleed",
+				"vulnerableToLogJam",
+				"vulnerableToPoodle",
+				"weakCipherSupport",
+			},
+		},
+		{
+			name:         "nssservers.NSSServers",
+			resource:     resources.ProductZIA,
+			resourceName: resourceNSSServers,
+			typ:          reflect.TypeOf(nssservers.NSSServers{}),
+			catalogFields: []string{
+				"icapSvrId",
+				"id",
+				"name",
+				"state",
+				"status",
+				"type",
 			},
 		},
 		{

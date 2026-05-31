@@ -819,6 +819,41 @@ Fields:
 | `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
 | `url` | Sensitive identifier | `standard` | Local-only ICAP server endpoint. |
 
+## ZIA Risk Profiles
+
+Commands:
+
+```sh
+zscalerctl zia risk-profiles list
+zscalerctl zia risk-profiles get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `profileType`, `status`, `createTime`, `lastModTime` | Operational metadata | `standard`, `share`, `paranoid` | Risk-profile identity, type, state, and timestamp metadata. |
+| `profileName` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `customTags`, `modifiedBy`, `sourceIpRestrictions` | Sensitive identifier / tenant configuration | `standard` | Local-only tag, admin, and source-restriction references. |
+| `adminAuditLogs`, `certifications`, `dataBreach`, `dataEncryptionInTransit`, `dnsCaaPolicy`, `domainBasedMessageAuth`, `domainKeysIdentifiedMail`, `evasive`, `excludeCertificates`, `fileSharing`, `httpSecurityHeaders`, `malwareScanningForContent`, `mfaSupport`, `passwordStrength`, `poorItemsOfService`, `remoteScreenSharing`, `riskIndex`, `senderPolicyFramework`, `sslCertKeySize`, `sslCertValidity`, `sslPinned`, `supportForWaf`, `vulnerability`, `vulnerabilityDisclosure`, `vulnerableToHeartBleed`, `vulnerableToLogJam`, `vulnerableToPoodle`, `weakCipherSupport` | Secret | never | Security posture detail is mapped into source records and dropped by projection until separately modeled. |
+
+## ZIA Nss Servers
+
+Commands:
+
+```sh
+zscalerctl zia nss-servers list
+zscalerctl zia nss-servers get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `status`, `state`, `type` | Operational metadata | `standard`, `share`, `paranoid` | NSS server identity, state, and type metadata. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `icapSvrId` | Sensitive identifier | `standard` | Local-only ICAP server reference. |
+
 ## ZIA File Type Rules
 
 Commands:

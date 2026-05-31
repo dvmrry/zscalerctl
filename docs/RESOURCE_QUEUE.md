@@ -88,7 +88,7 @@ Open draft PR:
 
 | PR | Resources | Status | Smoke command |
 | --- | --- | --- | --- |
-| `#39` | `zia/file-type-rules`, `zia/sandbox-rules`, `zia/firewall-dns-rules`, `zia/custom-file-types`, `zia/traffic-capture-rules`, `zia/zpa-gateways`, `zia/extranets` | Smoke-lab draft; non-release-track until work-machine live smoke trims or promotes resources | `make live-smoke` |
+| `#39` | `zia/file-type-rules`, `zia/sandbox-rules`, `zia/firewall-dns-rules`, `zia/risk-profiles`, `zia/nss-servers`, `zia/custom-file-types`, `zia/traffic-capture-rules`, `zia/zpa-gateways`, `zia/extranets` | Smoke-lab draft; non-release-track until work-machine live smoke trims or promotes resources | `make live-smoke` |
 
 Do not merge this branch as-is. Use it as a broad smoke-lab surface, record
 outcomes for each resource independently, and promote only resources that pass
@@ -261,9 +261,10 @@ endpoint behavior and auth-mode support first.
 
 When live smoke is available again:
 
-1. Resolve PR `#33` first with `make live-smoke`.
-2. Merge or trim PR `#33`.
-3. Regenerate Batch A scaffolds from this queue.
-4. Apply only Batch A to production files.
-5. Open one draft PR with a focused `live-smoke.manifest`.
-6. Repeat only after that PR is merged or trimmed.
+1. Pull PR `#39` and run `make live-smoke`.
+2. Record pass/fail outcomes for every manifest resource.
+3. Trim failed resources from the smoke-lab branch or move them to the
+   deferred table with the observed failure mode.
+4. Promote only passing resources into release-track work.
+5. Close or supersede older draft resource PRs that are now represented in the
+   smoke-lab branch.
