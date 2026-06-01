@@ -204,7 +204,7 @@ design and a controlled OneAPI smoke path before any production resource PR.
 
 | Product | Candidate surface | Scout result | Queue posture |
 | --- | --- | --- | --- |
-| ZPA | `servergroup`, `segmentgroup`, `appservercontroller`, `appconnectorgroup`, `cloud_connector`, `cloud_connector_group`, `branch_connector`, `machinegroup`, `postureprofile`, `trustednetwork`, `idpcontroller` | Many ordinary or list/get-with-mutating-neighbor SDK packages exist in the full SDK. | OneAPI-only future track; start with one low-risk reference after production OneAPI smoke is available. |
+| ZPA | See [ZPA_SCOPE_PLAN.md](ZPA_SCOPE_PLAN.md). | Full SDK module-cache scout exposes a broad `zscaler/zpa/services/...` tree. | OneAPI-only future track; keep scoped separately from ZIA smoke-lab work. |
 | ZCC | `devices`, `notification_template`, `trusted_network_v2`, `zia_posture` | Full SDK exposes high-level read-like packages, but most sit near mutating helpers. | Shape-decision work; define product credentials/auth and live-smoke command first. |
 | ZDX | Reports for applications, devices, and users | SDK exposes report/read surfaces rather than config inventory resources. | Separate report/export model; do not force into config dump semantics. |
 | ZTW | Locations, forwarding gateways, DNS gateways, EC groups, policy resources, workload groups, public cloud account data | Full SDK exposes many list/get-like surfaces. | Separate product track; likely closer to Cloud Connector/Workload than ZIA inventory. |

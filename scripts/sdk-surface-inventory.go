@@ -84,12 +84,14 @@ func main() {
 	var sdkDir string
 	var modulePath string
 	var format string
+	var products string
 	flag.StringVar(&sdkDir, "sdk-dir", "vendor/github.com/zscaler/zscaler-sdk-go/v3", "Zscaler SDK module directory")
 	flag.StringVar(&modulePath, "module-path", "github.com/zscaler/zscaler-sdk-go/v3", "SDK module import path")
 	flag.StringVar(&format, "format", "markdown", "output format: markdown or json")
+	flag.StringVar(&products, "product", "", "optional comma-separated product filter, such as zia,zpa")
 	flag.Parse()
 
-	report, err := buildInventory(sdkDir, modulePath)
+	report, err := buildInventory(sdkDir, modulePath, products)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sdk-surface-inventory: %v\n", err)
 		os.Exit(1)
@@ -111,11 +113,12 @@ func main() {
 	}
 }
 
-func buildInventory(sdkDir, modulePath string) (inventory, error) {
+func buildInventory(sdkDir, modulePath string, products string) (inventory, error) {
 	surfaces, err := scanSDK(sdkDir, modulePath)
 	if err != nil {
 		return inventory{}, err
 	}
+	surfaces = filterSurfacesByProduct(surfaces, products)
 	return inventory{
 		Schema:     inventorySchema,
 		Notice:     inventoryNotice,
@@ -124,6 +127,31 @@ func buildInventory(sdkDir, modulePath string) (inventory, error) {
 		SDKDir:     filepath.Clean(sdkDir),
 		Surfaces:   surfaces,
 	}, nil
+}
+
+func filterSurfacesByProduct(surfaces []surface, products string) []surface {
+	filter := productFilter(products)
+	if len(filter) == 0 {
+		return surfaces
+	}
+	out := make([]surface, 0, len(surfaces))
+	for _, item := range surfaces {
+		if filter[item.Product] {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func productFilter(products string) map[string]bool {
+	out := map[string]bool{}
+	for _, item := range strings.Split(products, ",") {
+		item = strings.TrimSpace(strings.ToLower(item))
+		if item != "" {
+			out[item] = true
+		}
+	}
+	return out
 }
 
 func moduleVersion(modulePath string) string {
@@ -604,7 +632,7 @@ func notesFor(item surface) []string {
 		notes = append(notes, "admin/zidentity URL routing appears in core client code; treat as identity-plane work")
 	}
 	if item.Category == "product-client-config" && item.Product != "zia" {
-		notes = append(notes, "product client/config package detected; no high-level resource service package detected in this SDK snapshot")
+		notes = append(notes, "product client/config package detected; not a high-level resource service package")
 	}
 	if item.Category == "list-get-with-mutating-neighbors" || item.Category == "mixed-read-write-sdk-package" {
 		notes = append(notes, "package contains mutating SDK helpers; zscalerctl must wire only read funcs")
@@ -621,7 +649,7 @@ func notesFor(item surface) []string {
 func writeMarkdown(out *os.File, report inventory) {
 	fmt.Fprintln(out, "# SDK Surface Inventory")
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Generated from the vendored Zscaler SDK. This is a scouting report, not an enabled resource catalog.")
+	fmt.Fprintln(out, "Generated from Zscaler SDK source. This is a scouting report, not an enabled resource catalog.")
 	fmt.Fprintf(out, "Notice: %s.\n", report.Notice)
 	if report.SDKVersion != "" {
 		fmt.Fprintf(out, "SDK module: `%s` `%s` from `%s`.\n", report.SDKModule, report.SDKVersion, report.SDKDir)

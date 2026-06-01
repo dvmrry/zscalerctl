@@ -10,16 +10,23 @@ Run:
 ```sh
 make sdk-surface-inventory
 make sdk-surface-inventory FORMAT=json
+
+SDK_DIR="$(go list -m -f '{{.Dir}}' -mod=mod github.com/zscaler/zscaler-sdk-go/v3)"
+make sdk-surface-inventory SDK_DIR="$SDK_DIR" PRODUCT=zpa
 ```
 
-The script parses Go source under `vendor/github.com/zscaler/zscaler-sdk-go/v3`
-with the Go AST. It records exported structs, exported read-like functions,
-mutating-looking functions, exported functions with unknown verbs, name/method
-ambiguities, static endpoint literals, and product/client packages. It is
-intentionally conservative: SDK packages that contain both read and write
-helpers are marked as mixed, and zscalerctl must wire only the read functions.
-The JSON output carries the same scout-only notice and SDK provenance as the
-Markdown output so generated inventory cannot be mistaken for validation data.
+The script parses Go source with the Go AST. By default it scans the vendored
+SDK subset under `vendor/github.com/zscaler/zscaler-sdk-go/v3`; pass `SDK_DIR`
+from `go list -m -mod=mod` when scouting the full SDK module cache. It records
+exported structs, exported read-like functions, mutating-looking functions,
+exported functions with unknown verbs, name/method ambiguities, static endpoint
+literals, and product/client packages. It is intentionally conservative: SDK
+packages that contain both read and write helpers are marked as mixed, and
+zscalerctl must wire only the read functions. `PRODUCT=zpa` or
+`--product zia,zpa` filters the report without changing the underlying
+classification. The JSON output carries the same scout-only notice and SDK
+provenance as the Markdown output so generated inventory cannot be mistaken for
+validation data.
 
 ## Current Findings
 
@@ -35,6 +42,12 @@ As of the vendored SDK currently in this repository:
 - Cloud Connector concepts appear in existing ZIA policy, location, and
   workload fields. A distinct Cloud Connector API surface should be mapped from
   SDK evidence before being queued.
+
+When the same pinned SDK version is scouted from the full Go module cache rather
+than the vendored subset, ZPA does expose a broad
+`zscaler/zpa/services/...` tree. Use the full-module-cache command above for ZPA
+scope planning; keep the default vendored scan for release-bound dependency
+review and drift checks.
 
 These findings are SDK-shape evidence only. They do not prove entitlement,
 tenant availability, pagination behavior, or real response shape.

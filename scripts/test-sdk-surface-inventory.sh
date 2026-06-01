@@ -107,10 +107,26 @@ grep -q '`/zia/api/v1/examples`' "$tmp/inventory.md"
 grep -q '| `zia` | `zscaler/zia/services/constructed` | `read-only-nonstandard` ' "$tmp/inventory.md"
 grep -q 'read function detected without static endpoint literal' "$tmp/inventory.md"
 grep -q '| `zcc` | `zscaler/zcc` | `product-client-config` ' "$tmp/inventory.md"
-grep -q 'no high-level resource service package detected in this SDK snapshot' "$tmp/inventory.md"
+grep -q 'not a high-level resource service package' "$tmp/inventory.md"
 grep -q '| `zidentity` | `zscaler/core` | `other` ' "$tmp/inventory.md"
 grep -q 'identity-plane work' "$tmp/inventory.md"
 grep -q 'scout only: this inventory is not an enabled catalog' "$tmp/inventory.md"
+
+go run ./scripts/sdk-surface-inventory.go \
+  --sdk-dir "$sdk" \
+  --module-path github.com/zscaler/zscaler-sdk-go/v3 \
+  --product zia \
+  > "$tmp/inventory-zia.md"
+
+grep -q '| `zia` | `zscaler/zia/services/example` | `list-get-with-mutating-neighbors` ' "$tmp/inventory-zia.md"
+if grep -q '| `zcc` |' "$tmp/inventory-zia.md"; then
+  echo "sdk-surface-inventory --product zia emitted zcc surface" >&2
+  exit 1
+fi
+if grep -q '| `zidentity` |' "$tmp/inventory-zia.md"; then
+  echo "sdk-surface-inventory --product zia emitted zidentity surface" >&2
+  exit 1
+fi
 
 go run ./scripts/sdk-surface-inventory.go \
   --sdk-dir "$sdk" \

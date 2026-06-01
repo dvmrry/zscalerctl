@@ -76,7 +76,7 @@ scaffold-resource:
 	bash scripts/scaffold-resource.sh --product "$(PRODUCT)" --resource "$(RESOURCE)" --package "$(PACKAGE)" --type "$(TYPE)" $(if $(OUT),--out "$(OUT)") $(if $(FORCE),--force)
 
 sdk-surface-inventory:
-	@go run ./scripts/sdk-surface-inventory.go $(if $(SDK_DIR),--sdk-dir "$(SDK_DIR)") $(if $(FORMAT),--format "$(FORMAT)")
+	@go run ./scripts/sdk-surface-inventory.go $(if $(SDK_DIR),--sdk-dir "$(SDK_DIR)") $(if $(FORMAT),--format "$(FORMAT)") $(if $(PRODUCT),--product "$(PRODUCT)")
 
 live-smoke:
 	scripts/live-smoke.sh $(LIVE_SMOKE_FLAGS) $(if $(LIVE_SMOKE_BIN),--bin "$(LIVE_SMOKE_BIN)") $(if $(LIVE_SMOKE_RESOURCES),--resources "$(LIVE_SMOKE_RESOURCES)") $(if $(LIVE_SMOKE_MANIFEST),--manifest "$(LIVE_SMOKE_MANIFEST)") $(if $(LIVE_SMOKE_OUT),--out "$(LIVE_SMOKE_OUT)")
