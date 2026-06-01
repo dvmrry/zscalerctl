@@ -115,6 +115,37 @@ this period:
   broad later testing. Do not mark that branch ready, merge it, or release from
   it until live smoke has identified which resources survive.
 
+## Future Platform Improvements
+
+These are reusable CLI/resource-model improvements. Do not mix them into a
+resource smoke-lab PR unless a resource explicitly depends on the platform
+change and the change can be tested without live credentials.
+
+### Selector-Based `get`
+
+Current `get` semantics are ID-centered. A future improvement should let
+`get <selector>` accept either an ID or a catalog-declared natural key such as
+`name`, `configuredName`, `commonName`, or `fqdn`.
+
+Required contract:
+
+- Numeric selectors use the SDK's ID get path when one exists.
+- Non-numeric selectors match only catalog-declared lookup fields.
+- Matching is exact only; fuzzy search belongs in a separate future `search`
+  command, not `get`.
+- Zero matches return not found.
+- One match returns that projected record.
+- Multiple matches fail closed with an ambiguous-selector error and tell the
+  operator to use ID. Do not pick an arbitrary duplicate.
+- List-only resources may support `get` by listing and exact-matching the
+  declared lookup fields.
+- Errors must remain value-free: show safe field names, IDs, and counts rather
+  than dumping raw records.
+
+This should be implemented through shared resolver logic plus small
+per-resource catalog metadata, not by hardwiring lookup behavior into every
+resource handler.
+
 ## Next Apply Batches
 
 These batches are ordered for small, focused PRs. Each batch should become a
@@ -264,6 +295,51 @@ scouting evidence, not a promise that every row should become a resource.
 | `trafficforwarding/vpncredentials` | Credential-bearing by name; requires a public-metadata-only decision before any catalog entry. |
 | `usermanagement/departments` | Deferred after legacy live-smoke failure; identity-like data also needs privacy review. |
 | `usermanagement/users` | Deferred after legacy live-smoke failure; identity-like data also needs privacy review. |
+
+### Review Outcome For The Remaining 28
+
+The pinned Go SDK (`github.com/zscaler/zscaler-sdk-go/v3` v3.8.37) remains the
+implementation authority. The Python SDK is useful only as scout evidence for
+resource names, endpoint intent, and default query semantics; do not use it to
+override the pinned Go SDK shape.
+
+Python SDK spot-checks confirmed four important shape notes:
+
+- Browser isolation profiles are list/search oriented and have no integer get
+  equivalent.
+- SaaS Security API is several separate lite/list surfaces, not one ordinary
+  resource.
+- Sub-clouds mixes a normal sub-cloud list with a different "last DC in
+  country" lookup.
+- Intermediate CA certificates mix ordinary certificate metadata with
+  certificate, CSR, attestation, and public-key material/download endpoints.
+
+The remaining 28 split into these work tracks:
+
+| Track | Surfaces | Next action |
+| --- | --- | --- |
+| List-only or name-get candidates | `browser_isolation`, `dlp/dlp_exact_data_match_lite`, `location/locationlite`, `trafficforwarding/dc_exclusions`, `trafficforwarding/sub_clouds` | Add explicit list-only/dump-only reader semantics before queueing. `locationlite` should wait for a concrete performance or pagination reason because it overlaps `locations` and `sublocations`. |
+| SaaS/CASB split candidates | `saas_security_api`, `saas_security_api/casb_dlp_rules`, `saas_security_api/casb_malware_rules` | Split `saas_security_api` into separate resources such as domain profiles, quarantine tombstone templates, CASB email labels, CASB tenants, and SaaS scan info. CASB DLP/malware rules can use list/dump via `/all`, but `get` needs a rule-type decision. |
+| Singleton settings candidate | `auth_settings` | Add singleton-reader semantics before cataloging. Manifest and live-smoke output should make clear that this is one settings object, not a list resource. |
+| Deferred live/auth failures | `dlp/dlp_engines`, `dlp/dlp_incident_receiver_servers`, `dlp/dlp_notification_templates`, `dlp/dlpdictionaries`, `email_profiles`, `firewallpolicies/networkapplications`, `firewallpolicies/networkservicegroups`, `ips_control_policies/ips_signature_rules`, `usermanagement/departments`, `usermanagement/users` | Do not retry as ordinary batch work. Revisit with focused endpoint/auth scouting, ideally under controlled production OneAPI. |
+| Adjacent-to-failure scout | `ips_control_policies/ips_policies` | Ordinary list/get shape, but adjacent to the failed IPS signature-rule endpoint. Probe separately before queueing. |
+| Privacy, identity, export, or material surfaces | `adminauditlogs`, `adminuserrolemgmt/admins`, `adminuserrolemgmt/roles`, `intermediatecacertificates`, `scim_api`, `trafficforwarding/vpncredentials` | Hold for explicit privacy/material policy. These are not ordinary inventory resources. |
+| Helper/catalog/diagnostic surfaces | `apptotal`, `trafficforwarding/virtualipaddress` | Do not force into config dump semantics. Treat as future lookup/report/diagnostic commands if needed. |
+
+No row in the remaining 28 should be wired as a normal list/get resource before
+one of those track-level decisions is made. The core list-only and singleton
+seams now exist:
+
+- Catalog specs can declare only `list`, and the CLI rejects unsupported `get`
+  before reader construction.
+- The SDK adapter has a list-only handler for future resources with no ID
+  lookup.
+- Singleton specs are explicitly marked as `shape: singleton`, use the `list`
+  operation contract, dump as one projected record, and record that shape in the
+  dump manifest.
+
+The next resource unlock is applying one list-only or singleton candidate with
+focused docs/completion review and later live smoke.
 
 ### Future Non-ZIA Tracks
 

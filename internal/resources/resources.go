@@ -63,6 +63,13 @@ const (
 
 const standardFreeTextControls = "standard-only local operator context; scanned with free-text backstops and excluded from share/paranoid"
 
+type ResourceShape string
+
+const (
+	ShapeList      ResourceShape = "list"
+	ShapeSingleton ResourceShape = "singleton"
+)
+
 func standardFreeTextReason(subject string) string {
 	return subject + "; " + standardFreeTextControls
 }
@@ -88,10 +95,11 @@ func (f FieldSpec) AllowedIn(mode redact.Mode) bool {
 }
 
 type ResourceSpec struct {
-	Product    Product     `json:"product"`
-	Name       string      `json:"name"`
-	Operations []Operation `json:"operations"`
-	Fields     []FieldSpec `json:"fields"`
+	Product    Product       `json:"product"`
+	Name       string        `json:"name"`
+	Shape      ResourceShape `json:"shape,omitempty"`
+	Operations []Operation   `json:"operations"`
+	Fields     []FieldSpec   `json:"fields"`
 }
 
 type ResourceCatalog []ResourceSpec
@@ -103,6 +111,32 @@ func ReadOperations() []Operation {
 		{Name: "list", Capability: CapabilityRead},
 		{Name: "get", Capability: CapabilityRead},
 	}
+}
+
+func ListOperations() []Operation {
+	return []Operation{
+		{Name: "list", Capability: CapabilityRead},
+	}
+}
+
+func SingletonOperations() []Operation {
+	return ListOperations()
+}
+
+func (s ResourceSpec) EffectiveShape() ResourceShape {
+	if s.Shape == "" {
+		return ShapeList
+	}
+	return s.Shape
+}
+
+func (s ResourceSpec) SupportsReadOperation(name string) bool {
+	for _, op := range s.Operations {
+		if op.Name == name && op.Capability == CapabilityRead {
+			return true
+		}
+	}
+	return false
 }
 
 func AssertReadOnly(specs ...ResourceSpec) error {
@@ -534,6 +568,11 @@ func (s ResourceSpec) Validate() error {
 	if !validCatalogName(s.Name) {
 		return fmt.Errorf("%w: invalid resource name %q", ErrInvalidResourceSpec, s.Name)
 	}
+	switch s.EffectiveShape() {
+	case ShapeList, ShapeSingleton:
+	default:
+		return fmt.Errorf("%w: %s/%s invalid shape %q", ErrInvalidResourceSpec, s.Product, s.Name, s.Shape)
+	}
 	if len(s.Operations) == 0 {
 		return fmt.Errorf("%w: %s/%s has no operations", ErrInvalidResourceSpec, s.Product, s.Name)
 	}
@@ -549,6 +588,9 @@ func (s ResourceSpec) Validate() error {
 		default:
 			return fmt.Errorf("%w: %s/%s operation %s has invalid capability %q", ErrInvalidResourceSpec, s.Product, s.Name, op.Name, op.Capability)
 		}
+	}
+	if s.EffectiveShape() == ShapeSingleton && !s.SupportsReadOperation("list") {
+		return fmt.Errorf("%w: %s/%s singleton resources must support list", ErrInvalidResourceSpec, s.Product, s.Name)
 	}
 	if err := validateFields(s.Product, s.Name, "", s.Fields); err != nil {
 		return err
@@ -638,7 +680,11 @@ func validateFreeTextField(product Product, resource string, path string, field 
 }
 
 func FindSpec(product Product, name string) (ResourceSpec, bool) {
-	for _, spec := range Catalog() {
+	return Catalog().FindSpec(product, name)
+}
+
+func (c ResourceCatalog) FindSpec(product Product, name string) (ResourceSpec, bool) {
+	for _, spec := range c {
 		if spec.Product == product && spec.Name == name {
 			return spec, true
 		}

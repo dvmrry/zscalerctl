@@ -197,6 +197,8 @@ type ziaServiceProvider interface {
 
 var (
 	_ resourceHandler = listGetHandler[struct{}]{}
+	_ resourceHandler = listOnlyHandler[struct{}]{}
+	_ resourceHandler = singletonHandler[struct{}]{}
 	_ ResourceSession = (*SDKSession)(nil)
 )
 
@@ -303,7 +305,7 @@ func getResource(
 	}
 	record, err := handler.Get(ctx, id)
 	if err != nil {
-		if errors.Is(err, ErrInvalidResourceID) {
+		if errors.Is(err, ErrInvalidResourceID) || errors.Is(err, ErrUnsupportedResource) {
 			return resources.SourceRecord{}, err
 		}
 		return resources.SourceRecord{}, normalizeLiveError(ctx, "get", product, name)
@@ -861,6 +863,18 @@ type listGetHandler[T any] struct {
 	sourceRecord func(T) resources.SourceRecord
 }
 
+type listOnlyHandler[T any] struct {
+	resourceName string
+	list         func(context.Context) ([]T, error)
+	sourceRecord func(T) resources.SourceRecord
+}
+
+type singletonHandler[T any] struct {
+	resourceName string
+	read         func(context.Context) (*T, error)
+	sourceRecord func(T) resources.SourceRecord
+}
+
 func newListGetHandler[T any](
 	resourceName string,
 	list func(context.Context) ([]T, error),
@@ -871,6 +885,30 @@ func newListGetHandler[T any](
 		resourceName: resourceName,
 		list:         list,
 		get:          get,
+		sourceRecord: sourceRecord,
+	}
+}
+
+func newListOnlyHandler[T any](
+	resourceName string,
+	list func(context.Context) ([]T, error),
+	sourceRecord func(T) resources.SourceRecord,
+) listOnlyHandler[T] {
+	return listOnlyHandler[T]{
+		resourceName: resourceName,
+		list:         list,
+		sourceRecord: sourceRecord,
+	}
+}
+
+func newSingletonHandler[T any](
+	resourceName string,
+	read func(context.Context) (*T, error),
+	sourceRecord func(T) resources.SourceRecord,
+) singletonHandler[T] {
+	return singletonHandler[T]{
+		resourceName: resourceName,
+		read:         read,
 		sourceRecord: sourceRecord,
 	}
 }
@@ -896,6 +934,37 @@ func (h listGetHandler[T]) Get(ctx context.Context, id string) (resources.Source
 		return resources.SourceRecord{}, fmt.Errorf("empty sdk %s response", h.resourceName)
 	}
 	return h.sourceRecord(*item), nil
+}
+
+func (h listOnlyHandler[T]) List(ctx context.Context) ([]resources.SourceRecord, error) {
+	items, err := h.list(ctx)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]resources.SourceRecord, 0, len(items))
+	for _, item := range items {
+		records = append(records, h.sourceRecord(item))
+	}
+	return records, nil
+}
+
+func (h listOnlyHandler[T]) Get(context.Context, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, fmt.Errorf("%w: %s get", ErrUnsupportedResource, h.resourceName)
+}
+
+func (h singletonHandler[T]) List(ctx context.Context) ([]resources.SourceRecord, error) {
+	item, err := h.read(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, fmt.Errorf("empty sdk %s response", h.resourceName)
+	}
+	return []resources.SourceRecord{h.sourceRecord(*item)}, nil
+}
+
+func (h singletonHandler[T]) Get(context.Context, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, fmt.Errorf("%w: %s get", ErrUnsupportedResource, h.resourceName)
 }
 
 func parsePositiveIntID(id string) (int, error) {

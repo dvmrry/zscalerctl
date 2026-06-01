@@ -2630,6 +2630,72 @@ func TestReaderUnsupportedResourceFailsClosed(t *testing.T) {
 	}
 }
 
+func TestReaderListOnlyHandlerRejectsGet(t *testing.T) {
+	t.Parallel()
+
+	const resourceName = "list-only-test"
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceName}: newListOnlyHandler(
+				resourceName,
+				func(context.Context) ([]rulelabels.RuleLabels, error) {
+					return []rulelabels.RuleLabels{{
+						ID:   10,
+						Name: "List only",
+					}}, nil
+				},
+				ruleLabelSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceName)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, %s) error = %v, want nil", resourceName, err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("SDKReader.List(zia, %s) records length = %d, want 1", resourceName, len(records))
+	}
+	_, err = reader.Get(context.Background(), resources.ProductZIA, resourceName, "10")
+	if !errors.Is(err, ErrUnsupportedResource) {
+		t.Fatalf("SDKReader.Get(zia, %s, 10) error = %v, want ErrUnsupportedResource", resourceName, err)
+	}
+}
+
+func TestReaderSingletonHandlerListsOneRecordAndRejectsGet(t *testing.T) {
+	t.Parallel()
+
+	const resourceName = "singleton-test"
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceName}: newSingletonHandler(
+				resourceName,
+				func(context.Context) (*rulelabels.RuleLabels, error) {
+					return &rulelabels.RuleLabels{
+						ID:   11,
+						Name: "Singleton",
+					}, nil
+				},
+				ruleLabelSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceName)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, %s) error = %v, want nil", resourceName, err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("SDKReader.List(zia, %s) records length = %d, want 1", resourceName, len(records))
+	}
+	_, err = reader.Get(context.Background(), resources.ProductZIA, resourceName, "11")
+	if !errors.Is(err, ErrUnsupportedResource) {
+		t.Fatalf("SDKReader.Get(zia, %s, 11) error = %v, want ErrUnsupportedResource", resourceName, err)
+	}
+}
+
 func TestSDKSessionCloseIsIdempotent(t *testing.T) {
 	t.Parallel()
 
