@@ -17,6 +17,7 @@ import (
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
 	sdkzia "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts"
+	authsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/auth_settings"
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
 	c2cincidentreceiver "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/c2c_incident_receiver"
@@ -84,6 +85,7 @@ const (
 	resourceLocations        = "locations"
 	resourceLocationGroups   = "location-groups"
 	resourceRuleLabels       = "rule-labels"
+	resourceAuthSettings     = "auth-settings"
 	resourceStaticIPs        = "static-ips"
 	resourceGRETunnels       = "gre-tunnels"
 	resourceSublocations     = "sublocations"
@@ -358,6 +360,13 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 				return rulelabels.Get(ctx, service, id)
 			}),
 			ruleLabelSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceAuthSettings}: newSingletonHandler(
+			resourceAuthSettings,
+			ziaSDKSingleton(ziaClient, func(ctx context.Context, service *zsdk.Service) (*authsettings.AuthenticationSettings, error) {
+				return authsettings.Get(ctx, service)
+			}),
+			authSettingsSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceStaticIPs}: newListGetHandler(
 			resourceStaticIPs,
@@ -1000,6 +1009,20 @@ func ziaSDKList[T any](
 	}
 }
 
+func ziaSDKSingleton[T any](
+	client sdkZIAClient,
+	call func(context.Context, *zsdk.Service) (*T, error),
+) func(context.Context) (*T, error) {
+	return func(ctx context.Context) (*T, error) {
+		service, cleanup, err := client.service(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		return call(ctx, service)
+	}
+}
+
 func ziaSDKGet[T any](
 	client sdkZIAClient,
 	call func(context.Context, *zsdk.Service, int) (*T, error),
@@ -1400,6 +1423,25 @@ func ruleLabelSourceRecord(label rulelabels.RuleLabels) resources.SourceRecord {
 		fields["lastModifiedBy"] = idNameExtensionsSource(label.LastModifiedBy)
 	}
 	return resources.NewSourceRecord(fields)
+}
+
+func authSettingsSourceRecord(settings authsettings.AuthenticationSettings) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"orgAuthType":                       settings.OrgAuthType,
+		"oneTimeAuth":                       settings.OneTimeAuth,
+		"samlEnabled":                       settings.SamlEnabled,
+		"kerberosEnabled":                   settings.KerberosEnabled,
+		"kerberosPwd":                       settings.KerberosPwd,
+		"authFrequency":                     settings.AuthFrequency,
+		"authCustomFrequency":               settings.AuthCustomFrequency,
+		"passwordStrength":                  settings.PasswordStrength,
+		"passwordExpiry":                    settings.PasswordExpiry,
+		"lastSyncStartTime":                 settings.LastSyncStartTime,
+		"lastSyncEndTime":                   settings.LastSyncEndTime,
+		"mobileAdminSamlIdpEnabled":         settings.MobileAdminSamlIdpEnabled,
+		"autoProvision":                     settings.AutoProvision,
+		"directorySyncMigrateToScimEnabled": settings.DirectorySyncMigrateToScimEnabled,
+	})
 }
 
 func staticIPSourceRecord(staticIP staticips.StaticIP) resources.SourceRecord {

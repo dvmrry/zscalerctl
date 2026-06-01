@@ -918,6 +918,28 @@ func Catalog() ResourceCatalog {
 		},
 		{
 			Product:    ProductZIA,
+			Name:       "auth-settings",
+			Shape:      ShapeSingleton,
+			Operations: SingletonOperations(),
+			Fields: []FieldSpec{
+				operationalField("orgAuthType", standardShareModes()),
+				operationalField("oneTimeAuth", standardShareModes()),
+				operationalField("samlEnabled", standardShareModes()),
+				operationalField("kerberosEnabled", standardShareModes()),
+				secretField("kerberosPwd"),
+				operationalField("authFrequency", standardShareModes()),
+				operationalField("authCustomFrequency", standardShareModes()),
+				secretField("passwordStrength"),
+				secretField("passwordExpiry"),
+				operationalField("lastSyncStartTime", standardShareModes()),
+				operationalField("lastSyncEndTime", standardShareModes()),
+				operationalField("mobileAdminSamlIdpEnabled", standardShareModes()),
+				operationalField("autoProvision", standardShareModes()),
+				operationalField("directorySyncMigrateToScimEnabled", standardShareModes()),
+			},
+		},
+		{
+			Product:    ProductZIA,
 			Name:       "static-ips",
 			Operations: ReadOperations(),
 			Fields: []FieldSpec{

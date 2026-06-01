@@ -116,6 +116,28 @@ The SDK also returns admin references such as `createdBy` and `lastModifiedBy`.
 The reader maps those nested objects into source records, but the catalog does
 not allow them to render, so projection drops them.
 
+## ZIA Auth Settings
+
+Commands:
+
+```sh
+zscalerctl zia auth-settings list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `orgAuthType`, `oneTimeAuth` | Operational metadata | `standard`, `share` | Organization authentication mode metadata. |
+| `samlEnabled`, `kerberosEnabled`, `mobileAdminSamlIdpEnabled` | Operational metadata | `standard`, `share` | Enabled-state flags for authentication integrations. |
+| `authFrequency`, `authCustomFrequency` | Operational metadata | `standard`, `share` | Authentication frequency policy metadata. |
+| `lastSyncStartTime`, `lastSyncEndTime` | Operational metadata | `standard`, `share` | Directory sync timestamps from the SDK. |
+| `autoProvision`, `directorySyncMigrateToScimEnabled` | Operational metadata | `standard`, `share` | Provisioning and migration flags. |
+| `kerberosPwd`, `passwordStrength`, `passwordExpiry` | Secret | never | Password-bearing settings are mapped into source records and dropped by projection. |
+
+This is a singleton settings object. The CLI exposes it through `list` so dumps
+and live smoke can treat singleton resources as one-record arrays.
+
 ## ZIA Static IPs
 
 Commands:

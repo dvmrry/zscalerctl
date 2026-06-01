@@ -73,6 +73,7 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zdx
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/auth_settings
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/c2c_incident_receiver

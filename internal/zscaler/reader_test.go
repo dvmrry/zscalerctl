@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts"
+	authsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/auth_settings"
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
@@ -600,6 +601,67 @@ func TestSourceRecordReferenceHelpersStripExtensions(t *testing.T) {
 				t.Errorf("%s source = %#v, want no extension canary", tt.name, tt.got)
 			}
 		})
+	}
+}
+
+func TestReaderListAuthSettingsProjectsSingletonThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		kerberosCanary = "kerberos-password-canary"
+		strengthCanary = "password-strength-canary"
+		expiryCanary   = "password-expiry-canary"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZIA, name: resourceAuthSettings}: newSingletonHandler(
+				resourceAuthSettings,
+				func(context.Context) (*authsettings.AuthenticationSettings, error) {
+					return &authsettings.AuthenticationSettings{
+						OrgAuthType:                       "SAML",
+						OneTimeAuth:                       "DISABLED",
+						SamlEnabled:                       true,
+						KerberosEnabled:                   true,
+						KerberosPwd:                       kerberosCanary,
+						AuthFrequency:                     "CUSTOM",
+						AuthCustomFrequency:               30,
+						PasswordStrength:                  strengthCanary,
+						PasswordExpiry:                    expiryCanary,
+						LastSyncStartTime:                 1712345000,
+						LastSyncEndTime:                   1712345600,
+						MobileAdminSamlIdpEnabled:         false,
+						AutoProvision:                     true,
+						DirectorySyncMigrateToScimEnabled: true,
+					}, nil
+				},
+				authSettingsSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZIA, resourceAuthSettings)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zia, auth-settings) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZIA, resourceAuthSettings, records)
+	for _, field := range []string{"kerberosPwd", "passwordStrength", "passwordExpiry"} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected auth-settings = %#v, want no %s", got, field)
+		}
+	}
+	assertNoCanaries(t, "auth-settings", got, kerberosCanary, strengthCanary, expiryCanary)
+	if got["orgAuthType"] != "SAML" {
+		t.Errorf("projected auth-settings orgAuthType = %v, want SAML", got["orgAuthType"])
+	}
+	if got["authFrequency"] != "CUSTOM" {
+		t.Errorf("projected auth-settings authFrequency = %v, want CUSTOM", got["authFrequency"])
+	}
+	if got["authCustomFrequency"] != 30 {
+		t.Errorf("projected auth-settings authCustomFrequency = %v, want 30", got["authCustomFrequency"])
+	}
+	if got["autoProvision"] != true {
+		t.Errorf("projected auth-settings autoProvision = %v, want true", got["autoProvision"])
 	}
 }
 

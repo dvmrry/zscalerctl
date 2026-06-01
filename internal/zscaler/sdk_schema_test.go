@@ -9,6 +9,7 @@ import (
 	"github.com/dvmrry/zscalerctl/internal/resources"
 
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts"
+	authsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/auth_settings"
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
 	c2cincidentreceiver "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/c2c_incident_receiver"
@@ -361,6 +362,29 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"createdBy",
 				"lastModifiedBy",
 			),
+		},
+		{
+			name:         "authsettings.AuthenticationSettings",
+			resource:     resources.ProductZIA,
+			resourceName: resourceAuthSettings,
+			typ:          reflect.TypeOf(authsettings.AuthenticationSettings{}),
+			catalogFields: []string{
+				"orgAuthType",
+				"oneTimeAuth",
+				"samlEnabled",
+				"kerberosEnabled",
+				"kerberosPwd",
+				"authFrequency",
+				"authCustomFrequency",
+				"passwordStrength",
+				"passwordExpiry",
+				"lastSyncStartTime",
+				"lastSyncEndTime",
+				"mobileAdminSamlIdpEnabled",
+				"autoProvision",
+				"directorySyncMigrateToScimEnabled",
+			},
+			ignoredFields: map[string]string{},
 		},
 		{
 			name: "ziacommon.IDNameExtensions",

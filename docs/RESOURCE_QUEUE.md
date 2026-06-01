@@ -88,7 +88,7 @@ Open draft PR:
 
 | PR | Resources | Status | Smoke command |
 | --- | --- | --- | --- |
-| `#39` | `zia/file-type-rules`, `zia/sandbox-rules`, `zia/firewall-dns-rules`, `zia/risk-profiles`, `zia/nss-servers`, `zia/nss-feeds`, `zia/c2c-incident-receivers`, `zia/dlp-edm-schemas`, `zia/dlp-idm-profile-lite`, `zia/dlp-idm-profiles`, `zia/dlp-web-rules`, `zia/custom-file-types`, `zia/traffic-capture-rules`, `zia/zpa-gateways`, `zia/extranets` | Smoke-lab draft; non-release-track until work-machine live smoke trims or promotes resources | `make live-smoke` |
+| `#39` | `zia/file-type-rules`, `zia/sandbox-rules`, `zia/firewall-dns-rules`, `zia/risk-profiles`, `zia/nss-servers`, `zia/nss-feeds`, `zia/c2c-incident-receivers`, `zia/dlp-edm-schemas`, `zia/dlp-idm-profile-lite`, `zia/dlp-idm-profiles`, `zia/dlp-web-rules`, `zia/custom-file-types`, `zia/traffic-capture-rules`, `zia/zpa-gateways`, `zia/extranets`, `zia/auth-settings` | Smoke-lab draft; non-release-track until work-machine live smoke trims or promotes resources | `make live-smoke` |
 
 Do not merge this branch as-is. Use it as a broad smoke-lab surface, record
 outcomes for each resource independently, and promote only resources that pass
@@ -259,10 +259,11 @@ data proves the shape is useful.
 
 ## Remaining SDK Package Review
 
-After Batch G, a full SDK module-cache scout shows 76 ZIA packages with
-ordinary list/get or list/get-with-mutating-neighbor shapes. Forty-eight of
-those package surfaces are represented by the current catalog/shape-review
-graph; the 28 below remain outside the catalog. This count is package-level
+After the auth-settings singleton smoke seam, a full SDK module-cache scout
+shows 76 ZIA packages with ordinary list/get, singleton, or
+list/get-with-mutating-neighbor shapes. Forty-nine of those package surfaces are
+represented by the current catalog/shape-review graph; the 27 below remain
+outside the catalog. This count is package-level
 scouting evidence, not a promise that every row should become a resource.
 
 | SDK package | Review posture |
@@ -271,7 +272,6 @@ scouting evidence, not a promise that every row should become a resource.
 | `adminuserrolemgmt/admins` | Identity/admin plane with adjacent mutation; requires stricter privacy and role review before any catalog work. |
 | `adminuserrolemgmt/roles` | Admin role plane with adjacent mutation; identity/admin design item. |
 | `apptotal` | Application-view helper surface, not a stable list/get config object yet; needs output semantics before queueing. |
-| `auth_settings` | Singleton settings surface; wait for singleton-reader and manifest semantics. |
 | `browser_isolation` | List/name-get only; decide list-only resources before enabling. |
 | `dlp/dlp_engines` | Deferred after legacy live-smoke failure; investigate endpoint/auth behavior before retrying. |
 | `dlp/dlp_exact_data_match_lite` | Potential lite companion to EDM schemas, but list/name-get semantics overlap existing EDM schema coverage; decide whether it adds useful output. |
@@ -296,7 +296,7 @@ scouting evidence, not a promise that every row should become a resource.
 | `usermanagement/departments` | Deferred after legacy live-smoke failure; identity-like data also needs privacy review. |
 | `usermanagement/users` | Deferred after legacy live-smoke failure; identity-like data also needs privacy review. |
 
-### Review Outcome For The Remaining 28
+### Review Outcome For The Remaining 27
 
 The pinned Go SDK (`github.com/zscaler/zscaler-sdk-go/v3` v3.8.37) remains the
 implementation authority. The Python SDK is useful only as scout evidence for
@@ -314,19 +314,18 @@ Python SDK spot-checks confirmed four important shape notes:
 - Intermediate CA certificates mix ordinary certificate metadata with
   certificate, CSR, attestation, and public-key material/download endpoints.
 
-The remaining 28 split into these work tracks:
+The remaining 27 split into these work tracks:
 
 | Track | Surfaces | Next action |
 | --- | --- | --- |
 | List-only or name-get candidates | `browser_isolation`, `dlp/dlp_exact_data_match_lite`, `location/locationlite`, `trafficforwarding/dc_exclusions`, `trafficforwarding/sub_clouds` | Add explicit list-only/dump-only reader semantics before queueing. `locationlite` should wait for a concrete performance or pagination reason because it overlaps `locations` and `sublocations`. |
 | SaaS/CASB split candidates | `saas_security_api`, `saas_security_api/casb_dlp_rules`, `saas_security_api/casb_malware_rules` | Split `saas_security_api` into separate resources such as domain profiles, quarantine tombstone templates, CASB email labels, CASB tenants, and SaaS scan info. CASB DLP/malware rules can use list/dump via `/all`, but `get` needs a rule-type decision. |
-| Singleton settings candidate | `auth_settings` | Add singleton-reader semantics before cataloging. Manifest and live-smoke output should make clear that this is one settings object, not a list resource. |
 | Deferred live/auth failures | `dlp/dlp_engines`, `dlp/dlp_incident_receiver_servers`, `dlp/dlp_notification_templates`, `dlp/dlpdictionaries`, `email_profiles`, `firewallpolicies/networkapplications`, `firewallpolicies/networkservicegroups`, `ips_control_policies/ips_signature_rules`, `usermanagement/departments`, `usermanagement/users` | Do not retry as ordinary batch work. Revisit with focused endpoint/auth scouting, ideally under controlled production OneAPI. |
 | Adjacent-to-failure scout | `ips_control_policies/ips_policies` | Ordinary list/get shape, but adjacent to the failed IPS signature-rule endpoint. Probe separately before queueing. |
 | Privacy, identity, export, or material surfaces | `adminauditlogs`, `adminuserrolemgmt/admins`, `adminuserrolemgmt/roles`, `intermediatecacertificates`, `scim_api`, `trafficforwarding/vpncredentials` | Hold for explicit privacy/material policy. These are not ordinary inventory resources. |
 | Helper/catalog/diagnostic surfaces | `apptotal`, `trafficforwarding/virtualipaddress` | Do not force into config dump semantics. Treat as future lookup/report/diagnostic commands if needed. |
 
-No row in the remaining 28 should be wired as a normal list/get resource before
+No row in the remaining 27 should be wired as a normal list/get resource before
 one of those track-level decisions is made. The core list-only and singleton
 seams now exist:
 
