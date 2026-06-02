@@ -760,8 +760,8 @@ selected_products() {
 }
 
 selected_has_product() {
-  local want="$1"
-  local qualified
+	local want="$1"
+	local qualified
 
   for qualified in "${resources[@]}"; do
     if [[ "$(resource_product "$qualified")" == "$want" ]]; then
@@ -789,7 +789,7 @@ resource_operation() {
       else
         empty
       end
-  ' "$schema" | head -n 1
+	  ' "$schema" | head -n 1
 }
 
 resource_in_list() {
@@ -983,7 +983,7 @@ if ! load_smoke_resources "$schema_file" "$schema_stderr"; then
 fi
 
 if ((skip_credential_check == 0)) && selected_has_product zpa; then
-  if [[ "${ZSCALERCTL_AUTH_MODE:-}" == "zia-legacy" ]]; then
+	if [[ "${ZSCALERCTL_AUTH_MODE:-}" == "zia-legacy" ]]; then
     fail "selected ZPA resources require OneAPI credentials"
     print_result_table >&2
     summary_file="$(write_failure_summary "$failures")"
@@ -1005,7 +1005,7 @@ if ((skip_credential_check == 0)) && selected_has_product zpa; then
     summary_file="$(write_failure_summary "$failures")"
     print_failure_summary "$summary_file"
     exit 1
-  fi
+	fi
 fi
 
 expected_paths_file="$lists_dir/expected-dump-paths.txt"

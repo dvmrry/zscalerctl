@@ -390,7 +390,8 @@ When production OneAPI smoke is available:
 
 1. Pull the base product stack first (`#41` for ZPA or `#53` for ZTW).
 2. Run `make live-smoke` against the branch manifest or an explicit
-   `LIVE_SMOKE_RESOURCES` list.
+   `LIVE_SMOKE_RESOURCES` list. For ZPA, include
+   `ZSCALERCTL_ZPA_CUSTOMER_ID`.
 3. Record pass/fail outcomes for every manifest resource.
 4. Trim failed resources from the branch or move them to the deferred table
    with the observed failure mode.

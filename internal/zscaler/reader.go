@@ -186,15 +186,17 @@ const (
 )
 
 type ReaderConfig struct {
-	ClientID     secret.Secret
-	ClientSecret secret.Secret
-	VanityDomain string
-	Cloud        string
-	AuthMode     AuthMode
-	ZIALegacy    ZIALegacyConfig
-	Proxy        ProxyConfig
-	Timeout      time.Duration
-	NoCache      bool
+	ClientID         secret.Secret
+	ClientSecret     secret.Secret
+	VanityDomain     string
+	Cloud            string
+	ZPACustomerID    string
+	ZPAMicrotenantID string
+	AuthMode         AuthMode
+	ZIALegacy        ZIALegacyConfig
+	Proxy            ProxyConfig
+	Timeout          time.Duration
+	NoCache          bool
 }
 
 type ZIALegacyConfig struct {
@@ -276,6 +278,9 @@ func (r *SDKReader) Session(ctx context.Context, product resources.Product) (Res
 	}
 	service, cleanup, err := perCallService{cfg: r.cfg}.service(ctx, product)
 	if err != nil {
+		if errors.Is(err, ErrMissingCredentials) {
+			return nil, err
+		}
 		return nil, normalizeLiveError(ctx, "authenticate", product, "session")
 	}
 	client := sdkClient{services: fixedService{sdkService: service}}
@@ -350,6 +355,9 @@ func listResource(
 	}
 	records, err := handler.List(ctx)
 	if err != nil {
+		if errors.Is(err, ErrMissingCredentials) {
+			return nil, err
+		}
 		return nil, normalizeLiveError(ctx, "list", product, name)
 	}
 	return records, nil
@@ -368,7 +376,9 @@ func getResource(
 	}
 	record, err := handler.Get(ctx, id)
 	if err != nil {
-		if errors.Is(err, ErrInvalidResourceID) || errors.Is(err, ErrUnsupportedResource) {
+		if errors.Is(err, ErrInvalidResourceID) ||
+			errors.Is(err, ErrUnsupportedResource) ||
+			errors.Is(err, ErrMissingCredentials) {
 			return resources.SourceRecord{}, err
 		}
 		return resources.SourceRecord{}, normalizeLiveError(ctx, "get", product, name)
@@ -1509,6 +1519,9 @@ func (s perCallService) service(ctx context.Context, product resources.Product) 
 		}
 		return s.legacyService(ctx)
 	}
+	if err := validateProductConfig(s.cfg, product); err != nil {
+		return nil, nil, err
+	}
 	cfg := newSDKConfiguration(ctx, s.cfg)
 	// Do not replace this with zsdk.NewConfiguration. That SDK constructor
 	// reads ZSCALER_* environment variables and ~/.zscaler/zscaler.yaml before
@@ -1618,6 +1631,8 @@ func newSDKConfiguration(ctx context.Context, cfg ReaderConfig) *zsdk.Configurat
 	sdkCfg.Zscaler.Client.ClientSecret = cfg.ClientSecret.Reveal()
 	sdkCfg.Zscaler.Client.VanityDomain = cfg.VanityDomain
 	sdkCfg.Zscaler.Client.Cloud = cfg.Cloud
+	sdkCfg.Zscaler.Client.CustomerID = strings.TrimSpace(cfg.ZPACustomerID)
+	sdkCfg.Zscaler.Client.MicrotenantID = strings.TrimSpace(cfg.ZPAMicrotenantID)
 	sdkCfg.Zscaler.Client.RequestTimeout = timeout
 	sdkCfg.Zscaler.Client.RateLimit.MaxRetries = 2
 	sdkCfg.Zscaler.Client.RateLimit.RetryWaitMin = time.Second
@@ -1735,6 +1750,16 @@ func validateReaderConfig(cfg ReaderConfig) error {
 	default:
 		return fmt.Errorf("%w: unsupported auth mode %q", ErrMissingCredentials, cfg.AuthMode)
 	}
+}
+
+func validateProductConfig(cfg ReaderConfig, product resources.Product) error {
+	if effectiveAuthMode(cfg.AuthMode) != AuthModeOneAPI {
+		return nil
+	}
+	if product == resources.ProductZPA && strings.TrimSpace(cfg.ZPACustomerID) == "" {
+		return fmt.Errorf("%w: ZSCALERCTL_ZPA_CUSTOMER_ID is required for ZPA resources", ErrMissingCredentials)
+	}
+	return nil
 }
 
 func validateProxyConfig(proxy ProxyConfig) error {

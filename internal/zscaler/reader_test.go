@@ -211,6 +211,8 @@ func TestNewSDKConfigurationDoesNotUseSDKDiscoveryOrLogging(t *testing.T) {
 	t.Setenv("ZSCALER_CLIENT_SECRET", "sdk-client-secret")
 	t.Setenv("ZSCALER_VANITY_DOMAIN", "sdk-vanity")
 	t.Setenv("ZSCALER_CLOUD", "sdk-cloud")
+	t.Setenv("ZPA_CUSTOMER_ID", "sdk-zpa-customer-id")
+	t.Setenv("ZPA_MICROTENANT_ID", "sdk-zpa-microtenant-id")
 	t.Setenv("ZSCALER_CLIENT_PROXY_HOST", "sdk-proxy.example.invalid")
 	t.Setenv("ZSCALER_CLIENT_CACHE_ENABLED", "true")
 	t.Setenv("ZSCALER_SDK_LOG", "true")
@@ -229,6 +231,12 @@ func TestNewSDKConfigurationDoesNotUseSDKDiscoveryOrLogging(t *testing.T) {
 	}
 	if got := cfg.Zscaler.Client.Cloud; got != "" {
 		t.Errorf("newSDKConfiguration().Cloud = %q, want empty", got)
+	}
+	if got := cfg.Zscaler.Client.CustomerID; got != "zscalerctl-zpa-customer-id" {
+		t.Errorf("newSDKConfiguration().CustomerID = %q, want zscalerctl-zpa-customer-id", got)
+	}
+	if got := cfg.Zscaler.Client.MicrotenantID; got != "zscalerctl-zpa-microtenant-id" {
+		t.Errorf("newSDKConfiguration().MicrotenantID = %q, want zscalerctl-zpa-microtenant-id", got)
 	}
 	if got := cfg.Zscaler.Client.Proxy.Host; got != "" {
 		t.Errorf("newSDKConfiguration().Proxy.Host = %q, want empty", got)
@@ -314,6 +322,24 @@ func TestNewReaderRejectsInvalidProxyConfig(t *testing.T) {
 	cfg.Proxy.FromEnvironment = true
 	if _, err := NewReader(cfg); !errors.Is(err, ErrInvalidProxyConfig) {
 		t.Fatalf("NewReader(conflicting proxy config) error = %v, want ErrInvalidProxyConfig", err)
+	}
+}
+
+func TestZPAReaderRequiresCustomerIDBeforeNetwork(t *testing.T) {
+	t.Parallel()
+
+	cfg := validReaderConfig()
+	cfg.ZPACustomerID = ""
+	reader, err := NewReader(cfg)
+	if err != nil {
+		t.Fatalf("NewReader(valid OneAPI without ZPA customer id) error = %v, want nil", err)
+	}
+	_, err = reader.List(context.Background(), resources.ProductZPA, resourceZPAServerGroups)
+	if !errors.Is(err, ErrMissingCredentials) {
+		t.Fatalf("SDKReader.List(zpa, server-groups without customer id) error = %v, want ErrMissingCredentials", err)
+	}
+	if !strings.Contains(err.Error(), "ZSCALERCTL_ZPA_CUSTOMER_ID") {
+		t.Errorf("SDKReader.List(zpa, server-groups without customer id) error = %v, want ZSCALERCTL_ZPA_CUSTOMER_ID guidance", err)
 	}
 }
 
@@ -3939,10 +3965,12 @@ func TestReaderNormalizesSDKErrors(t *testing.T) {
 
 func validReaderConfig() ReaderConfig {
 	return ReaderConfig{
-		ClientID:     secret.New("zscalerctl-client-id"),
-		ClientSecret: secret.New("zscalerctl-client-secret"),
-		VanityDomain: "zscalerctl-vanity",
-		Timeout:      time.Second,
+		ClientID:         secret.New("zscalerctl-client-id"),
+		ClientSecret:     secret.New("zscalerctl-client-secret"),
+		VanityDomain:     "zscalerctl-vanity",
+		ZPACustomerID:    "zscalerctl-zpa-customer-id",
+		ZPAMicrotenantID: "zscalerctl-zpa-microtenant-id",
+		Timeout:          time.Second,
 	}
 }
 
