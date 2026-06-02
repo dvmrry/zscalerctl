@@ -1362,6 +1362,26 @@ Fields:
 | `cbiProfileId`, `cbiUrl` | Sensitive identifier | `standard` | Local-only CBI profile and tenant URL metadata. |
 | `cbiTenantId` | Secret or unmodeled nested structure | none | Dropped until tenant identifiers are separately reviewed. |
 
+## ZPA App Connectors
+
+Commands:
+
+```sh
+zscalerctl zpa app-connectors list
+zscalerctl zpa app-connectors get <id>
+zscalerctl dump --products zpa --resources zpa/app-connectors --out ./scratch-live-smoke
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `enabled`, `applicationStartTime`, `controlChannelStatus`, `creationTime`, `expectedUpgradeTime`, `lastBrokerConnectTime`, `lastBrokerConnectTimeDuration`, `lastBrokerDisconnectTime`, `lastBrokerDisconnectTimeDuration`, `lastUpgradeTime`, `modifiedBy`, `modifiedTime`, `readOnly`, `restrictionType`, `runtimeOS`, `upgradeStatus` | Operational metadata | `standard`, `share`, `paranoid` | Connector identity, lifecycle, control-channel, runtime, and upgrade metadata. |
+| `name`, `appConnectorGroupName`, `ctrlBrokerName`, `currentVersion`, `expectedVersion`, `microtenantName`, `platform`, `platformDetail`, `previousVersion`, `sargeVersion` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | Standard-only operator context; scanned with free-text and rendered-string backstops. |
+| `ipAcl`, `latitude`, `location`, `longitude`, `privateIp`, `publicIp` | Sensitive identifier | `standard` | Local-only connector placement and network metadata. |
+| `appConnectorGroupId`, `assistantVersion`, `enrollmentCert`, `fingerprint`, `issuedCertId`, `microtenantId`, `provisioningKeyId`, `provisioningKeyName`, `upgradeAttempt`, `zpnSubModuleUpgradeList`, `zscalerManaged` | Secret or unmodeled nested structure | none | Dropped until connector-group IDs, assistant-version details, certificate, provisioning, tenant, upgrade-attempt, module, and management-scope fields are separately reviewed. |
+
 ## ZPA C2c IP Ranges
 
 Commands:

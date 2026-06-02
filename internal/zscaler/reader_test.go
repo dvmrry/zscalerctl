@@ -46,9 +46,11 @@ import (
 	vzenclusters "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_clusters"
 	vzennodes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_nodes"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
+	zpaappconnectorcontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorcontroller"
 	zpac2cipranges "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges"
 	zpacloudconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector_group"
 	zpacbizpaprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloudbrowserisolation/cbizpaprofile"
+	zpacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/common"
 	zpaconfigoverride "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/config_override"
 	zpapostureprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/postureprofile"
 	zpaprivatecloudcontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/private_cloud_controller"
@@ -2979,6 +2981,138 @@ func TestReaderListZPAServiceEdgeGroupsProjectsSDKShapeThroughAllowList(t *testi
 	}
 	assertReportContains(t, reports[0].DroppedFields, "serviceEdges")
 	assertReportContains(t, reports[0].DroppedFields, "enrollmentCertId")
+	assertReportContains(t, reports[0].RedactedFields, "description")
+}
+
+func TestReaderListZPAAppConnectorsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const nestedCanary = "nested-app-connector-secret-canary"
+	reader := SDKReader{
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZPA, name: resourceZPAAppConnectors}: newListGetHandler(
+				resourceZPAAppConnectors,
+				func(context.Context) ([]zpaappconnectorcontroller.AppConnector, error) {
+					return []zpaappconnectorcontroller.AppConnector{{
+						ID:                               "app-connector-1",
+						Name:                             "App connector",
+						Description:                      "psk=app-connector-canary-value",
+						Enabled:                          true,
+						AppConnectorGroupID:              nestedCanary,
+						AppConnectorGroupName:            "App connector group",
+						ApplicationStartTime:             "1700000000000",
+						AssistantVersion:                 zpaappconnectorcontroller.AssistantVersion{ID: "assistant-1", BrokerId: nestedCanary},
+						ControlChannelStatus:             "CONNECTED",
+						CreationTime:                     "1700000100000",
+						CtrlBrokerName:                   "Broker",
+						CurrentVersion:                   "1.2.3",
+						EnrollmentCert:                   map[string]any{"name": nestedCanary},
+						ExpectedUpgradeTime:              "1700000200000",
+						ExpectedVersion:                  "1.2.4",
+						Fingerprint:                      nestedCanary,
+						IPACL:                            "198.51.100.10",
+						IssuedCertID:                     nestedCanary,
+						LastBrokerConnectTime:            "1700000300000",
+						LastBrokerConnectTimeDuration:    "100",
+						LastBrokerDisconnectTime:         "1700000400000",
+						LastBrokerDisconnectTimeDuration: "200",
+						LastUpgradeTime:                  "1700000500000",
+						Latitude:                         "37.3387",
+						Location:                         "San Jose, CA",
+						Longitude:                        "-121.8853",
+						MicroTenantID:                    nestedCanary,
+						MicroTenantName:                  "Microtenant",
+						ModifiedBy:                       "admin-1",
+						ModifiedTime:                     "1700000600000",
+						Platform:                         "linux",
+						PlatformDetail:                   "el8",
+						PreviousVersion:                  "1.2.2",
+						PrivateIP:                        "10.0.0.20",
+						ProvisioningKeyID:                nestedCanary,
+						ProvisioningKeyName:              nestedCanary,
+						PublicIP:                         "203.0.113.20",
+						ReadOnly:                         true,
+						RestrictionType:                  "CUSTOMER",
+						RuntimeOS:                        "linux",
+						SargeVersion:                     "1.2.3",
+						UpgradeAttempt:                   nestedCanary,
+						UpgradeStatus:                    "COMPLETE",
+						ZPNSubModuleUpgrade:              []zpacommon.ZPNSubModuleUpgrade{{ID: "module-1", EntityGid: nestedCanary}},
+						ZscalerManaged:                   true,
+					}}, nil
+				},
+				func(context.Context, string) (*zpaappconnectorcontroller.AppConnector, error) {
+					return nil, nil
+				},
+				jsonSourceRecord[zpaappconnectorcontroller.AppConnector],
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZPA, resourceZPAAppConnectors)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zpa, app-connectors) error = %v, want nil", err)
+	}
+	spec, ok := resources.FindSpec(resources.ProductZPA, resourceZPAAppConnectors)
+	if !ok {
+		t.Fatalf("FindSpec(zpa, %s) ok = false, want true", resourceZPAAppConnectors)
+	}
+	projected, reports, err := resources.ProjectRecords(spec, redact.ModeStandard, records)
+	if err != nil {
+		t.Fatalf("ProjectRecords(zpa app-connectors) error = %v, want nil", err)
+	}
+	gotRecords := projected.Records()
+	if len(gotRecords) != 1 {
+		t.Fatalf("ProjectRecords(zpa app-connectors) records length = %d, want 1", len(gotRecords))
+	}
+	got := gotRecords[0].Fields()
+	if got["id"] != "app-connector-1" {
+		t.Errorf("projected app-connector id = %v, want app-connector-1", got["id"])
+	}
+	if got["location"] != "San Jose, CA" {
+		t.Errorf("projected app-connector location = %v, want San Jose, CA", got["location"])
+	}
+	description, ok := got["description"].(string)
+	if !ok || !strings.Contains(description, "<REDACTED:SECRET>") || strings.Contains(description, "app-connector-canary-value") {
+		t.Errorf("projected app-connector description = %v, want redacted canary value", got["description"])
+	}
+	for _, field := range []string{
+		"appConnectorGroupId",
+		"assistantVersion",
+		"enrollmentCert",
+		"fingerprint",
+		"issuedCertId",
+		"microtenantId",
+		"provisioningKeyId",
+		"provisioningKeyName",
+		"upgradeAttempt",
+		"zpnSubModuleUpgradeList",
+		"zscalerManaged",
+	} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected app-connector includes %s, want dropped", field)
+		}
+	}
+	if strings.Contains(fmt.Sprint(got), nestedCanary) {
+		t.Errorf("projected app-connector = %v, want nested canary absent", got)
+	}
+	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
+		t.Errorf("AssertRenderedSubset(projected app-connector) error = %v, want nil", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("ProjectRecords(zpa app-connectors) reports length = %d, want 1", len(reports))
+	}
+	assertReportContains(t, reports[0].DroppedFields, "appConnectorGroupId")
+	assertReportContains(t, reports[0].DroppedFields, "assistantVersion")
+	assertReportContains(t, reports[0].DroppedFields, "enrollmentCert")
+	assertReportContains(t, reports[0].DroppedFields, "fingerprint")
+	assertReportContains(t, reports[0].DroppedFields, "issuedCertId")
+	assertReportContains(t, reports[0].DroppedFields, "microtenantId")
+	assertReportContains(t, reports[0].DroppedFields, "provisioningKeyId")
+	assertReportContains(t, reports[0].DroppedFields, "provisioningKeyName")
+	assertReportContains(t, reports[0].DroppedFields, "upgradeAttempt")
+	assertReportContains(t, reports[0].DroppedFields, "zpnSubModuleUpgradeList")
+	assertReportContains(t, reports[0].DroppedFields, "zscalerManaged")
 	assertReportContains(t, reports[0].RedactedFields, "description")
 }
 

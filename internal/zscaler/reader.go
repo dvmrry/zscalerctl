@@ -69,6 +69,7 @@ import (
 	vzenclusters "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_clusters"
 	vzennodes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_nodes"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
+	zpaappconnectorcontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorcontroller"
 	zpaappconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup"
 	zpaappservercontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller"
 	zpac2cipranges "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges"
@@ -161,6 +162,7 @@ const (
 	resourceSecurityPolicyURLDenylist  = "url-deny-list"
 	resourceZPAServerGroups            = "server-groups"
 	resourceZPASegmentGroups           = "segment-groups"
+	resourceZPAAppConnectors           = "app-connectors"
 	resourceZPAConnectorGrps           = "app-connector-groups"
 	resourceZPAAppServers              = "app-servers"
 	resourceZPAMachineGroups           = "machine-groups"
@@ -957,6 +959,16 @@ func newResourceHandlers(client sdkClient) map[resourceKey]resourceHandler {
 				return zpasegmentgroup.Get(ctx, service, id)
 			}),
 			jsonSourceRecord[zpasegmentgroup.SegmentGroup],
+		),
+		{product: resources.ProductZPA, name: resourceZPAAppConnectors}: newListGetHandler(
+			resourceZPAAppConnectors,
+			zpaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]zpaappconnectorcontroller.AppConnector, *http.Response, error) {
+				return zpaappconnectorcontroller.GetAll(ctx, service)
+			}),
+			zpaSDKStringGet(client, func(ctx context.Context, service *zsdk.Service, id string) (*zpaappconnectorcontroller.AppConnector, *http.Response, error) {
+				return zpaappconnectorcontroller.Get(ctx, service, id)
+			}),
+			jsonSourceRecord[zpaappconnectorcontroller.AppConnector],
 		),
 		{product: resources.ProductZPA, name: resourceZPAConnectorGrps}: newListGetHandler(
 			resourceZPAConnectorGrps,
