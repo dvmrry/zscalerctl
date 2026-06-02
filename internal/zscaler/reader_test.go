@@ -46,6 +46,7 @@ import (
 	vzenclusters "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_clusters"
 	vzennodes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_nodes"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
+	zpac2cipranges "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges"
 	zpacloudconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector_group"
 	zpacbizpaprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloudbrowserisolation/cbizpaprofile"
 	zpapostureprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/postureprofile"
@@ -3273,6 +3274,93 @@ func TestReaderListZPACBIZPAProfilesProjectsSDKShapeThroughAllowList(t *testing.
 		t.Fatalf("ProjectRecords(zpa cbi-zpa-profiles) reports length = %d, want 1", len(reports))
 	}
 	assertReportContains(t, reports[0].DroppedFields, "cbiTenantId")
+	assertReportContains(t, reports[0].RedactedFields, "description")
+}
+
+func TestReaderListZPAC2CIPRangesProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const nestedCanary = "nested-c2c-ip-range-secret-canary"
+	reader := SDKReader{
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZPA, name: resourceZPAC2CIPRanges}: newListGetHandler(
+				resourceZPAC2CIPRanges,
+				func(context.Context) ([]zpac2cipranges.IPRanges, error) {
+					return []zpac2cipranges.IPRanges{{
+						ID:            "c2c-ip-range-1",
+						Name:          "C2C IP range",
+						Description:   "psk=c2c-ip-range-canary-value",
+						Enabled:       true,
+						AvailableIps:  "8",
+						CountryCode:   "US",
+						CreationTime:  "1700000000000",
+						CustomerId:    nestedCanary,
+						IpRangeBegin:  "198.51.100.10",
+						IpRangeEnd:    "198.51.100.20",
+						IsDeleted:     "false",
+						LatitudeInDb:  "37.3387",
+						Location:      "San Jose, CA",
+						LocationHint:  "West",
+						LongitudeInDb: "-121.8853",
+						ModifiedBy:    "admin-1",
+						ModifiedTime:  "1700000100000",
+						SccmFlag:      true,
+						SubnetCidr:    "198.51.100.0/24",
+						TotalIps:      "16",
+						UsedIps:       "8",
+					}}, nil
+				},
+				func(context.Context, string) (*zpac2cipranges.IPRanges, error) {
+					return nil, nil
+				},
+				jsonSourceRecord[zpac2cipranges.IPRanges],
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZPA, resourceZPAC2CIPRanges)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zpa, c2c-ip-ranges) error = %v, want nil", err)
+	}
+	spec, ok := resources.FindSpec(resources.ProductZPA, resourceZPAC2CIPRanges)
+	if !ok {
+		t.Fatalf("FindSpec(zpa, %s) ok = false, want true", resourceZPAC2CIPRanges)
+	}
+	projected, reports, err := resources.ProjectRecords(spec, redact.ModeStandard, records)
+	if err != nil {
+		t.Fatalf("ProjectRecords(zpa c2c-ip-ranges) error = %v, want nil", err)
+	}
+	gotRecords := projected.Records()
+	if len(gotRecords) != 1 {
+		t.Fatalf("ProjectRecords(zpa c2c-ip-ranges) records length = %d, want 1", len(gotRecords))
+	}
+	got := gotRecords[0].Fields()
+	if got["id"] != "c2c-ip-range-1" {
+		t.Errorf("projected c2c-ip-range id = %v, want c2c-ip-range-1", got["id"])
+	}
+	if got["subnetCidr"] != "198.51.100.0/24" {
+		t.Errorf("projected c2c-ip-range subnetCidr = %v, want 198.51.100.0/24", got["subnetCidr"])
+	}
+	if got["availableIps"] != "8" {
+		t.Errorf("projected c2c-ip-range availableIps = %v, want 8", got["availableIps"])
+	}
+	description, ok := got["description"].(string)
+	if !ok || !strings.Contains(description, "<REDACTED:SECRET>") || strings.Contains(description, "c2c-ip-range-canary-value") {
+		t.Errorf("projected c2c-ip-range description = %v, want redacted canary value", got["description"])
+	}
+	if _, ok := got["customerId"]; ok {
+		t.Errorf("projected c2c-ip-range includes customerId, want dropped")
+	}
+	if strings.Contains(fmt.Sprint(got), nestedCanary) {
+		t.Errorf("projected c2c-ip-range = %v, want nested canary absent", got)
+	}
+	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
+		t.Errorf("AssertRenderedSubset(projected c2c-ip-range) error = %v, want nil", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("ProjectRecords(zpa c2c-ip-ranges) reports length = %d, want 1", len(reports))
+	}
+	assertReportContains(t, reports[0].DroppedFields, "customerId")
 	assertReportContains(t, reports[0].RedactedFields, "description")
 }
 

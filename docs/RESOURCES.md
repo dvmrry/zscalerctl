@@ -1362,6 +1362,26 @@ Fields:
 | `cbiProfileId`, `cbiUrl` | Sensitive identifier | `standard` | Local-only CBI profile and tenant URL metadata. |
 | `cbiTenantId` | Secret or unmodeled nested structure | none | Dropped until tenant identifiers are separately reviewed. |
 
+## ZPA C2c IP Ranges
+
+Commands:
+
+```sh
+zscalerctl zpa c2c-ip-ranges list
+zscalerctl zpa c2c-ip-ranges get <id>
+zscalerctl dump --products zpa --resources zpa/c2c-ip-ranges --out ./scratch-live-smoke
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `enabled`, `creationTime`, `modifiedBy`, `modifiedTime`, `availableIps`, `totalIps`, `usedIps`, `isDeleted`, `sccmFlag` | Operational metadata | `standard`, `share`, `paranoid` | C2C IP range identity, lifecycle, state, and utilization metadata. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | Standard-only operator context; scanned with free-text and rendered-string backstops. |
+| `countryCode`, `ipRangeBegin`, `ipRangeEnd`, `latitudeInDb`, `location`, `locationHint`, `longitudeInDb`, `subnetCidr` | Sensitive identifier | `standard` | Local-only network range and placement metadata. |
+| `customerId` | Secret or unmodeled nested structure | none | Dropped until tenant identifiers are separately reviewed. |
+
 ## Deferred Resource Follow-Ups
 
 - `zia/network-service-groups`: generated and locally validated, but removed

@@ -61,6 +61,7 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 	zpaappconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup"
 	zpaappservercontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller"
+	zpac2cipranges "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges"
 	zpacloudconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector_group"
 	zpacbizpaprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloudbrowserisolation/cbizpaprofile"
 	zpamachinegroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/machinegroup"
@@ -2254,6 +2255,35 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"modifiedBy",
 				"modifiedTime",
 				"name",
+			},
+		},
+		{
+			name:         "zpac2cipranges.IPRanges",
+			resource:     resources.ProductZPA,
+			resourceName: resourceZPAC2CIPRanges,
+			typ:          reflect.TypeOf(zpac2cipranges.IPRanges{}),
+			catalogFields: []string{
+				"availableIps",
+				"countryCode",
+				"creationTime",
+				"customerId",
+				"description",
+				"enabled",
+				"id",
+				"ipRangeBegin",
+				"ipRangeEnd",
+				"isDeleted",
+				"latitudeInDb",
+				"location",
+				"locationHint",
+				"longitudeInDb",
+				"modifiedBy",
+				"modifiedTime",
+				"name",
+				"sccmFlag",
+				"subnetCidr",
+				"totalIps",
+				"usedIps",
 			},
 		},
 		{

@@ -71,6 +71,7 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 	zpaappconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup"
 	zpaappservercontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller"
+	zpac2cipranges "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges"
 	zpacloudconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector_group"
 	zpacbizpaprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloudbrowserisolation/cbizpaprofile"
 	zpamachinegroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/machinegroup"
@@ -166,6 +167,7 @@ const (
 	resourceZPACloudConnGrps           = "cloud-connector-groups"
 	resourceZPAPostureProfs            = "posture-profiles"
 	resourceZPACBIZPAProfs             = "cbi-zpa-profiles"
+	resourceZPAC2CIPRanges             = "c2c-ip-ranges"
 )
 
 type AuthMode string
@@ -1039,6 +1041,26 @@ func newResourceHandlers(client sdkClient) map[resourceKey]resourceHandler {
 				return zpacbizpaprofile.Get(ctx, service, id)
 			}),
 			jsonSourceRecord[zpacbizpaprofile.ZPAProfiles],
+		),
+		{product: resources.ProductZPA, name: resourceZPAC2CIPRanges}: newListGetHandler(
+			resourceZPAC2CIPRanges,
+			zpaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]zpac2cipranges.IPRanges, *http.Response, error) {
+				items, resp, err := zpac2cipranges.GetAll(ctx, service)
+				if err != nil {
+					return nil, resp, err
+				}
+				out := make([]zpac2cipranges.IPRanges, 0, len(items))
+				for _, item := range items {
+					if item != nil {
+						out = append(out, *item)
+					}
+				}
+				return out, resp, nil
+			}),
+			zpaSDKStringGet(client, func(ctx context.Context, service *zsdk.Service, id string) (*zpac2cipranges.IPRanges, *http.Response, error) {
+				return zpac2cipranges.Get(ctx, service, id)
+			}),
+			jsonSourceRecord[zpac2cipranges.IPRanges],
 		),
 	}
 }
