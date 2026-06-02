@@ -51,6 +51,7 @@ import (
 	zpacbizpaprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloudbrowserisolation/cbizpaprofile"
 	zpaconfigoverride "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/config_override"
 	zpapostureprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/postureprofile"
+	zpaprivatecloudcontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/private_cloud_controller"
 	zpaprivatecloudgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/private_cloud_group"
 	zpaservergroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup"
 	zpaserviceedgecontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgecontroller"
@@ -3538,6 +3539,150 @@ func TestReaderListZPAConfigOverridesProjectsSDKShapeThroughAllowList(t *testing
 	assertReportContains(t, reports[0].DroppedFields, "configValueInt")
 	assertReportContains(t, reports[0].DroppedFields, "customerId")
 	assertReportContains(t, reports[0].DroppedFields, "targetGid")
+	assertReportContains(t, reports[0].RedactedFields, "description")
+}
+
+func TestReaderListZPAPrivateCloudControllersProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const nestedCanary = "nested-private-cloud-controller-secret-canary"
+	reader := SDKReader{
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZPA, name: resourceZPAPrivateClCtrs}: newListGetHandler(
+				resourceZPAPrivateClCtrs,
+				func(context.Context) ([]zpaprivatecloudcontroller.PrivateCloudController, error) {
+					return []zpaprivatecloudcontroller.PrivateCloudController{{
+						ID:                               "private-cloud-controller-1",
+						Name:                             "Private cloud controller",
+						Description:                      "psk=private-cloud-controller-canary-value",
+						Enabled:                          true,
+						ApplicationStartTime:             "1700000000000",
+						ControlChannelStatus:             "CONNECTED",
+						CreationTime:                     "1700000000000",
+						CtrlBrokerName:                   "Broker",
+						CurrentVersion:                   "1.2.3",
+						EnrollmentCert:                   map[string]any{"name": nestedCanary},
+						ExpectedSargeVersion:             "1.2.4",
+						ExpectedUpgradeTime:              "1700000200000",
+						ExpectedVersion:                  "1.2.4",
+						Fingerprint:                      nestedCanary,
+						IpAcl:                            []string{"198.51.100.10"},
+						IssuedCertId:                     nestedCanary,
+						LastBrokerConnectTime:            "1700000300000",
+						LastBrokerConnectTimeDuration:    "100",
+						LastBrokerDisconnectTime:         "1700000400000",
+						LastBrokerDisconnectTimeDuration: "200",
+						LastOsUpgradeTime:                "1700000500000",
+						LastSargeUpgradeTime:             "1700000600000",
+						LastUpgradeTime:                  "1700000700000",
+						Latitude:                         "37.3387",
+						ListenIps:                        []string{"198.51.100.11"},
+						Location:                         "San Jose, CA",
+						Longitude:                        "-121.8853",
+						MasterLastSyncTime:               "1700000800000",
+						MicrotenantId:                    nestedCanary,
+						MicrotenantName:                  "Microtenant",
+						ModifiedBy:                       "admin-1",
+						ModifiedTime:                     "1700000900000",
+						OsUpgradeEnabled:                 true,
+						OsUpgradeStatus:                  "COMPLETE",
+						Platform:                         "linux",
+						PlatformDetail:                   "el8",
+						PlatformVersion:                  "8",
+						PreviousVersion:                  "1.2.2",
+						PrivateCloudControllerGroupId:    nestedCanary,
+						PrivateCloudControllerGroupName:  "Private cloud group",
+						PrivateCloudControllerVersion:    map[string]any{"value": nestedCanary},
+						PrivateIp:                        "10.0.0.10",
+						ProvisioningKeyId:                nestedCanary,
+						ProvisioningKeyName:              nestedCanary,
+						PublicIp:                         "203.0.113.10",
+						PublishIps:                       []string{"203.0.113.11"},
+						ReadOnly:                         true,
+						RestrictionType:                  "CUSTOMER",
+						Runtime:                          "linux",
+						SargeUpgradeAttempt:              nestedCanary,
+						SargeUpgradeStatus:               "COMPLETE",
+						SargeVersion:                     "1.2.3",
+						ShardLastSyncTime:                "1700001000000",
+						SiteSpDnsName:                    "site.example.invalid",
+						UpgradeAttempt:                   nestedCanary,
+						UpgradeStatus:                    "COMPLETE",
+						UserdbLastSyncTime:               "1700001100000",
+						ZpnSubModuleUpgradeList:          []any{map[string]any{"value": nestedCanary}},
+						ZscalerManaged:                   true,
+					}}, nil
+				},
+				func(context.Context, string) (*zpaprivatecloudcontroller.PrivateCloudController, error) {
+					return nil, nil
+				},
+				jsonSourceRecord[zpaprivatecloudcontroller.PrivateCloudController],
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZPA, resourceZPAPrivateClCtrs)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zpa, private-cloud-controllers) error = %v, want nil", err)
+	}
+	spec, ok := resources.FindSpec(resources.ProductZPA, resourceZPAPrivateClCtrs)
+	if !ok {
+		t.Fatalf("FindSpec(zpa, %s) ok = false, want true", resourceZPAPrivateClCtrs)
+	}
+	projected, reports, err := resources.ProjectRecords(spec, redact.ModeStandard, records)
+	if err != nil {
+		t.Fatalf("ProjectRecords(zpa private-cloud-controllers) error = %v, want nil", err)
+	}
+	gotRecords := projected.Records()
+	if len(gotRecords) != 1 {
+		t.Fatalf("ProjectRecords(zpa private-cloud-controllers) records length = %d, want 1", len(gotRecords))
+	}
+	got := gotRecords[0].Fields()
+	if got["id"] != "private-cloud-controller-1" {
+		t.Errorf("projected private-cloud-controller id = %v, want private-cloud-controller-1", got["id"])
+	}
+	if got["location"] != "San Jose, CA" {
+		t.Errorf("projected private-cloud-controller location = %v, want San Jose, CA", got["location"])
+	}
+	description, ok := got["description"].(string)
+	if !ok || !strings.Contains(description, "<REDACTED:SECRET>") || strings.Contains(description, "private-cloud-controller-canary-value") {
+		t.Errorf("projected private-cloud-controller description = %v, want redacted canary value", got["description"])
+	}
+	for _, field := range []string{
+		"enrollmentCert",
+		"fingerprint",
+		"issuedCertId",
+		"microtenantId",
+		"privateCloudControllerGroupId",
+		"privateCloudControllerVersion",
+		"provisioningKeyId",
+		"provisioningKeyName",
+		"zpnSubModuleUpgradeList",
+		"zscalerManaged",
+	} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected private-cloud-controller includes %s, want dropped", field)
+		}
+	}
+	if strings.Contains(fmt.Sprint(got), nestedCanary) {
+		t.Errorf("projected private-cloud-controller = %v, want nested canary absent", got)
+	}
+	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
+		t.Errorf("AssertRenderedSubset(projected private-cloud-controller) error = %v, want nil", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("ProjectRecords(zpa private-cloud-controllers) reports length = %d, want 1", len(reports))
+	}
+	assertReportContains(t, reports[0].DroppedFields, "enrollmentCert")
+	assertReportContains(t, reports[0].DroppedFields, "fingerprint")
+	assertReportContains(t, reports[0].DroppedFields, "issuedCertId")
+	assertReportContains(t, reports[0].DroppedFields, "microtenantId")
+	assertReportContains(t, reports[0].DroppedFields, "privateCloudControllerGroupId")
+	assertReportContains(t, reports[0].DroppedFields, "privateCloudControllerVersion")
+	assertReportContains(t, reports[0].DroppedFields, "provisioningKeyId")
+	assertReportContains(t, reports[0].DroppedFields, "provisioningKeyName")
+	assertReportContains(t, reports[0].DroppedFields, "zpnSubModuleUpgradeList")
+	assertReportContains(t, reports[0].DroppedFields, "zscalerManaged")
 	assertReportContains(t, reports[0].RedactedFields, "description")
 }
 
