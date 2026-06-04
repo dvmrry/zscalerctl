@@ -11,6 +11,8 @@ sdk="$tmp/sdk"
 mkdir -p "$sdk/zscaler/zia/services/example"
 mkdir -p "$sdk/zscaler/zia/services/constructed"
 mkdir -p "$sdk/zscaler/zcc"
+mkdir -p "$sdk/zscaler/zid"
+mkdir -p "$sdk/zscaler/zwa"
 mkdir -p "$sdk/zscaler/core"
 
 cat > "$sdk/zscaler/zia/services/example/example.go" <<'GO'
@@ -85,6 +87,30 @@ func NewClient() *Client {
 }
 GO
 
+cat > "$sdk/zscaler/zid/v2_client.go" <<'GO'
+package zid
+
+type Client struct {
+	BaseURL string
+}
+
+func NewClient() *Client {
+	return &Client{}
+}
+GO
+
+cat > "$sdk/zscaler/zwa/v2_client.go" <<'GO'
+package zwa
+
+type Client struct {
+	BaseURL string
+}
+
+func NewClient() *Client {
+	return &Client{}
+}
+GO
+
 cat > "$sdk/zscaler/core/oneapi.go" <<'GO'
 package core
 
@@ -108,6 +134,8 @@ grep -q '| `zia` | `zscaler/zia/services/constructed` | `read-only-nonstandard` 
 grep -q 'read function detected without static endpoint literal' "$tmp/inventory.md"
 grep -q '| `zcc` | `zscaler/zcc` | `product-client-config` ' "$tmp/inventory.md"
 grep -q 'no high-level resource service package detected in this SDK snapshot' "$tmp/inventory.md"
+grep -q '| `zidentity` | `zscaler/zid` | `product-client-config` ' "$tmp/inventory.md"
+grep -q '| `zwa` | `zscaler/zwa` | `product-client-config` ' "$tmp/inventory.md"
 grep -q '| `zidentity` | `zscaler/core` | `other` ' "$tmp/inventory.md"
 grep -q 'identity-plane work' "$tmp/inventory.md"
 grep -q 'scout only: this inventory is not an enabled catalog' "$tmp/inventory.md"
