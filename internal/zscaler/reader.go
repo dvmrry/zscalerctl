@@ -89,6 +89,15 @@ import (
 	zpaserviceedgegroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgegroup"
 	zpatrustednetwork "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/trustednetwork"
 	ztwcommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/common"
+	ztwdnsgateway "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/dns_gateway"
+	ztwecgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/ecgroup"
+	ztwziaforwardinggateway "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/forwarding_gateways/zia_forwarding_gateway"
+	ztwipdestinationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipdestinationgroups"
+	ztwipgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipgroups"
+	ztwipsourcegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipsourcegroups"
+	ztwnetworkservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networkservicegroups"
+	ztwnetworkservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networkservices"
+	ztwpubliccloudaccount "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/provisioning/public_cloud_account"
 	ztwworkloadgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/workload_groups"
 
 	"github.com/dvmrry/zscalerctl/internal/resources"
@@ -150,6 +159,11 @@ const (
 	resourceFirewallDNSRules = "firewall-dns-rules"
 	resourceCustomFileTypes  = "custom-file-types"
 	resourceZPAGateways      = "zpa-gateways"
+	resourcePublicCloudAccts = "public-cloud-accounts"
+	resourceForwardingGWs    = "forwarding-gateways"
+	resourceECGroups         = "ec-groups"
+	resourceIPGroups         = "ip-groups"
+	resourceNetworkSvcGroups = "network-service-groups"
 
 	resourceAdvancedSettings           = "advanced-settings"
 	resourceAdvancedThreatSettings     = "advanced-threat-settings"
@@ -964,6 +978,97 @@ func newResourceHandlers(client sdkClient) map[resourceKey]resourceHandler {
 			resourceSecurityPolicyURLDenylist,
 			ziaSDKShow(client, securitypolicysettings.GetBlackListUrls),
 			structSourceRecord[securitypolicysettings.ListUrls],
+		),
+		{product: resources.ProductZTW, name: resourcePublicCloudAccts}: newListGetHandler(
+			resourcePublicCloudAccts,
+			sdkProductList(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service) ([]ztwpubliccloudaccount.PublicCloudAccountDetails, error) {
+				return ztwpubliccloudaccount.GetAll(ctx, service)
+			}),
+			sdkProductGet(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service, id int) (*ztwpubliccloudaccount.PublicCloudAccountDetails, error) {
+				return ztwpubliccloudaccount.GetAccountID(ctx, service, id)
+			}),
+			ztwPublicCloudAccountSourceRecord,
+		),
+		{product: resources.ProductZTW, name: resourceDNSGateways}: newListGetHandler(
+			resourceDNSGateways,
+			sdkProductList(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service) ([]ztwdnsgateway.DNSGateway, error) {
+				return ztwdnsgateway.GetAll(ctx, service)
+			}),
+			sdkProductGet(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service, id int) (*ztwdnsgateway.DNSGateway, error) {
+				return ztwdnsgateway.Get(ctx, service, id)
+			}),
+			ztwDNSGatewaySourceRecord,
+		),
+		{product: resources.ProductZTW, name: resourceForwardingGWs}: newListGetHandler(
+			resourceForwardingGWs,
+			sdkProductList(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service) ([]ztwziaforwardinggateway.ECGateway, error) {
+				return ztwziaforwardinggateway.GetAll(ctx, service)
+			}),
+			sdkProductGet(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service, id int) (*ztwziaforwardinggateway.ECGateway, error) {
+				gateway, _, err := ztwziaforwardinggateway.Get(ctx, service, id)
+				return gateway, err
+			}),
+			ztwForwardingGatewaySourceRecord,
+		),
+		{product: resources.ProductZTW, name: resourceECGroups}: newListGetHandler(
+			resourceECGroups,
+			sdkProductList(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service) ([]ztwecgroup.EcGroup, error) {
+				return ztwecgroup.GetAll(ctx, service)
+			}),
+			sdkProductGet(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service, id int) (*ztwecgroup.EcGroup, error) {
+				return ztwecgroup.Get(ctx, service, id)
+			}),
+			ztwECGroupSourceRecord,
+		),
+		{product: resources.ProductZTW, name: resourceIPSourceGroups}: newListGetHandler(
+			resourceIPSourceGroups,
+			sdkProductList(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service) ([]ztwipsourcegroups.IPSourceGroups, error) {
+				return ztwipsourcegroups.GetAll(ctx, service)
+			}),
+			sdkProductGet(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service, id int) (*ztwipsourcegroups.IPSourceGroups, error) {
+				return ztwipsourcegroups.Get(ctx, service, id)
+			}),
+			ztwIPSourceGroupSourceRecord,
+		),
+		{product: resources.ProductZTW, name: resourceIPDestGroups}: newListGetHandler(
+			resourceIPDestGroups,
+			sdkProductList(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service) ([]ztwipdestinationgroups.IPDestinationGroups, error) {
+				return ztwipdestinationgroups.GetAll(ctx, service)
+			}),
+			sdkProductGet(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service, id int) (*ztwipdestinationgroups.IPDestinationGroups, error) {
+				return ztwipdestinationgroups.Get(ctx, service, id)
+			}),
+			ztwIPDestinationGroupSourceRecord,
+		),
+		{product: resources.ProductZTW, name: resourceIPGroups}: newListGetHandler(
+			resourceIPGroups,
+			sdkProductList(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service) ([]ztwipgroups.IPGroups, error) {
+				return ztwipgroups.GetAll(ctx, service)
+			}),
+			sdkProductGet(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service, id int) (*ztwipgroups.IPGroups, error) {
+				return ztwipgroups.Get(ctx, service, id)
+			}),
+			ztwIPGroupSourceRecord,
+		),
+		{product: resources.ProductZTW, name: resourceNetworkServices}: newListGetHandler(
+			resourceNetworkServices,
+			sdkProductList(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service) ([]ztwnetworkservices.NetworkServices, error) {
+				return ztwnetworkservices.GetAllNetworkServices(ctx, service)
+			}),
+			sdkProductGet(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service, id int) (*ztwnetworkservices.NetworkServices, error) {
+				return ztwnetworkservices.Get(ctx, service, id)
+			}),
+			ztwNetworkServiceSourceRecord,
+		),
+		{product: resources.ProductZTW, name: resourceNetworkSvcGroups}: newListGetHandler(
+			resourceNetworkSvcGroups,
+			sdkProductList(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service) ([]ztwnetworkservicegroups.NetworkServiceGroups, error) {
+				return ztwnetworkservicegroups.GetAllNetworkServiceGroups(ctx, service)
+			}),
+			sdkProductGet(resources.ProductZTW, client, func(ctx context.Context, service *zsdk.Service, id int) (*ztwnetworkservicegroups.NetworkServiceGroups, error) {
+				return ztwnetworkservicegroups.GetNetworkServiceGroups(ctx, service, id)
+			}),
+			ztwNetworkServiceGroupSourceRecord,
 		),
 		{product: resources.ProductZPA, name: resourceZPAServerGroups}: newListGetHandler(
 			resourceZPAServerGroups,
@@ -2611,6 +2716,146 @@ func ztwWorkloadGroupSourceRecord(group ztwworkloadgroups.WorkloadGroup) resourc
 	return resources.NewSourceRecord(fields)
 }
 
+func ztwPublicCloudAccountSourceRecord(account ztwpubliccloudaccount.PublicCloudAccountDetails) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"id":         account.ID,
+		"accountId":  account.AccountID,
+		"platformId": account.PlatformID,
+	})
+}
+
+func ztwDNSGatewaySourceRecord(gateway ztwdnsgateway.DNSGateway) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                           gateway.ID,
+		"name":                         gateway.Name,
+		"dnsGatewayType":               gateway.DNSGatewayType,
+		"ecDnsGatewayOptionsPrimary":   gateway.ECDnsGatewayOptionsPrimary,
+		"ecDnsGatewayOptionsSecondary": gateway.ECDnsGatewayOptionsSecondary,
+		"failureBehavior":              gateway.FailureBehavior,
+		"primaryIp":                    gateway.PrimaryIP,
+		"secondaryIp":                  gateway.SecondaryIP,
+		"lastModifiedTime":             gateway.LastModifiedTime,
+	}
+	addZTWCommonIDNameExternalIDPtr(fields, "lastModifiedBy", gateway.LastModifiedBy)
+	return resources.NewSourceRecord(fields)
+}
+
+func ztwForwardingGatewaySourceRecord(gateway ztwziaforwardinggateway.ECGateway) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                           gateway.ID,
+		"name":                         gateway.Name,
+		"description":                  gateway.Description,
+		"failClosed":                   gateway.FailClosed,
+		"manualPrimary":                gateway.ManualPrimary,
+		"manualSecondary":              gateway.ManualSecondary,
+		"primaryType":                  gateway.PrimaryType,
+		"secondaryType":                gateway.SecondaryType,
+		"type":                         gateway.Type,
+		"failureBehavior":              gateway.FailureBehavior,
+		"dnsGatewayType":               gateway.DNSGatewayType,
+		"primaryIp":                    gateway.PrimaryIP,
+		"secondaryIp":                  gateway.SecondaryIP,
+		"ecDnsGatewayOptionsPrimary":   gateway.ECDNSGatewayOptionsPrimary,
+		"ecDnsGatewayOptionsSecondary": gateway.ECDNSGatewayOptionsSecondary,
+		"lastModifiedTime":             gateway.LastModifiedTime,
+	}
+	addZTWCommonIDNameExternalIDPtr(fields, "subcloudPrimary", gateway.SubCloudPrimary)
+	addZTWCommonIDNameExternalIDPtr(fields, "subcloudSecondary", gateway.SubCloudSecondary)
+	addZTWIDNameExtensionsPtr(fields, "lastModifiedBy", gateway.LastModifiedBy)
+	return resources.NewSourceRecord(fields)
+}
+
+func ztwECGroupSourceRecord(group ztwecgroup.EcGroup) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                    group.ID,
+		"name":                  group.Name,
+		"desc":                  group.Description,
+		"deployType":            group.DeployType,
+		"platform":              group.Platform,
+		"awsAvailabilityZone":   group.AWSAvailabilityZone,
+		"azureAvailabilityZone": group.AzureAvailabilityZone,
+		"maxEcCount":            group.MaxEcCount,
+		"tunnelMode":            group.TunnelMode,
+	}
+	addStringSlice(fields, "status", group.Status)
+	addZTWCommonIDNameExternalIDPtr(fields, "location", group.Location)
+	addZTWCommonIDNameExternalIDPtr(fields, "provTemplate", group.ProvTemplate)
+	if len(group.ECVMs) > 0 {
+		fields["ecVMs"] = len(group.ECVMs)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func ztwIPSourceGroupSourceRecord(group ztwipsourcegroups.IPSourceGroups) resources.SourceRecord {
+	fields := map[string]any{
+		"id":             group.ID,
+		"name":           group.Name,
+		"description":    group.Description,
+		"creatorContext": group.CreatorContext,
+		"isNonEditable":  group.IsNonEditable,
+	}
+	addStringSlice(fields, "ipAddresses", group.IPAddresses)
+	return resources.NewSourceRecord(fields)
+}
+
+func ztwIPDestinationGroupSourceRecord(group ztwipdestinationgroups.IPDestinationGroups) resources.SourceRecord {
+	fields := map[string]any{
+		"id":            group.ID,
+		"name":          group.Name,
+		"description":   group.Description,
+		"type":          group.Type,
+		"isNonEditable": group.IsNonEditable,
+	}
+	addStringSlice(fields, "addresses", group.Addresses)
+	addStringSlice(fields, "ipCategories", group.IPCategories)
+	addStringSlice(fields, "countries", group.Countries)
+	return resources.NewSourceRecord(fields)
+}
+
+func ztwIPGroupSourceRecord(group ztwipgroups.IPGroups) resources.SourceRecord {
+	fields := map[string]any{
+		"id":             group.ID,
+		"name":           group.Name,
+		"description":    group.Description,
+		"creatorContext": group.CreatorContext,
+		"isNonEditable":  group.IsNonEditable,
+		"extranetIpPool": group.ExtranetIPPool,
+		"isPredefined":   group.IsPredefined,
+	}
+	addStringSlice(fields, "ipAddresses", group.IPAddresses)
+	return resources.NewSourceRecord(fields)
+}
+
+func ztwNetworkServiceSourceRecord(service ztwnetworkservices.NetworkServices) resources.SourceRecord {
+	fields := map[string]any{
+		"id":             service.ID,
+		"name":           service.Name,
+		"description":    service.Description,
+		"tag":            service.Tag,
+		"type":           service.Type,
+		"isNameL10nTag":  service.IsNameL10nTag,
+		"creatorContext": service.CreatorContext,
+	}
+	addZTWNetworkPorts(fields, "srcTcpPorts", service.SrcTCPPorts)
+	addZTWNetworkPorts(fields, "destTcpPorts", service.DestTCPPorts)
+	addZTWNetworkPorts(fields, "srcUdpPorts", service.SrcUDPPorts)
+	addZTWNetworkPorts(fields, "destUdpPorts", service.DestUDPPorts)
+	return resources.NewSourceRecord(fields)
+}
+
+func ztwNetworkServiceGroupSourceRecord(group ztwnetworkservicegroups.NetworkServiceGroups) resources.SourceRecord {
+	fields := map[string]any{
+		"id":             group.ID,
+		"name":           group.Name,
+		"description":    group.Description,
+		"creatorContext": group.CreatorContext,
+	}
+	if len(group.Services) > 0 {
+		fields["services"] = ztwNetworkServiceRefsSource(group.Services)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
 func alertSubscriptionSourceRecord(subscription alerts.AlertSubscriptions) resources.SourceRecord {
 	fields := map[string]any{
 		"id":          subscription.ID,
@@ -3166,6 +3411,12 @@ func addZTWIDNameExtensionsPtr(fields map[string]any, name string, value *ztwcom
 	}
 }
 
+func addZTWCommonIDNameExternalIDPtr(fields map[string]any, name string, value *ztwcommon.CommonIDNameExternalID) {
+	if value != nil {
+		fields[name] = ztwCommonIDNameExternalIDSource(value)
+	}
+}
+
 func addIDNameExtensionsSlice(fields map[string]any, name string, values []ziacommon.IDNameExtensions) {
 	if len(values) > 0 {
 		fields[name] = idNameExtensionsSliceSource(values)
@@ -3199,6 +3450,12 @@ func addNetworkPorts(fields map[string]any, name string, values []networkservice
 func addZPANetworkPorts(fields map[string]any, name string, values []zpacommon.NetworkPorts) {
 	if len(values) > 0 {
 		fields[name] = zpaNetworkPortsSource(values)
+	}
+}
+
+func addZTWNetworkPorts(fields map[string]any, name string, values []ztwnetworkservices.NetworkPorts) {
+	if len(values) > 0 {
+		fields[name] = ztwNetworkPortsSource(values)
 	}
 }
 
@@ -3484,6 +3741,39 @@ func ztwTagContainerSource(value ztwworkloadgroups.TagContainer) map[string]any 
 		fields["tags"] = items
 	}
 	return fields
+}
+
+func ztwCommonIDNameExternalIDSource(value *ztwcommon.CommonIDNameExternalID) map[string]any {
+	fields := map[string]any{
+		"id":   value.ID,
+		"name": value.Name,
+	}
+	if value.ExternalID != "" {
+		fields["externalId"] = value.ExternalID
+	}
+	return fields
+}
+
+func ztwNetworkPortsSource(values []ztwnetworkservices.NetworkPorts) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"start": value.Start,
+			"end":   value.End,
+		})
+	}
+	return out
+}
+
+func ztwNetworkServiceRefsSource(values []ztwnetworkservicegroups.Services) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":   value.ID,
+			"name": value.Name,
+		})
+	}
+	return out
 }
 
 func zpaAppSegmentsSource(values []ziacommon.ZPAAppSegments) []any {

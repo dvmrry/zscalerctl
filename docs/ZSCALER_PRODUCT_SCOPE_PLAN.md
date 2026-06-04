@@ -78,8 +78,8 @@ safe when zscalerctl wires only read functions, but it requires explicit review.
 2. Start ZTW as the first separate non-ZIA/ZPA product family. It has the
    strongest config-like SDK surface and maps most directly to Cloud Connector /
    workload inventory.
-3. Add one low-risk ZTW reference resource first, preferably workload groups,
-   prove product auth and live smoke, then batch remaining ZTW references.
+3. Add a focused ZTW reference batch first, prove product auth and live smoke,
+   then decide whether to continue into policy/control surfaces.
 4. Scout ZCC next for Client Connector configuration references after ZTW's
    product path is understood.
 5. Do not implement ZDX before `v1.0.0` unless Zscaler exposes deterministic
@@ -147,11 +147,16 @@ It is likely closer to Cloud Connector/Workload than to ZIA inventory.
 
 | Candidate | SDK package | Scout category | Queue posture |
 | --- | --- | --- | --- |
-| `ztw/workload-groups` | `zscaler/ztw/services/workload_groups` | `ordinary-list-get` | Best first ZTW candidate. Reference-style metadata, likely manageable with existing projection rules. |
-| `ztw/public-cloud-accounts` | `zscaler/ztw/services/provisioning/public_cloud_account` | `ordinary-list-get` | Useful but account identifiers require conservative classification. |
-| `ztw/forwarding-gateways` | `zscaler/ztw/services/forwarding_gateways` | `list-get-with-mutating-neighbors` | Viable after base ZTW auth is proven; network identifiers standard-only. |
-| `ztw/dns-gateways` | `zscaler/ztw/services/dns_gateway` | `list-get-with-mutating-neighbors` | Viable after base ZTW auth is proven; network identifiers standard-only. |
-| `ztw/ec-groups` | `zscaler/ztw/services/ecgroup` | `list-get-with-mutating-neighbors` | Viable reference surface after auth proof. |
+| `ztw/workload-groups` | `zscaler/ztw/services/workload_groups` | `ordinary-list-get` | Included in the first ZTW reference batch. Tag-expression graph is mapped but dropped in v1. |
+| `ztw/public-cloud-accounts` | `zscaler/ztw/services/provisioning/public_cloud_account` | `ordinary-list-get` | Included in the first ZTW reference batch. Cloud account identifiers render standard-only. |
+| `ztw/forwarding-gateways` | `zscaler/ztw/services/forwarding_gateways` | `list-get-with-mutating-neighbors` | Included in the first ZTW reference batch. Network endpoints render standard-only; admin/options internals are dropped. |
+| `ztw/dns-gateways` | `zscaler/ztw/services/dns_gateway` | `list-get-with-mutating-neighbors` | Included in the first ZTW reference batch. Network endpoints render standard-only; admin/options internals are dropped. |
+| `ztw/ec-groups` | `zscaler/ztw/services/ecgroup` | `list-get-with-mutating-neighbors` | Included in the first ZTW reference batch. EC VM/network internals are dropped. |
+| `ztw/ip-source-groups` | `zscaler/ztw/services/policyresources/ipsourcegroups` | `list-get-with-mutating-neighbors` | Included in the first ZTW reference batch. Addresses render standard-only. |
+| `ztw/ip-destination-groups` | `zscaler/ztw/services/policyresources/ipdestinationgroups` | `list-get-with-mutating-neighbors` | Included in the first ZTW reference batch. Addresses and category references render standard-only. |
+| `ztw/ip-groups` | `zscaler/ztw/services/policyresources/ipgroups` | `list-get-with-mutating-neighbors` | Included in the first ZTW reference batch. Addresses render standard-only. |
+| `ztw/network-services` | `zscaler/ztw/services/policyresources/networkservices` | `list-get-with-mutating-neighbors` | Included in the first ZTW reference batch. Port ranges render; free text is standard-only. |
+| `ztw/network-service-groups` | `zscaler/ztw/services/policyresources/networkservicegroups` | `list-get-with-mutating-neighbors` | Included in the first ZTW reference batch. Child services render as id/name references only. |
 | `ztw/locations` | `zscaler/ztw/services/location` | `list-get-with-mutating-neighbors` | Useful but may overlap with ZIA location semantics; review separately. |
 
 Do not queue as ordinary inventory:
@@ -223,7 +228,7 @@ Suggested independent branches, in order:
 
 | Branch | Scope | Expected outcome |
 | --- | --- | --- |
-| `feature/ztw-workload-groups` | Verify OneAPI SDK call path for ZTW and scaffold `workload_groups`. | Establish Cloud/Workload product semantics without touching provisioning credentials. |
+| `feature/ztw-workload-groups` | Verify OneAPI SDK call path for ZTW and scaffold the first ZTW reference batch. | Establish Cloud/Workload product semantics without touching provisioning credentials. |
 | `feature/zcc-scope-plan` | Verify OneAPI SDK call path for ZCC and scaffold `trusted_network_v2` or `notification_template`. | Establish whether ZCC can use the current service boundary cleanly. |
 | `feature/zidentity-scope-plan` | Scope `resource_servers` only. | Keep identity work to the thin read-only config slice; users/groups remain hard-deferred. |
 
