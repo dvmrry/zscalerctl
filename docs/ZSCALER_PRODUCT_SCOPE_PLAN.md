@@ -84,8 +84,8 @@ safe when zscalerctl wires only read functions, but it requires explicit review.
    product path is understood.
 5. Treat ZDX as a separate report/telemetry model rather than forcing it into the
    current config-dump semantics.
-6. Treat ZWA as a separate audit/incident track. Do not mix it into ZCC/ZDX/ZTW
-   configuration batches.
+6. Leave ZWA as inventory-only unless product ownership and entitlement are
+   confirmed. It is audit/incident data, not config inventory.
 7. Treat Zidentity last unless there is a specific operator need; users, groups,
    and entitlement reads need a stricter privacy posture than config references.
 
@@ -163,7 +163,7 @@ ZWA appears in the full SDK module cache as audit and DLP incident/evidence
 surfaces. It is not present as a comparable high-level product client in the
 committed vendor tree, and the committed OneAPI client does not expose a
 dedicated `ZWAHTTPClient` field. Treat this as a separate auth-path and data
-semantics track.
+semantics track only if the product is confirmed in scope.
 
 | Candidate | SDK package | Scout category | Queue posture |
 | --- | --- | --- | --- |
@@ -172,7 +172,10 @@ semantics track.
 | `zwa/common` | `zscaler/zwa/services/common` | `read-only-nonstandard` | Helper/pagination/types package, not a catalog resource. |
 
 Do not add ZWA to ordinary config dumps without deciding whether audit and DLP
-incident records belong in the same output model as static configuration.
+incident records belong in the same output model as static configuration. If it
+turns out to be needed, scaffold it only as a draft investigation PR until
+product ownership, entitlement, auth routing, and retention expectations are
+clear.
 
 ## Zidentity
 
@@ -214,4 +217,6 @@ Suggested independent branches, in order:
 | `feature/zcc-scope-plan` | Verify OneAPI SDK call path for ZCC and scaffold `trusted_network_v2` or `notification_template`. | Establish whether ZCC can use the current service boundary cleanly. |
 | `feature/zdx-report-scope-plan` | Decide report command/dump semantics before scaffolding `reports/applications`. | Prevent telemetry from being accidentally treated as deterministic config inventory. |
 | `feature/zidentity-scope-plan` | Scope `resource_servers` only. | Keep identity work narrow until privacy posture is explicit. |
-| `feature/zwa-scope-plan` | Verify whether ZWA can use the current OneAPI service boundary and document audit/DLP output semantics. | Keep audit and incident data out of config dumps until deliberately modeled. |
+
+ZWA is deliberately not in the first-branch queue. Open a draft
+`feature/zwa-scope-plan` only if the product is confirmed in scope.
