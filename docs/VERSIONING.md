@@ -23,6 +23,11 @@ Before `v1.0.0`, the project uses `v0.MINOR.PATCH`.
 Breaking changes are allowed in `0.x` minor releases, but not in patch releases.
 `semver:major` is reserved until after `v1.0.0`.
 
+Machine-readable output schemas are part of the release contract. This includes
+dump manifests, partial-dump error records, and future report envelopes such as
+`zscalerctl.report.v1`. Backward-compatible schema additions are minor releases;
+incompatible schema changes are breaking changes.
+
 ## After 1.0.0
 
 - Major: breaking contract changes, including removing or renaming commands,

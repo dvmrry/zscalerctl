@@ -120,6 +120,9 @@ ZDX is primarily monitoring, reporting, user, device, and application experience
 data. It should not be treated as plain configuration inventory without an
 explicit report model.
 
+See [ZDX Scope Plan](ZDX_SCOPE_PLAN.md) for the proposed report envelope,
+time-window requirements, and first-resource recommendation.
+
 | Candidate | SDK package | Scout category | Queue posture |
 | --- | --- | --- | --- |
 | `zdx/applications` | `zscaler/zdx/services/reports/applications` | `ordinary-list-get` | Best first ZDX candidate. Application-level reporting is less privacy-heavy than users/devices. |
@@ -215,7 +218,7 @@ Suggested independent branches, in order:
 | --- | --- | --- |
 | `feature/ztw-scope-plan` | Verify OneAPI SDK call path for ZTW and scaffold `workload_groups`. | Establish Cloud/Workload product semantics without touching provisioning credentials. |
 | `feature/zcc-scope-plan` | Verify OneAPI SDK call path for ZCC and scaffold `trusted_network_v2` or `notification_template`. | Establish whether ZCC can use the current service boundary cleanly. |
-| `feature/zdx-report-scope-plan` | Decide report command/dump semantics before scaffolding `reports/applications`. | Prevent telemetry from being accidentally treated as deterministic config inventory. |
+| `feature/zdx-report-scope-plan` | Decide report command/dump semantics before scaffolding `reports/applications`; see [ZDX Scope Plan](ZDX_SCOPE_PLAN.md). | Prevent telemetry from being accidentally treated as deterministic config inventory. |
 | `feature/zidentity-scope-plan` | Scope `resource_servers` only. | Keep identity work narrow until privacy posture is explicit. |
 
 ZWA is deliberately not in the first-branch queue. Open a draft
