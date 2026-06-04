@@ -12,6 +12,14 @@ make sdk-surface-inventory
 make sdk-surface-inventory FORMAT=json
 ```
 
+For full-product scouting beyond the committed vendor tree, point the script at
+the SDK module cache:
+
+```sh
+SDK_DIR="$(go list -m -f '{{.Dir}}' -mod=mod github.com/zscaler/zscaler-sdk-go/v3)"
+go run ./scripts/sdk-surface-inventory.go --sdk-dir "$SDK_DIR" --format json
+```
+
 The script parses Go source under `vendor/github.com/zscaler/zscaler-sdk-go/v3`
 with the Go AST. It records exported structs, exported read-like functions,
 mutating-looking functions, exported functions with unknown verbs, name/method
@@ -23,21 +31,26 @@ Markdown output so generated inventory cannot be mistaken for validation data.
 
 ## Current Findings
 
-As of the vendored SDK currently in this repository:
+As of the module-cache SDK `github.com/zscaler/zscaler-sdk-go/v3@v3.8.37`:
 
-- ZIA has the only broad high-level service package tree:
-  `zscaler/zia/services/...`.
-- ZPA, ZCC, ZDX, and ZTW have product client/config packages in this SDK
-  snapshot, but not comparable high-level resource service package trees.
-- Zidentity/admin routing appears in the core OneAPI client through
-  `/admin/api/v1` URL handling. Treat it as identity-plane work, not as ordinary
-  resource expansion.
-- Cloud Connector concepts appear in existing ZIA policy, location, and
-  workload fields. A distinct Cloud Connector API surface should be mapped from
-  SDK evidence before being queued.
+- ZIA and ZPA have broad high-level service package trees.
+- ZTW has the next strongest config-like service tree and is the best candidate
+  for a separate Cloud Connector / workload-oriented product track.
+- ZCC has useful read-like service packages, but many sit beside mutating
+  helpers or device/privacy-sensitive data.
+- ZDX exposes report, alert, device, user, and application telemetry surfaces.
+  Treat it as report/export design work, not ordinary config inventory.
+- Zidentity is exposed under `zscaler/zid/services/...`; treat it as
+  identity-plane work, not ordinary resource expansion.
+- ZWA is exposed under `zscaler/zwa/services/...`; treat customer audit and DLP
+  incident surfaces as audit/incident export work, not ordinary config
+  inventory.
 
 These findings are SDK-shape evidence only. They do not prove entitlement,
 tenant availability, pagination behavior, or real response shape.
+
+For the broader SDK-module-cache scout across ZCC, ZDX, ZTW, Zidentity, and
+ZWA, see [Zscaler Product Scope Plan](ZSCALER_PRODUCT_SCOPE_PLAN.md).
 
 ## Categories
 
@@ -66,5 +79,5 @@ Use the inventory before adding non-ZIA surfaces:
 5. Use dev OneAPI only as endpoint availability scouting unless production
    OneAPI smoke has been explicitly run.
 
-This keeps "ZCC/ZDX/ZTW/Zidentity exists in the SDK" separate from "this
+This keeps "ZCC/ZDX/ZTW/Zidentity/ZWA exists in the SDK" separate from "this
 resource is safe to expose in zscalerctl."

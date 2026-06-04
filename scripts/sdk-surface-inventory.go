@@ -260,8 +260,10 @@ func productForRelativePath(rel string) string {
 		return "core"
 	}
 	switch parts[1] {
-	case "zia", "zpa", "zcc", "zdx", "ztw":
+	case "zia", "zpa", "zcc", "zdx", "ztw", "zwa":
 		return parts[1]
+	case "zid":
+		return "zidentity"
 	default:
 		return "core"
 	}
@@ -558,7 +560,7 @@ func categoryFor(item surface) string {
 
 func isProductRootPackage(item surface) bool {
 	switch item.RelativePath {
-	case "zscaler/zia", "zscaler/zpa", "zscaler/zcc", "zscaler/zdx", "zscaler/ztw":
+	case "zscaler/zia", "zscaler/zpa", "zscaler/zcc", "zscaler/zdx", "zscaler/zid", "zscaler/ztw", "zscaler/zwa":
 		return true
 	default:
 		return false

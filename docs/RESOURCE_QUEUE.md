@@ -199,16 +199,21 @@ separate secret-material decision.
 
 ### Future Non-ZIA Tracks
 
-These tracks should not be mixed into ZIA batch work. Each needs product/auth
-design and a controlled OneAPI smoke path before any production resource PR.
+These tracks should not be mixed into ZIA or ZPA batch work. Each needs
+product/auth design and a controlled OneAPI smoke path before any production
+resource PR.
+
+See [Zscaler Product Scope Plan](ZSCALER_PRODUCT_SCOPE_PLAN.md) for the full
+SDK scout across ZCC, ZDX, ZTW, Zidentity, and ZWA. The short version:
 
 | Product | Candidate surface | Scout result | Queue posture |
 | --- | --- | --- | --- |
 | ZPA | `servergroup`, `segmentgroup`, `appservercontroller`, `appconnectorgroup`, `cloud_connector`, `cloud_connector_group`, `branch_connector`, `machinegroup`, `postureprofile`, `trustednetwork`, `idpcontroller` | Many ordinary or list/get-with-mutating-neighbor SDK packages exist in the full SDK. | OneAPI-only future track; start with one low-risk reference after production OneAPI smoke is available. |
-| ZCC | `devices`, `notification_template`, `trusted_network_v2`, `zia_posture` | Full SDK exposes high-level read-like packages, but most sit near mutating helpers. | Shape-decision work; define product credentials/auth and live-smoke command first. |
-| ZDX | Reports for applications, devices, and users | SDK exposes report/read surfaces rather than config inventory resources. | Separate report/export model; do not force into config dump semantics. |
-| ZTW | Locations, forwarding gateways, DNS gateways, EC groups, policy resources, workload groups, public cloud account data | Full SDK exposes many list/get-like surfaces. | Separate product track; likely closer to Cloud Connector/Workload than ZIA inventory. |
-| Zidentity | Users, groups, resource servers, entitlements | SDK exposes identity-plane reads with adjacent mutation. | Identity-plane work; requires stricter privacy/classification review before queueing. |
+| ZTW | Workload groups, public cloud accounts, gateways, DNS gateways, EC groups, policy resources | Full SDK exposes many list/get-like config surfaces. | Best first separate product track. Start with workload groups; defer provisioning API keys/URLs and policy rules. |
+| ZCC | Trusted networks, notification templates, ZIA posture, IP/process app references | Closest Client Connector fit for configuration inventory; several packages sit next to mutating helpers. | Second separate product track after ZTW. Defer devices and secret packages. |
+| ZDX | Application, user, device, alert, and software reports | SDK exposes report/read surfaces rather than config inventory resources. | Separate report/export model; do not force into config dump semantics. Start with applications if needed. |
+| Zidentity | Resource servers, users, groups, entitlements | SDK exposes identity-plane reads with adjacent mutation. | Identity-plane work; start only with resource servers unless a stronger privacy posture is designed. |
+| ZWA | Customer audit and DLP incidents | SDK exposes audit/incident surfaces rather than config inventory resources. | Defer; requires audit/incident export model and retention/privacy rules. |
 
 ## Needs A Shape Decision Before Applying
 
@@ -228,7 +233,7 @@ reader shape is explicit.
 | IPS policies | Adjacent to the deferred `zia/ips-signature-rules` endpoint; confirm the endpoint and entitlement behavior is genuinely distinct before applying. |
 | Sub-clouds | `GetAll` returns `SubClouds`, but integer `Get` returns `SubCloudCountryDCExclusionInfo`; decide whether this is one resource, two resources, or list-only metadata. |
 | ZIA VPN credentials | SDK exposes read-like functions, but the package and fields are credential-bearing by name. Decide whether any public metadata can render before cataloging. |
-| ZCC/ZDX/ZTW/Zidentity products | Full SDK evidence exists, but product auth, live-smoke commands, and output semantics are not established in this tool. Keep product tracks separate from ZIA breadth work. |
+| ZCC/ZDX/ZTW/Zidentity/ZWA products | Full SDK evidence exists, but product auth, live-smoke commands, and output semantics are not established in this tool. Keep product tracks separate from ZIA and ZPA breadth work; see `docs/ZSCALER_PRODUCT_SCOPE_PLAN.md`. |
 
 ## Deferred After Live Smoke Failures
 
