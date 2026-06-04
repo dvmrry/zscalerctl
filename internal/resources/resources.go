@@ -2927,6 +2927,26 @@ func Catalog() ResourceCatalog {
 		},
 		{
 			Product:    ProductZPA,
+			Name:       "cloud-connectors",
+			Operations: ListOperations(),
+			Fields: []FieldSpec{
+				operationalField("creationTime", allModes()),
+				freeTextField("description", "ZPA cloud connector description"),
+				secretField("edgeConnectorGroupId"),
+				tenantConfigField("edgeConnectorGroupName", standardShareModes()),
+				operationalField("enabled", allModes()),
+				secretField("enrollmentCert"),
+				secretField("fingerprint"),
+				operationalField("id", allModes()),
+				sensitiveIdentifierField("ipAcl"),
+				secretField("issuedCertId"),
+				operationalField("modifiedBy", allModes()),
+				operationalField("modifiedTime", allModes()),
+				tenantConfigField("name", standardShareModes()),
+			},
+		},
+		{
+			Product:    ProductZPA,
 			Name:       "posture-profiles",
 			Operations: ReadOperations(),
 			Fields: []FieldSpec{

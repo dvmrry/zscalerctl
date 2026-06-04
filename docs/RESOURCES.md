@@ -1323,6 +1323,25 @@ Fields:
 | `description` | Free text | `standard` | Standard-only operator context; scanned with free-text and rendered-string backstops. |
 | `cloudConnectors`, `geoLocationId`, `ziaCloud`, `ziaOrgId` | Secret or unmodeled nested structure | none | Dropped until cloud connector, geolocation, cloud, and tenant sub-shapes are separately reviewed. |
 
+## ZPA Cloud Connectors
+
+Commands:
+
+```sh
+zscalerctl zpa cloud-connectors list
+zscalerctl dump --products zpa --resources zpa/cloud-connectors --out ./scratch-live-smoke
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `enabled`, `creationTime`, `modifiedBy`, `modifiedTime` | Operational metadata | `standard`, `share`, `paranoid` | Cloud connector identity, state, and lifecycle metadata. |
+| `name`, `edgeConnectorGroupName` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | Standard-only operator context; scanned with free-text and rendered-string backstops. |
+| `ipAcl` | Sensitive identifier | `standard` | Local-only cloud connector ACL metadata. |
+| `edgeConnectorGroupId`, `enrollmentCert`, `fingerprint`, `issuedCertId` | Secret or unmodeled nested structure | none | Dropped until group, certificate, and fingerprint sub-shapes are separately reviewed. |
+
 ## ZPA Posture Profiles
 
 Commands:

@@ -48,6 +48,7 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 	zpaappconnectorcontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorcontroller"
 	zpac2cipranges "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges"
+	zpacloudconnector "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector"
 	zpacloudconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector_group"
 	zpacbizpaprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloudbrowserisolation/cbizpaprofile"
 	zpacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/common"
@@ -3291,6 +3292,86 @@ func TestReaderListZPACloudConnectorGroupsProjectsSDKShapeThroughAllowList(t *te
 	}
 	assertReportContains(t, reports[0].DroppedFields, "cloudConnectors")
 	assertReportContains(t, reports[0].DroppedFields, "geoLocationId")
+	assertReportContains(t, reports[0].RedactedFields, "description")
+}
+
+func TestReaderListZPACloudConnectorsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const nestedCanary = "nested-cloud-connector-secret-canary"
+	reader := SDKReader{
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZPA, name: resourceZPACloudConns}: newListGetHandler(
+				resourceZPACloudConns,
+				func(context.Context) ([]zpacloudconnector.CloudConnector, error) {
+					return []zpacloudconnector.CloudConnector{{
+						ID:                     "cloud-connector-1",
+						Name:                   "Cloud connector",
+						Description:            "psk=cloud-connector-canary-value",
+						Enabled:                true,
+						EdgeConnectorGroupID:   nestedCanary,
+						EdgeConnectorGroupName: "Cloud connector group",
+						Fingerprint:            nestedCanary,
+						IpAcl:                  []string{"198.51.100.10"},
+						IssuedCertID:           nestedCanary,
+						EnrollmentCert: map[string]any{
+							"name": nestedCanary,
+						},
+					}}, nil
+				},
+				func(context.Context, string) (*zpacloudconnector.CloudConnector, error) {
+					return nil, nil
+				},
+				jsonSourceRecord[zpacloudconnector.CloudConnector],
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZPA, resourceZPACloudConns)
+	if err != nil {
+		t.Fatalf("SDKReader.List(zpa, cloud-connectors) error = %v, want nil", err)
+	}
+	spec, ok := resources.FindSpec(resources.ProductZPA, resourceZPACloudConns)
+	if !ok {
+		t.Fatalf("FindSpec(zpa, %s) ok = false, want true", resourceZPACloudConns)
+	}
+	projected, reports, err := resources.ProjectRecords(spec, redact.ModeStandard, records)
+	if err != nil {
+		t.Fatalf("ProjectRecords(zpa cloud-connectors) error = %v, want nil", err)
+	}
+	gotRecords := projected.Records()
+	if len(gotRecords) != 1 {
+		t.Fatalf("ProjectRecords(zpa cloud-connectors) records length = %d, want 1", len(gotRecords))
+	}
+	got := gotRecords[0].Fields()
+	if got["id"] != "cloud-connector-1" {
+		t.Errorf("projected cloud-connector id = %v, want cloud-connector-1", got["id"])
+	}
+	if got["edgeConnectorGroupName"] != "Cloud connector group" {
+		t.Errorf("projected cloud-connector edgeConnectorGroupName = %v, want Cloud connector group", got["edgeConnectorGroupName"])
+	}
+	description, ok := got["description"].(string)
+	if !ok || !strings.Contains(description, "<REDACTED:SECRET>") || strings.Contains(description, "cloud-connector-canary-value") {
+		t.Errorf("projected cloud-connector description = %v, want redacted canary value", got["description"])
+	}
+	for _, field := range []string{"edgeConnectorGroupId", "enrollmentCert", "fingerprint", "issuedCertId"} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected cloud-connector includes %s, want dropped", field)
+		}
+	}
+	if strings.Contains(fmt.Sprint(got), nestedCanary) {
+		t.Errorf("projected cloud-connector = %v, want nested canary absent", got)
+	}
+	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
+		t.Errorf("AssertRenderedSubset(projected cloud-connector) error = %v, want nil", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("ProjectRecords(zpa cloud-connectors) reports length = %d, want 1", len(reports))
+	}
+	assertReportContains(t, reports[0].DroppedFields, "edgeConnectorGroupId")
+	assertReportContains(t, reports[0].DroppedFields, "enrollmentCert")
+	assertReportContains(t, reports[0].DroppedFields, "fingerprint")
+	assertReportContains(t, reports[0].DroppedFields, "issuedCertId")
 	assertReportContains(t, reports[0].RedactedFields, "description")
 }
 

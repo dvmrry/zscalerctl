@@ -63,6 +63,7 @@ import (
 	zpaappconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup"
 	zpaappservercontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller"
 	zpac2cipranges "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges"
+	zpacloudconnector "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector"
 	zpacloudconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector_group"
 	zpacbizpaprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloudbrowserisolation/cbizpaprofile"
 	zpacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/common"
@@ -2327,6 +2328,27 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"ziaCloud",
 				"ziaOrgId",
 				"znfGroupType",
+			},
+		},
+		{
+			name:         "zpacloudconnector.CloudConnector",
+			resource:     resources.ProductZPA,
+			resourceName: resourceZPACloudConns,
+			typ:          reflect.TypeOf(zpacloudconnector.CloudConnector{}),
+			catalogFields: []string{
+				"creationTime",
+				"description",
+				"edgeConnectorGroupId",
+				"edgeConnectorGroupName",
+				"enabled",
+				"enrollmentCert",
+				"fingerprint",
+				"id",
+				"ipAcl",
+				"issuedCertId",
+				"modifiedBy",
+				"modifiedTime",
+				"name",
 			},
 		},
 		{

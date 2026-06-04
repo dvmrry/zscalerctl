@@ -73,6 +73,7 @@ import (
 	zpaappconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup"
 	zpaappservercontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller"
 	zpac2cipranges "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges"
+	zpacloudconnector "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector"
 	zpacloudconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector_group"
 	zpacbizpaprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloudbrowserisolation/cbizpaprofile"
 	zpaconfigoverride "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/config_override"
@@ -169,6 +170,7 @@ const (
 	resourceZPATrustedNets             = "trusted-networks"
 	resourceZPAServiceEdges            = "service-edges"
 	resourceZPAServiceGrps             = "service-edge-groups"
+	resourceZPACloudConns              = "cloud-connectors"
 	resourceZPACloudConnGrps           = "cloud-connector-groups"
 	resourceZPAPostureProfs            = "posture-profiles"
 	resourceZPACBIZPAProfs             = "cbi-zpa-profiles"
@@ -1049,6 +1051,16 @@ func newResourceHandlers(client sdkClient) map[resourceKey]resourceHandler {
 				return zpacloudconnectorgroup.Get(ctx, service, id)
 			}),
 			jsonSourceRecord[zpacloudconnectorgroup.CloudConnectorGroup],
+		),
+		{product: resources.ProductZPA, name: resourceZPACloudConns}: newListGetHandler(
+			resourceZPACloudConns,
+			zpaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]zpacloudconnector.CloudConnector, *http.Response, error) {
+				return zpacloudconnector.GetAll(ctx, service)
+			}),
+			func(context.Context, string) (*zpacloudconnector.CloudConnector, error) {
+				return nil, fmt.Errorf("%w: %s/%s get", ErrUnsupportedResource, resources.ProductZPA, resourceZPACloudConns)
+			},
+			jsonSourceRecord[zpacloudconnector.CloudConnector],
 		),
 		{product: resources.ProductZPA, name: resourceZPAPostureProfs}: newListGetHandler(
 			resourceZPAPostureProfs,
