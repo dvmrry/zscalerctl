@@ -43,7 +43,7 @@ safety rails before adding Zscaler API resources:
 - Type-enforced projected resource output.
 - Restricted dump writer with `manifest.json` and value-free
   `redaction_report.json`.
-- CLI skeleton for `doctor`, `auth status`, `config show`, `schema list`,
+- CLI skeleton for `doctor`, `auth show`, `config show`, `schema list`,
   `completion bash|zsh|fish`, `zia locations list|get`, and
   ZIA resource `list|get` commands.
 

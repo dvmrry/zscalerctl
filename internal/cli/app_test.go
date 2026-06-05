@@ -70,7 +70,7 @@ func TestDoctorDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	}
 }
 
-func TestAuthStatusDoesNotExposeEnvironmentSecrets(t *testing.T) {
+func TestAuthShowDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	t.Parallel()
 
 	const clientID = "client-id-value"
@@ -81,18 +81,18 @@ func TestAuthStatusDoesNotExposeEnvironmentSecrets(t *testing.T) {
 		config.EnvClientSecret + "=" + clientSecret,
 	})
 
-	err := app.Run(context.Background(), []string{"auth", "status"})
+	err := app.Run(context.Background(), []string{"auth", "show"})
 	if err != nil {
-		t.Fatalf("App.Run(auth status) error = %v, want nil", err)
+		t.Fatalf("App.Run(auth show) error = %v, want nil", err)
 	}
 	for _, forbidden := range []string{clientID, clientSecret} {
 		if strings.Contains(out.String(), forbidden) {
-			t.Errorf("App.Run(auth status) output = %q, want no %q", out.String(), forbidden)
+			t.Errorf("App.Run(auth show) output = %q, want no %q", out.String(), forbidden)
 		}
 	}
 }
 
-func TestAuthStatusReportsZIALegacyWithoutExposingSecrets(t *testing.T) {
+func TestAuthShowReportsZIALegacyWithoutExposingSecrets(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -110,19 +110,19 @@ func TestAuthStatusReportsZIALegacyWithoutExposingSecrets(t *testing.T) {
 		config.EnvZIACloud + "=" + cloud,
 	})
 
-	err := app.Run(context.Background(), []string{"auth", "status"})
+	err := app.Run(context.Background(), []string{"auth", "show"})
 	if err != nil {
-		t.Fatalf("App.Run(auth status ZIA legacy) error = %v, want nil", err)
+		t.Fatalf("App.Run(auth show ZIA legacy) error = %v, want nil", err)
 	}
 	if !strings.Contains(out.String(), "available for read-only commands") {
-		t.Errorf("App.Run(auth status ZIA legacy) output = %q, want live API available", out.String())
+		t.Errorf("App.Run(auth show ZIA legacy) output = %q, want live API available", out.String())
 	}
 	for _, forbidden := range []string{username, password, apiKey, cloud} {
 		if strings.Contains(out.String(), forbidden) {
-			t.Errorf("App.Run(auth status ZIA legacy) output = %q, want no %q", out.String(), forbidden)
+			t.Errorf("App.Run(auth show ZIA legacy) output = %q, want no %q", out.String(), forbidden)
 		}
 		if strings.Contains(errOut.String(), forbidden) {
-			t.Errorf("App.Run(auth status ZIA legacy) stderr = %q, want no %q", errOut.String(), forbidden)
+			t.Errorf("App.Run(auth show ZIA legacy) stderr = %q, want no %q", errOut.String(), forbidden)
 		}
 	}
 }
@@ -272,6 +272,56 @@ func TestUsageListsKnownProducts(t *testing.T) {
 	}
 }
 
+func TestGlobalOutputWritesSuccessfulCommandToOwnerOnlyFile(t *testing.T) {
+	t.Parallel()
+
+	const clientSecret = "client-secret-value"
+	var out, errOut bytes.Buffer
+	outPath := filepath.Join(t.TempDir(), "config.json")
+	app := cli.New(&out, &errOut, []string{
+		config.EnvClientID + "=client-id-value",
+		config.EnvClientSecret + "=" + clientSecret,
+	})
+
+	err := app.Run(context.Background(), []string{"config", "show", "--format", "json", "--output", outPath})
+	if err != nil {
+		t.Fatalf("App.Run(config show --output) error = %v, want nil", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(config show --output) stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(config show --output) stderr = %q, want empty", errOut.String())
+	}
+	assertFileMode(t, outPath, 0o600)
+	body := readFile(t, outPath)
+	if !json.Valid([]byte(body)) {
+		t.Fatalf("output file body = %q, want valid JSON", body)
+	}
+	if strings.Contains(body, clientSecret) {
+		t.Errorf("output file body = %q, want no raw client secret", body)
+	}
+}
+
+func TestGlobalOutputDoesNotCreateFileOnError(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	outPath := filepath.Join(t.TempDir(), "doctor.txt")
+	app := cli.New(&out, &errOut, nil)
+
+	err := app.Run(context.Background(), []string{"doctor", "--timeout", "0s", "--output", outPath})
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(doctor --output with usage error) error = %v, want ErrUsage", err)
+	}
+	if _, statErr := os.Stat(outPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", outPath, statErr)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(doctor --output with usage error) stdout = %q, want empty", out.String())
+	}
+}
+
 func TestRedactionOffIsUsageError(t *testing.T) {
 	t.Parallel()
 
@@ -325,7 +375,7 @@ func TestCompletionScriptsDoNotReadCredentialFilesOrUseReader(t *testing.T) {
 			if err != nil {
 				t.Fatalf("App.Run(completion %s) error = %v, want nil", shell, err)
 			}
-			for _, want := range []string{"zscalerctl", "locations", "location-groups", "rule-labels", "static-ips", "gre-tunnels", "--resources", "--continue-on-error", "list get"} {
+			for _, want := range []string{"zscalerctl", "locations", "location-groups", "rule-labels", "static-ips", "gre-tunnels", "--resources", "--continue-on-error", "list get", "show"} {
 				if !strings.Contains(out.String(), want) {
 					t.Errorf("App.Run(completion %s) stdout = %q, want %q", shell, out.String(), want)
 				}
@@ -541,19 +591,9 @@ func TestResourceListProjectsAndRedactsFixture(t *testing.T) {
 	}
 }
 
-func TestResourceCommandsRejectAdvertisedButUnsupportedFormats(t *testing.T) {
+func TestUnsupportedFormatsFailBeforeReader(t *testing.T) {
 	t.Parallel()
 
-	reader := fakeResourceReader{
-		list: []resources.SourceRecord{resources.NewSourceRecord(map[string]any{
-			"id":   "123",
-			"name": "HQ",
-		})},
-		get: resources.NewSourceRecord(map[string]any{
-			"id":   "123",
-			"name": "HQ",
-		}),
-	}
 	tests := []struct {
 		name string
 		args []string
@@ -562,12 +602,12 @@ func TestResourceCommandsRejectAdvertisedButUnsupportedFormats(t *testing.T) {
 		{
 			name: "list yaml",
 			args: []string{"--format", "yaml", "zia", "locations", "list"},
-			want: "yaml output is not supported for resource list yet",
+			want: `unsupported output format "yaml"; supported: table, json`,
 		},
 		{
 			name: "get ndjson",
 			args: []string{"--format", "ndjson", "zia", "locations", "get", "123"},
-			want: "ndjson output is not supported for resource get yet",
+			want: `unsupported output format "ndjson"; supported: table, json`,
 		},
 	}
 	for _, tt := range tests {
@@ -575,11 +615,14 @@ func TestResourceCommandsRejectAdvertisedButUnsupportedFormats(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var out, errOut bytes.Buffer
-			app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+			app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
 
 			err := app.Run(context.Background(), tt.args)
 			if err == nil {
-				t.Fatalf("App.Run(%v) error = nil, want unsupported format error", tt.args)
+				t.Fatalf("App.Run(%v) error = nil, want usage error", tt.args)
+			}
+			if !errors.Is(err, cli.ErrUsage) {
+				t.Fatalf("App.Run(%v) error = %v, want ErrUsage", tt.args, err)
 			}
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("App.Run(%v) error = %q, want %q", tt.args, err.Error(), tt.want)

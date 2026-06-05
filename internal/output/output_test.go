@@ -10,6 +10,35 @@ import (
 	"github.com/dvmrry/zscalerctl/internal/secret"
 )
 
+func TestParseFormatSupportsImplementedFormatsOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{"table", "json"} {
+		value := value
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+
+			if _, err := output.ParseFormat(value); err != nil {
+				t.Fatalf("ParseFormat(%q) error = %v, want nil", value, err)
+			}
+		})
+	}
+	for _, value := range []string{"yaml", "ndjson"} {
+		value := value
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := output.ParseFormat(value)
+			if err == nil {
+				t.Fatalf("ParseFormat(%q) error = nil, want unsupported format error", value)
+			}
+			if !strings.Contains(err.Error(), "supported: table, json") {
+				t.Errorf("ParseFormat(%q) error = %q, want supported formats", value, err.Error())
+			}
+		})
+	}
+}
+
 func TestRendererWriteJSONUsesSecretSafeMarshalAndBackstopRedaction(t *testing.T) {
 	t.Parallel()
 

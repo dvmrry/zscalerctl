@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -101,6 +103,21 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if opts.output != "" {
+		originalOut := a.out
+		var buffered bytes.Buffer
+		a.out = &buffered
+		err := a.runParsed(ctx, opts, rest)
+		a.out = originalOut
+		if err != nil {
+			return err
+		}
+		return writeOutputFile(opts.output, buffered.Bytes())
+	}
+	return a.runParsed(ctx, opts, rest)
+}
+
+func (a *App) runParsed(ctx context.Context, opts globalOptions, rest []string) error {
 	if opts.help {
 		a.writeUsage(a.out)
 		return nil
@@ -165,7 +182,7 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	fs := flag.NewFlagSet("zscalerctl", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	profile := fs.String("profile", "", "profile name")
-	format := fs.String("format", string(output.FormatTable), "output format: table, json, yaml, ndjson")
+	format := fs.String("format", string(output.FormatTable), "output format: table, json")
 	outputPath := fs.String("output", "", "output path")
 	timeout := fs.Duration("timeout", 30*time.Second, "request timeout")
 	redactionFlag := fs.String("redaction", "", "redaction mode: standard, share, paranoid")
@@ -353,8 +370,8 @@ func (a *App) runDoctor(ctx context.Context, cfg config.Config, opts globalOptio
 }
 
 func (a *App) runAuth(_ context.Context, cfg config.Config, opts globalOptions, args []string) error {
-	if len(args) != 1 || args[0] != "status" {
-		return UsageError{Message: "usage: zscalerctl auth status"}
+	if len(args) != 1 || args[0] != "show" {
+		return UsageError{Message: "usage: zscalerctl auth show"}
 	}
 	body := output.RenderKeyValues([]output.KV{
 		{Key: "Credentials", Value: credentialStatus(cfg)},
@@ -478,9 +495,6 @@ func (a *App) runDump(ctx context.Context, cfg config.Config, opts globalOptions
 	}
 	if fs.NArg() != 0 {
 		return UsageError{Message: dumpUsage()}
-	}
-	if *outDir == "" {
-		*outDir = opts.output
 	}
 	if *outDir == "" {
 		return UsageError{Message: dumpUsage()}
@@ -645,8 +659,6 @@ func (a *App) writeProjectedRecord(
 		return a.renderer(cfg, opts).WriteJSON(a.out, record)
 	case output.FormatTable:
 		return a.renderer(cfg, opts).WriteText(a.out, renderRecordsTable(spec, cfg.Defaults.Redaction, resources.NewProjectedRecords([]resources.ProjectedRecord{record}), a.style(opts)))
-	case output.FormatYAML, output.FormatNDJSON:
-		return fmt.Errorf("%s output is not supported for resource get yet", opts.format)
 	default:
 		return fmt.Errorf("unhandled output format %q for resource get", opts.format)
 	}
@@ -663,8 +675,6 @@ func (a *App) writeProjectedRecords(
 		return a.renderer(cfg, opts).WriteJSON(a.out, records)
 	case output.FormatTable:
 		return a.renderer(cfg, opts).WriteText(a.out, renderRecordsTable(spec, cfg.Defaults.Redaction, records, a.style(opts)))
-	case output.FormatYAML, output.FormatNDJSON:
-		return fmt.Errorf("%s output is not supported for resource list yet", opts.format)
 	default:
 		return fmt.Errorf("unhandled output format %q for resource list", opts.format)
 	}
@@ -677,7 +687,7 @@ func (a *App) writeUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "commands:")
 	fmt.Fprintln(w, "  doctor")
-	fmt.Fprintln(w, "  auth status")
+	fmt.Fprintln(w, "  auth show")
 	fmt.Fprintln(w, "  config show")
 	fmt.Fprintln(w, "  schema list")
 	fmt.Fprintln(w, "  dump --out <dir> [--resources names] [--continue-on-error]")
@@ -689,13 +699,28 @@ func (a *App) writeUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "global flags:")
 	fmt.Fprintln(w, "  --profile <name>")
-	fmt.Fprintln(w, "  --format table|json|yaml|ndjson")
+	fmt.Fprintln(w, "  --format table|json")
 	fmt.Fprintln(w, "  --output <path>")
 	fmt.Fprintln(w, "  --timeout <duration>")
 	fmt.Fprintln(w, "  --redaction standard|share|paranoid")
 	fmt.Fprintln(w, "  --color auto|always|never")
 	fmt.Fprintln(w, "  --no-color")
 	fmt.Fprintln(w, "  --no-cache")
+}
+
+func writeOutputFile(path string, body []byte) error {
+	if strings.TrimSpace(path) == "" {
+		return UsageError{Message: "--output requires a path"}
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("write --output: %w", err)
+	}
+	defer file.Close()
+	if _, err := file.Write(body); err != nil {
+		return fmt.Errorf("write --output: %w", err)
+	}
+	return nil
 }
 
 func (a *App) renderer(cfg config.Config, _ globalOptions) output.Renderer {

@@ -12,10 +12,8 @@ import (
 type Format string
 
 const (
-	FormatTable  Format = "table"
-	FormatJSON   Format = "json"
-	FormatYAML   Format = "yaml"
-	FormatNDJSON Format = "ndjson"
+	FormatTable Format = "table"
+	FormatJSON  Format = "json"
 )
 
 func ParseFormat(value string) (Format, error) {
@@ -24,12 +22,8 @@ func ParseFormat(value string) (Format, error) {
 		return FormatTable, nil
 	case FormatJSON:
 		return FormatJSON, nil
-	case FormatYAML:
-		return FormatYAML, nil
-	case FormatNDJSON:
-		return FormatNDJSON, nil
 	default:
-		return "", fmt.Errorf("unsupported output format %q", value)
+		return "", fmt.Errorf("unsupported output format %q; supported: table, json", value)
 	}
 }
 
