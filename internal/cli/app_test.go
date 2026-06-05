@@ -70,7 +70,7 @@ func TestDoctorDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	}
 }
 
-func TestAuthShowDoesNotExposeEnvironmentSecrets(t *testing.T) {
+func TestAuthStatusDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	t.Parallel()
 
 	const clientID = "client-id-value"
@@ -81,18 +81,18 @@ func TestAuthShowDoesNotExposeEnvironmentSecrets(t *testing.T) {
 		config.EnvClientSecret + "=" + clientSecret,
 	})
 
-	err := app.Run(context.Background(), []string{"auth", "show"})
+	err := app.Run(context.Background(), []string{"auth", "status"})
 	if err != nil {
-		t.Fatalf("App.Run(auth show) error = %v, want nil", err)
+		t.Fatalf("App.Run(auth status) error = %v, want nil", err)
 	}
 	for _, forbidden := range []string{clientID, clientSecret} {
 		if strings.Contains(out.String(), forbidden) {
-			t.Errorf("App.Run(auth show) output = %q, want no %q", out.String(), forbidden)
+			t.Errorf("App.Run(auth status) output = %q, want no %q", out.String(), forbidden)
 		}
 	}
 }
 
-func TestAuthShowReportsZIALegacyWithoutExposingSecrets(t *testing.T) {
+func TestAuthStatusReportsZIALegacyWithoutExposingSecrets(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -110,19 +110,19 @@ func TestAuthShowReportsZIALegacyWithoutExposingSecrets(t *testing.T) {
 		config.EnvZIACloud + "=" + cloud,
 	})
 
-	err := app.Run(context.Background(), []string{"auth", "show"})
+	err := app.Run(context.Background(), []string{"auth", "status"})
 	if err != nil {
-		t.Fatalf("App.Run(auth show ZIA legacy) error = %v, want nil", err)
+		t.Fatalf("App.Run(auth status ZIA legacy) error = %v, want nil", err)
 	}
 	if !strings.Contains(out.String(), "available for read-only commands") {
-		t.Errorf("App.Run(auth show ZIA legacy) output = %q, want live API available", out.String())
+		t.Errorf("App.Run(auth status ZIA legacy) output = %q, want live API available", out.String())
 	}
 	for _, forbidden := range []string{username, password, apiKey, cloud} {
 		if strings.Contains(out.String(), forbidden) {
-			t.Errorf("App.Run(auth show ZIA legacy) output = %q, want no %q", out.String(), forbidden)
+			t.Errorf("App.Run(auth status ZIA legacy) output = %q, want no %q", out.String(), forbidden)
 		}
 		if strings.Contains(errOut.String(), forbidden) {
-			t.Errorf("App.Run(auth show ZIA legacy) stderr = %q, want no %q", errOut.String(), forbidden)
+			t.Errorf("App.Run(auth status ZIA legacy) stderr = %q, want no %q", errOut.String(), forbidden)
 		}
 	}
 }

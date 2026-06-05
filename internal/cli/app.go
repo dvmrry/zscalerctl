@@ -385,8 +385,8 @@ func (a *App) runDoctor(ctx context.Context, cfg config.Config, opts globalOptio
 }
 
 func (a *App) runAuth(_ context.Context, cfg config.Config, opts globalOptions, args []string) error {
-	if len(args) != 1 || args[0] != "show" {
-		return UsageError{Message: "usage: zscalerctl auth show"}
+	if len(args) != 1 || args[0] != "status" {
+		return UsageError{Message: "usage: zscalerctl auth status"}
 	}
 	body := output.RenderKeyValues([]output.KV{
 		{Key: "Credentials", Value: credentialStatus(cfg)},
@@ -702,7 +702,7 @@ func (a *App) writeUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "commands:")
 	fmt.Fprintln(w, "  doctor")
-	fmt.Fprintln(w, "  auth show")
+	fmt.Fprintln(w, "  auth status")
 	fmt.Fprintln(w, "  config show")
 	fmt.Fprintln(w, "  schema list")
 	fmt.Fprintln(w, "  dump --out <dir> [--resources names] [--continue-on-error]")
