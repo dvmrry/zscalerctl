@@ -3,12 +3,15 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/dvmrry/zscalerctl/internal/cli"
 )
 
 func TestRunHelpReturnsSuccess(t *testing.T) {
@@ -56,6 +59,72 @@ func TestRunUsageErrorReturnsTwo(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "timeout must be positive") {
 		t.Errorf("run(usage error) stderr = %q, want usage error", stderr.String())
+	}
+}
+
+func TestRunJSONUsageErrorEnvelope(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"--format", "json", "--timeout", "0s", "doctor"}, &stdout, &stderr, nil)
+	if code != exitUsageError {
+		t.Fatalf("run(json usage error) exit code = %d, want %d", code, exitUsageError)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("run(json usage error) stdout = %q, want empty", stdout.String())
+	}
+	got := decodeErrorEnvelope(t, stderr.Bytes())
+	if got.Error.Kind != "usage" || !strings.Contains(got.Error.Message, "timeout must be positive") {
+		t.Errorf("run(json usage error) envelope = %#v, want usage timeout error", got)
+	}
+	if strings.Contains(stderr.String(), "zscalerctl:") {
+		t.Errorf("run(json usage error) stderr = %q, want JSON without text prefix", stderr.String())
+	}
+}
+
+func TestRunJSONCredentialErrorEnvelope(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"--format", "json", "zia", "locations", "list"}, &stdout, &stderr, nil)
+	if code != exitCredentialError {
+		t.Fatalf("run(json missing credentials) exit code = %d, want %d", code, exitCredentialError)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("run(json missing credentials) stdout = %q, want empty", stdout.String())
+	}
+	got := decodeErrorEnvelope(t, stderr.Bytes())
+	if got.Error.Kind != "missing_credentials" {
+		t.Errorf("run(json missing credentials) kind = %q, want missing_credentials", got.Error.Kind)
+	}
+	if !strings.Contains(got.Error.Message, "missing zscaler API credentials") {
+		t.Errorf("run(json missing credentials) message = %q, want missing credentials text", got.Error.Message)
+	}
+}
+
+func TestRunJSONNotFoundErrorEnvelope(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"--format", "json", "zia", "not-a-resource", "list"}, &stdout, &stderr, nil)
+	if code != exitNotFound {
+		t.Fatalf("run(json resource not found) exit code = %d, want %d", code, exitNotFound)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("run(json resource not found) stdout = %q, want empty", stdout.String())
+	}
+	got := decodeErrorEnvelope(t, stderr.Bytes())
+	if got.Error.Kind != "not_found" || got.Error.Product != "zia" || got.Error.Resource != "not-a-resource" {
+		t.Errorf("run(json resource not found) envelope = %#v, want zia/not-a-resource not_found", got)
+	}
+}
+
+func TestExitCodeForPartialDump(t *testing.T) {
+	t.Parallel()
+
+	err := cli.PartialDumpError{Dir: "/tmp/dump", Errors: 2}
+	if got := exitCodeForError(err); got != exitPartialDump {
+		t.Fatalf("exitCodeForError(PartialDumpError) = %d, want %d", got, exitPartialDump)
 	}
 }
 
@@ -154,4 +223,13 @@ type panicWriter struct {
 
 func (w panicWriter) Write([]byte) (int, error) {
 	panic(w.value)
+}
+
+func decodeErrorEnvelope(t *testing.T, body []byte) errorEnvelope {
+	t.Helper()
+	var got errorEnvelope
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("json.Unmarshal(error envelope %q) error = %v, want nil", body, err)
+	}
+	return got
 }

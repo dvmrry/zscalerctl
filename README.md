@@ -140,7 +140,34 @@ the primary automation surfaces.
 
 Dump commands fail closed by default: if a selected resource fails, no dump is
 written. `--continue-on-error` is opt-in and writes a clearly marked partial
-dump with `manifest.json` status `partial` and value-free `errors.ndjson`.
+dump with `manifest.json` status `partial` and value-free `errors.ndjson`. A
+partial dump exits with code `6`, not success.
+
+### Automation Contract
+
+Exit codes are stable for automation:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Complete success. |
+| `1` | Internal or unclassified failure. |
+| `2` | Usage or argument error. |
+| `3` | Missing or invalid credentials. |
+| `4` | Product/resource not found. |
+| `5` | Live Zscaler API access failure. |
+| `6` | Partial dump written; inspect `manifest.json` and `errors.ndjson`. |
+
+When `--format json` is requested and a command fails, diagnostics are emitted
+as a redacted JSON envelope on stderr:
+
+```json
+{
+  "error": {
+    "kind": "missing_credentials",
+    "message": "missing zscaler API credentials: ZSCALERCTL_CLIENT_ID is required"
+  }
+}
+```
 
 ## Development
 

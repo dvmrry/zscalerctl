@@ -19,6 +19,8 @@ import (
 )
 
 var ErrUsage = errors.New("usage error")
+var ErrPartialDump = errors.New("partial dump")
+var ErrNotFound = errors.New("not found")
 
 type UsageError struct {
 	Message string
@@ -30,6 +32,32 @@ func (e UsageError) Error() string {
 
 func (e UsageError) Unwrap() error {
 	return ErrUsage
+}
+
+type PartialDumpError struct {
+	Dir    string
+	Errors int
+}
+
+func (e PartialDumpError) Error() string {
+	return fmt.Sprintf("partial dump written: %s (%d errors; see errors.ndjson)", e.Dir, e.Errors)
+}
+
+func (e PartialDumpError) Unwrap() error {
+	return ErrPartialDump
+}
+
+type ResourceNotFoundError struct {
+	Product  resources.Product
+	Resource string
+}
+
+func (e ResourceNotFoundError) Error() string {
+	return fmt.Sprintf("unsupported resource %s/%s", e.Product, e.Resource)
+}
+
+func (e ResourceNotFoundError) Unwrap() error {
+	return ErrNotFound
 }
 
 type App struct {
@@ -185,6 +213,29 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 		colorMode:    colorMode,
 		help:         help,
 	}, rest, nil
+}
+
+func RequestedFormat(args []string) output.Format {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return output.FormatTable
+		}
+		if before, after, found := strings.Cut(arg, "="); found && before == "--format" {
+			if output.Format(strings.ToLower(strings.TrimSpace(after))) == output.FormatJSON {
+				return output.FormatJSON
+			}
+			return output.FormatTable
+		}
+		if arg != "--format" {
+			continue
+		}
+		if i+1 < len(args) && output.Format(strings.ToLower(strings.TrimSpace(args[i+1]))) == output.FormatJSON {
+			return output.FormatJSON
+		}
+		return output.FormatTable
+	}
+	return output.FormatTable
 }
 
 func splitGlobalArgs(args []string) ([]string, []string, bool, error) {
@@ -384,7 +435,7 @@ func (a *App) runProduct(ctx context.Context, cfg config.Config, opts globalOpti
 	}
 	spec, ok := resources.FindSpec(product, resource)
 	if !ok {
-		return UsageError{Message: fmt.Sprintf("unsupported resource %s/%s", product, resource)}
+		return ResourceNotFoundError{Product: product, Resource: resource}
 	}
 	if err := resources.AssertReadOnly(spec); err != nil {
 		return err
@@ -450,10 +501,13 @@ func (a *App) runDump(ctx context.Context, cfg config.Config, opts globalOptions
 		return err
 	}
 	if len(result.Errors) > 0 {
-		return a.renderer(cfg, opts).WriteText(
+		if err := a.renderer(cfg, opts).WriteText(
 			a.out,
 			output.NewSafeText(fmt.Sprintf("partial dump written: %s (%d errors; see errors.ndjson)\n", *outDir, len(result.Errors))),
-		)
+		); err != nil {
+			return err
+		}
+		return PartialDumpError{Dir: *outDir, Errors: len(result.Errors)}
 	}
 	return a.renderer(cfg, opts).WriteText(a.out, output.NewSafeText(fmt.Sprintf("dump written: %s\n", *outDir)))
 }
