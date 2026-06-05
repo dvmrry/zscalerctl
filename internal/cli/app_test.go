@@ -262,9 +262,8 @@ func TestUsageListsKnownProducts(t *testing.T) {
 		t.Fatalf("App.Run(help) error = %v, want nil", err)
 	}
 	for _, want := range []string{
-		"products: zia, zpa",
-		"zia <resource> list|get",
-		"zpa <resource> list|get",
+		"products: zia",
+		"zia <resource> list|get|show",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("App.Run(help) stdout = %q, want %q", out.String(), want)
@@ -1297,22 +1296,19 @@ func TestDumpRejectsNilReaderSession(t *testing.T) {
 	}
 }
 
-func TestDumpWithNoSelectedResourcesDoesNotOpenReader(t *testing.T) {
+func TestDumpWithUnsupportedProductDoesNotOpenReader(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
 
+	// zpa has no enabled resources on this build, so it is not a known product.
+	// Selecting it must fail fast WITHOUT opening the reader (failingResourceReader
+	// would error if it were ever opened).
 	err := app.Run(context.Background(), []string{"dump", "--products", "zpa", "--out", outDir})
-	if err != nil {
-		t.Fatalf("App.Run(dump --products zpa --out) error = %v, want nil", err)
-	}
-	if !strings.Contains(out.String(), "dump written: "+outDir) {
-		t.Errorf("App.Run(dump --products zpa --out) stdout = %q, want dump written line", out.String())
-	}
-	if errOut.Len() != 0 {
-		t.Errorf("App.Run(dump --products zpa --out) stderr = %q, want empty", errOut.String())
+	if err == nil || !strings.Contains(err.Error(), "unsupported product") {
+		t.Fatalf("App.Run(dump --products zpa --out) error = %v, want unsupported product error", err)
 	}
 }
 

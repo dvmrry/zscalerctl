@@ -238,16 +238,18 @@ func RequestedFormat(args []string) output.Format {
 		if arg == "--" {
 			return output.FormatTable
 		}
-		if before, after, found := strings.Cut(arg, "="); found && before == "--format" {
-			if output.Format(strings.ToLower(strings.TrimSpace(after))) == output.FormatJSON {
-				return output.FormatJSON
-			}
-			return output.FormatTable
-		}
-		if arg != "--format" {
+		name, hasValue := flagName(arg)
+		if name != "format" {
 			continue
 		}
-		if i+1 < len(args) && output.Format(strings.ToLower(strings.TrimSpace(args[i+1]))) == output.FormatJSON {
+		value := ""
+		if hasValue {
+			_, after, _ := strings.Cut(arg, "=")
+			value = after
+		} else if i+1 < len(args) {
+			value = args[i+1]
+		}
+		if output.Format(strings.ToLower(strings.TrimSpace(value))) == output.FormatJSON {
 			return output.FormatJSON
 		}
 		return output.FormatTable
@@ -288,10 +290,23 @@ func splitGlobalArgs(args []string) ([]string, []string, bool, error) {
 }
 
 func flagName(arg string) (string, bool) {
-	if !strings.HasPrefix(arg, "--") || arg == "--" {
+	var name string
+	switch {
+	case strings.HasPrefix(arg, "--"):
+		if arg == "--" {
+			return "", false
+		}
+		name = strings.TrimPrefix(arg, "--")
+	case strings.HasPrefix(arg, "-"):
+		// Accept single-dash flags too (Go's flag package treats -flag and --flag
+		// equivalently); rejecting them gave agents a confusing usage error.
+		if arg == "-" {
+			return "", false
+		}
+		name = strings.TrimPrefix(arg, "-")
+	default:
 		return "", false
 	}
-	name := strings.TrimPrefix(arg, "--")
 	before, _, found := strings.Cut(name, "=")
 	if found {
 		return before, true
@@ -694,7 +709,7 @@ func (a *App) writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  completion bash|zsh|fish")
 	fmt.Fprintln(w, "  version")
 	for _, product := range knownProducts() {
-		fmt.Fprintf(w, "  %s <resource> list|get\n", product)
+		fmt.Fprintf(w, "  %s <resource> list|get|show\n", product)
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "global flags:")
@@ -712,7 +727,12 @@ func writeOutputFile(path string, body []byte) error {
 	if strings.TrimSpace(path) == "" {
 		return UsageError{Message: "--output requires a path"}
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	// Refuse to write through a symlink (keep the no-follow posture), but allow
+	// overwriting a regular file so re-running a pipeline to the same path works.
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("write --output: %s is a symlink", path)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("write --output: %w", err)
 	}
@@ -791,10 +811,18 @@ func dumpUsage() string {
 }
 
 func knownProducts() []resources.Product {
-	return []resources.Product{
-		resources.ProductZIA,
-		resources.ProductZPA,
+	// Derive from the enabled catalog so help and command dispatch always reflect
+	// the products that actually have resources, instead of a hardcoded list that
+	// drifts as batches merge.
+	seen := make(map[resources.Product]bool)
+	var products []resources.Product
+	for _, spec := range resources.Catalog() {
+		if !seen[spec.Product] {
+			seen[spec.Product] = true
+			products = append(products, spec.Product)
+		}
 	}
+	return products
 }
 
 func knownProductCommand(name string) bool {
