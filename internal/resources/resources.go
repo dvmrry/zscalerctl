@@ -139,6 +139,12 @@ func (s ResourceSpec) SupportsReadOperation(name string) bool {
 	return false
 }
 
+func ShowOperation() []Operation {
+	return []Operation{
+		{Name: "show", Capability: CapabilityRead},
+	}
+}
+
 func AssertReadOnly(specs ...ResourceSpec) error {
 	for _, spec := range specs {
 		for _, op := range spec.Operations {
@@ -718,6 +724,12 @@ func operationalField(name string, allowed []redact.Mode) FieldSpec {
 	}
 }
 
+func operationalControlField(name string, reason string) FieldSpec {
+	field := operationalField(name, allModes())
+	field.SensitiveNameReason = reason
+	return field
+}
+
 func tenantConfigField(name string, allowed []redact.Mode) FieldSpec {
 	return FieldSpec{
 		Name:           name,
@@ -800,6 +812,46 @@ func networkPortsField(name string, allowed []redact.Mode) FieldSpec {
 			operationalField("end", allModes()),
 		},
 	}
+}
+
+func fieldList(groups ...[]FieldSpec) []FieldSpec {
+	var out []FieldSpec
+	for _, group := range groups {
+		out = append(out, group...)
+	}
+	return out
+}
+
+func operationalFields(names ...string) []FieldSpec {
+	fields := make([]FieldSpec, 0, len(names))
+	for _, name := range names {
+		fields = append(fields, operationalField(name, allModes()))
+	}
+	return fields
+}
+
+func tenantConfigFields(names ...string) []FieldSpec {
+	fields := make([]FieldSpec, 0, len(names))
+	for _, name := range names {
+		fields = append(fields, tenantConfigField(name, standardShareModes()))
+	}
+	return fields
+}
+
+func sensitiveIdentifierFields(names ...string) []FieldSpec {
+	fields := make([]FieldSpec, 0, len(names))
+	for _, name := range names {
+		fields = append(fields, sensitiveIdentifierField(name))
+	}
+	return fields
+}
+
+func secretFields(names ...string) []FieldSpec {
+	fields := make([]FieldSpec, 0, len(names))
+	for _, name := range names {
+		fields = append(fields, secretField(name))
+	}
+	return fields
 }
 
 func Catalog() ResourceCatalog {
@@ -2192,6 +2244,364 @@ func Catalog() ResourceCatalog {
 				operationalField("lastModifiedTime", standardShareModes()),
 				operationalField("type", allModes()),
 			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "advanced-settings",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				operationalFields(
+					"apiSessionTimeout",
+					"blockConnectHostSniMismatch",
+					"blockDomainFrontingOnHostHeader",
+					"blockHttpTunnelOnNonHttpPorts",
+					"blockNonCompliantHttpRequestOnHttpPorts",
+					"blockNonHttpOnHttpPortEnabled",
+					"cascadeUrlFiltering",
+					"dynamicUserRiskEnabled",
+					"ecsForAllEnabled",
+					"enableAdminRankAccess",
+					"enableDnsResolutionOnTransparentProxy",
+					"enableEvaluatePolicyOnGlobalSSLBypass",
+					"enableIPv6DnsOptimizationOnAllTransparentProxy",
+					"enableIPv6DnsResolutionOnTransparentProxy",
+					"enableOffice365",
+					"enablePolicyForUnauthenticatedTraffic",
+					"enforceSurrogateIpForWindowsApp",
+					"http2NonbrowserTrafficEnabled",
+					"logInternalIp",
+					"preferSniOverConnHost",
+					"sipaXffHeaderEnabled",
+					"trackHttpTunnelOnHttpPorts",
+					"uiSessionTimeout",
+					"zscalerClientConnector1AndPacRoadWarriorInFirewall",
+				),
+				sensitiveIdentifierFields(
+					"authBypassApps",
+					"authBypassUrlCategories",
+					"authBypassUrls",
+					"basicBypassApps",
+					"basicBypassUrlCategories",
+					"blockDomainFrontingApps",
+					"digestAuthBypassApps",
+					"digestAuthBypassUrlCategories",
+					"digestAuthBypassUrls",
+					"dnsResolutionOnTransparentProxyApps",
+					"dnsResolutionOnTransparentProxyExemptApps",
+					"dnsResolutionOnTransparentProxyExemptUrlCategories",
+					"dnsResolutionOnTransparentProxyExemptUrls",
+					"dnsResolutionOnTransparentProxyIPv6Apps",
+					"dnsResolutionOnTransparentProxyIPv6ExemptApps",
+					"dnsResolutionOnTransparentProxyIPv6ExemptUrlCategories",
+					"dnsResolutionOnTransparentProxyIPv6UrlCategories",
+					"dnsResolutionOnTransparentProxyUrlCategories",
+					"dnsResolutionOnTransparentProxyUrls",
+					"domainFrontingBypassUrlCategories",
+					"httpRangeHeaderRemoveUrlCategories",
+					"kerberosBypassApps",
+					"kerberosBypassUrlCategories",
+					"kerberosBypassUrls",
+					"preferSniOverConnHostApps",
+					"sniDnsOptimizationBypassUrlCategories",
+				),
+				secretFields("ecsObject"),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "advanced-threat-settings",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				operationalFields(
+					"activeXBlocked",
+					"activeXCapture",
+					"adSpywareSitesBlocked",
+					"adSpywareSitesCapture",
+					"alertForUnknownOrSuspiciousC2Traffic",
+					"anonymizerBlocked",
+					"anonymizerCapture",
+					"bitTorrentBlocked",
+					"bitTorrentCapture",
+					"blockCountriesCapture",
+					"browserExploitsBlocked",
+					"browserExploitsCapture",
+					"cmdCtlServerBlocked",
+					"cmdCtlServerCapture",
+					"cmdCtlTrafficBlocked",
+					"cmdCtlTrafficCapture",
+					"cryptoMiningBlocked",
+					"cryptoMiningCapture",
+					"dgaDomainsBlocked",
+					"dgaDomainsCapture",
+					"fileFormatVunerabilitesBlocked",
+					"fileFormatVunerabilitesCapture",
+					"googleTalkBlocked",
+					"googleTalkCapture",
+					"ircTunnellingBlocked",
+					"ircTunnellingCapture",
+					"knownPhishingSitesBlocked",
+					"knownPhishingSitesCapture",
+					"maliciousUrlsCapture",
+					"malwareSitesBlocked",
+					"malwareSitesCapture",
+					"potentialMaliciousRequestsBlocked",
+					"potentialMaliciousRequestsCapture",
+					"riskTolerance",
+					"riskToleranceCapture",
+					"sshTunnellingBlocked",
+					"sshTunnellingCapture",
+					"suspectAdwareSpywareSitesBlocked",
+					"suspectAdwareSpywareSitesCapture",
+					"suspectedPhishingSitesBlocked",
+					"suspectedPhishingSitesCapture",
+					"torBlocked",
+					"torCapture",
+					"webspamBlocked",
+					"webspamCapture",
+				),
+				[]FieldSpec{
+					operationalControlField("cookieStealingBlocked", "boolean security control; field name describes cookie-theft protection, not cookie material"),
+					operationalControlField("cookieStealingPCAPEnabled", "boolean security control; field name describes packet capture for cookie-theft protection, not cookie material"),
+				},
+				sensitiveIdentifierFields("blockedCountries"),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "mobile-threat-settings",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				operationalFields(
+					"blockAppsCommunicatingWithAdWebsites",
+					"blockAppsCommunicatingWithRemoteUnknownServers",
+					"blockAppsSendingDeviceIdentifier",
+					"blockAppsSendingLocationInfo",
+					"blockAppsSendingPersonallyIdentifiableInfo",
+					"blockAppsWithKnownVulnerabilities",
+					"blockAppsWithMaliciousActivity",
+				),
+				[]FieldSpec{
+					operationalControlField("blockAppsSendingUnencryptedUserCredentials", "boolean security control; field name describes credential-exfiltration blocking, not credential material"),
+				},
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "sandbox-settings",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				sensitiveIdentifierFields("fileHashesToBeBlocked"),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "end-user-notification-settings",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				operationalFields(
+					"aupCustomFrequency",
+					"aupDayOffset",
+					"aupFrequency",
+					"cautionAgainAfter",
+					"cautionPerDomain",
+					"displayCompLogo",
+					"displayReason",
+					"notificationType",
+					"securityReviewEnabled",
+					"securityReviewSubmitToSecurityCloud",
+					"urlCatReviewEnabled",
+					"urlCatReviewSubmitToSecurityCloud",
+					"webDlpReviewEnabled",
+					"webDlpReviewSubmitToSecurityCloud",
+				),
+				tenantConfigFields("displayCompName"),
+				sensitiveIdentifierFields(
+					"redirectUrl",
+					"securityReviewCustomLocation",
+					"supportEmail",
+					"supportPhone",
+					"urlCatReviewCustomLocation",
+					"webDlpReviewCustomLocation",
+				),
+				secretFields(
+					"aupMessage",
+					"cautionCustomText",
+					"customText",
+					"idpProxyNotificationText",
+					"orgPolicyLink",
+					"quarantineCustomNotificationText",
+					"securityReviewText",
+					"urlCatReviewText",
+					"webDlpReviewText",
+				),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "org-information",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				operationalFields(
+					"alertTimer",
+					"customerContactInherit",
+					"employeeCount",
+					"externalEmailPortal",
+					"internalCompany",
+					"language",
+					"legacyInsightsReportWasEnabled",
+					"logoMimeType",
+					"timezone",
+				),
+				tenantConfigFields("cloudName", "name"),
+				sensitiveIdentifierFields(
+					"addrLine1",
+					"addrLine2",
+					"city",
+					"country",
+					"domains",
+					"geoLocation",
+					"hqLocation",
+					"orgId",
+					"pdomain",
+					"state",
+					"zipcode",
+					"zpaTenantCloud",
+					"zpaTenantId",
+				),
+				secretFields(
+					"execInsightsHref",
+					"industryVertical",
+					"logoBase64Data",
+					"primaryBillingContactAltPhone",
+					"primaryBillingContactEmail",
+					"primaryBillingContactInsightsHref",
+					"primaryBillingContactName",
+					"primaryBillingContactPhone",
+					"primaryBillingContactTitle",
+					"primaryBillingContactcontactType",
+					"primaryBusinessContactAltPhone",
+					"primaryBusinessContactEmail",
+					"primaryBusinessContactInsightsHref",
+					"primaryBusinessContactName",
+					"primaryBusinessContactPhone",
+					"primaryBusinessContactTitle",
+					"primaryBusinessContactcontactType",
+					"primaryTechnicalContactAltPhone",
+					"primaryTechnicalContactEmail",
+					"primaryTechnicalContactInsightsHref",
+					"primaryTechnicalContactName",
+					"primaryTechnicalContactPhone",
+					"primaryTechnicalContactTitle",
+					"primaryTechnicalContactcontactType",
+					"secondaryBillingContactAltPhone",
+					"secondaryBillingContactEmail",
+					"secondaryBillingContactInsightsHref",
+					"secondaryBillingContactName",
+					"secondaryBillingContactPhone",
+					"secondaryBillingContactTitle",
+					"secondaryBillingContactcontactType",
+					"secondaryBusinessContactAltPhone",
+					"secondaryBusinessContactEmail",
+					"secondaryBusinessContactInsightsHref",
+					"secondaryBusinessContactName",
+					"secondaryBusinessContactPhone",
+					"secondaryBusinessContactTitle",
+					"secondaryBusinessContactcontactType",
+					"secondaryTechnicalContactAltPhone",
+					"secondaryTechnicalContactEmail",
+					"secondaryTechnicalContactInsightsHref",
+					"secondaryTechnicalContactName",
+					"secondaryTechnicalContactPhone",
+					"secondaryTechnicalContactTitle",
+					"secondaryTechnicalContactcontactType",
+				),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "atp-malware-policy",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				[]FieldSpec{
+					operationalControlField("blockPasswordProtectedArchiveFiles", "boolean security control; field name describes password-protected archive handling, not password material"),
+				},
+				operationalFields("blockUnscannableFiles"),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "atp-malware-settings",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				operationalFields(
+					"adwareBlocked",
+					"adwareCapture",
+					"ransomwareBlocked",
+					"ransomwareCapture",
+					"remoteAccessToolBlocked",
+					"remoteAccessToolCapture",
+					"spywareBlocked",
+					"spywareCapture",
+					"trojanBlocked",
+					"trojanCapture",
+					"unwantedApplicationsBlocked",
+					"unwantedApplicationsCapture",
+					"virusBlocked",
+					"virusCapture",
+					"wormBlocked",
+					"wormCapture",
+				),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "atp-malware-inspection",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				operationalFields("inspectInbound", "inspectOutbound"),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "atp-malware-protocols",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				operationalFields("inspectFtp", "inspectFtpOverHttp", "inspectHttp"),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "malicious-urls",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				sensitiveIdentifierFields("maliciousUrls"),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "security-exceptions",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				sensitiveIdentifierFields("bypassUrls"),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "url-allow-list",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				sensitiveIdentifierFields("whitelistUrls"),
+				secretFields("blacklistUrls"),
+			),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "url-deny-list",
+			Operations: ShowOperation(),
+			Fields: fieldList(
+				sensitiveIdentifierFields("blacklistUrls"),
+				secretFields("whitelistUrls"),
+			),
 		},
 	}
 }

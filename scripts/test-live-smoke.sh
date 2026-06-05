@@ -26,10 +26,13 @@ cat >"$fake_bin" <<'SH'
 set -euo pipefail
 
 mode="${ZSCALERCTL_FAKE_MODE:-good}"
-resources=(gre-tunnels location-groups locations rule-labels static-ips url-filtering-rules)
+resources=(advanced-settings gre-tunnels location-groups locations rule-labels static-ips url-filtering-rules)
 
 schema_fields() {
   case "$1" in
+    advanced-settings)
+      printf '[{"name":"apiSessionTimeout","allowed_modes":["standard"]},{"name":"authBypassUrls","allowed_modes":["standard"]}]'
+      ;;
     gre-tunnels)
       printf '[{"name":"id","allowed_modes":["standard"]},{"name":"sourceIp","allowed_modes":["standard"]},{"name":"internalIpRange","allowed_modes":["standard"]},{"name":"comment","allowed_modes":["standard"]},{"name":"withinCountry","allowed_modes":["standard"]}]'
       ;;
@@ -63,7 +66,11 @@ write_schema() {
     if [[ "$resource" != "${resources[0]}" ]]; then
       printf ',\n'
     fi
-    printf '  {"product":"zia","name":"%s","operations":[{"name":"list","capability":"read"},{"name":"get","capability":"read"}],"fields":%s}' "$resource" "$(schema_fields "$resource")"
+    if [[ "$resource" == "advanced-settings" ]]; then
+      printf '  {"product":"zia","name":"%s","operations":[{"name":"show","capability":"read"}],"fields":%s}' "$resource" "$(schema_fields "$resource")"
+    else
+      printf '  {"product":"zia","name":"%s","operations":[{"name":"list","capability":"read"},{"name":"get","capability":"read"}],"fields":%s}' "$resource" "$(schema_fields "$resource")"
+    fi
   done
   printf '\n]\n'
 }
@@ -71,6 +78,9 @@ write_schema() {
 write_resource() {
   local resource="$1"
   case "$mode:$resource" in
+    *:advanced-settings)
+      printf '{"apiSessionTimeout":30,"authBypassUrls":["admin.internal.example"]}\n'
+      ;;
     leaky:locations)
       printf '[{"id":1,"name":"HQ","preSharedKey":"plain-secret"}]\n'
       ;;
@@ -230,8 +240,8 @@ if [[ "${1:-}" == "--format" && "${2:-}" == "json" && "${3:-}" == "schema" && "$
 fi
 
 if [[ "${1:-}" == "--format" ]]; then
-  if [[ "${2:-}" != "json" || "${3:-}" != "zia" || "${5:-}" != "list" ]]; then
-    echo "unexpected list args: $*" >&2
+  if [[ "${2:-}" != "json" || "${3:-}" != "zia" || ("${5:-}" != "list" && "${5:-}" != "show") ]]; then
+    echo "unexpected resource args: $*" >&2
     exit 2
   fi
   write_resource "$4"
@@ -373,6 +383,12 @@ if ! grep -q '\[PASS\] zia locations list and dump counts match (1 records)' "$t
   exit 1
 fi
 
+if ! grep -q '\[PASS\] zia advanced-settings show and dump counts match (1 records)' "$tmp_dir/stdout-good"; then
+  echo "live-smoke good fixture did not compare show and dump counts" >&2
+  cat "$tmp_dir/stdout-good" >&2
+  exit 1
+fi
+
 if ! grep -q '\[PASS\] zia location-groups list contains only catalog-allowed top-level fields' "$tmp_dir/stdout-good"; then
   echo "live-smoke good fixture did not validate list catalog subset" >&2
   cat "$tmp_dir/stdout-good" >&2
@@ -486,7 +502,7 @@ if ZSCALERCTL_BIN="$fake_bin" "$repo_root/scripts/live-smoke.sh" --skip-credenti
   exit 1
 fi
 
-if ! grep -q 'requested resource is not a ZIA read/list resource: zia/not-real' "$tmp_dir/stderr-unknown-resource"; then
+if ! grep -q 'requested resource is not a ZIA read resource: zia/not-real' "$tmp_dir/stderr-unknown-resource"; then
   echo "live-smoke unknown-resource failure did not mention the requested resource" >&2
   cat "$tmp_dir/stderr-unknown-resource" >&2
   exit 1

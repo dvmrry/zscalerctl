@@ -80,6 +80,7 @@ func New(out, err io.Writer, env []string) *App {
 type ResourceReader interface {
 	List(context.Context, resources.Product, string) ([]resources.SourceRecord, error)
 	Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error)
+	Show(context.Context, resources.Product, string) (resources.SourceRecord, error)
 }
 
 type resourceSessionProvider interface {
@@ -486,14 +487,14 @@ func (a *App) runSchema(_ context.Context, cfg config.Config, opts globalOptions
 	}
 	var body strings.Builder
 	for _, spec := range catalog {
-		fmt.Fprintf(&body, "%s\t%s\n", spec.Product, spec.Name)
+		fmt.Fprintf(&body, "%s\t%s\t%s\n", spec.Product, spec.Name, strings.Join(readOperationNames(spec), ","))
 	}
 	return a.renderer(cfg, opts).WriteText(a.out, output.NewSafeText(body.String()))
 }
 
 func (a *App) runProduct(ctx context.Context, cfg config.Config, opts globalOptions, productName string, args []string) error {
 	if len(args) < 2 {
-		return UsageError{Message: fmt.Sprintf("usage: zscalerctl %s <resource> list|get", productName)}
+		return UsageError{Message: fmt.Sprintf("usage: zscalerctl %s <resource> list|get|show", productName)}
 	}
 	product := resources.Product(productName)
 	resource := args[0]
@@ -504,8 +505,11 @@ func (a *App) runProduct(ctx context.Context, cfg config.Config, opts globalOpti
 	if op == "get" && len(args) != 3 {
 		return UsageError{Message: fmt.Sprintf("usage: zscalerctl %s <resource> get <id>", productName)}
 	}
-	if op != "list" && op != "get" {
-		return UsageError{Message: fmt.Sprintf("usage: zscalerctl %s <resource> list|get", productName)}
+	if op == "show" && len(args) != 2 {
+		return UsageError{Message: fmt.Sprintf("usage: zscalerctl %s <resource> show", productName)}
+	}
+	if op != "list" && op != "get" && op != "show" {
+		return UsageError{Message: fmt.Sprintf("usage: zscalerctl %s <resource> list|get|show", productName)}
 	}
 	spec, ok := a.resourceCatalog().FindSpec(product, resource)
 	if !ok {
@@ -520,6 +524,17 @@ func (a *App) runProduct(ctx context.Context, cfg config.Config, opts globalOpti
 	reader, err := a.resourceReader(cfg, opts)
 	if err != nil {
 		return err
+	}
+	if op == "show" {
+		record, err := reader.Show(ctx, product, resource)
+		if err != nil {
+			return err
+		}
+		projected, _, err := resources.ProjectRecordAndVerify(spec, cfg.Defaults.Redaction, record)
+		if err != nil {
+			return err
+		}
+		return a.writeProjectedRecord(cfg, opts, spec, projected)
 	}
 	if op == "get" {
 		record, err := reader.Get(ctx, product, resource, args[2])
@@ -673,6 +688,39 @@ func (a *App) collectDump(
 			readers[spec.Product] = reader
 			// Register cleanup once per product session, not once per resource.
 			defer cleanup()
+		}
+		if spec.SupportsReadOperation("show") {
+			record, err := reader.Show(ctx, spec.Product, spec.Name)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return result, ctxErr
+				}
+				if continueOnError {
+					result.Errors = append(result.Errors, dump.NewResourceError(spec.Product, spec.Name, "show", "show_failed"))
+					continue
+				}
+				return result, fmt.Errorf("dump %s/%s show failed", spec.Product, spec.Name)
+			}
+			projected, report, err := resources.ProjectRecordAndVerify(spec, cfg.Defaults.Redaction, record)
+			if err != nil {
+				operation := "project"
+				kind := "projection_failed"
+				if errors.Is(err, resources.ErrUnexpectedField) {
+					operation = "validate"
+					kind = "subset_failed"
+				}
+				if continueOnError {
+					result.Errors = append(result.Errors, dump.NewResourceError(spec.Product, spec.Name, operation, kind))
+					continue
+				}
+				return result, fmt.Errorf("dump %s/%s %s failed", spec.Product, spec.Name, operation)
+			}
+			result.Entries = append(result.Entries, dump.ResourceDump{
+				Spec:    spec,
+				Record:  &projected,
+				Reports: []resources.ProjectionReport{report},
+			})
+			continue
 		}
 		records, err := reader.List(ctx, spec.Product, spec.Name)
 		if err != nil {
@@ -1127,12 +1175,17 @@ func catalogHasProduct(catalog resources.ResourceCatalog, product resources.Prod
 }
 
 func resourceSupportsDump(spec resources.ResourceSpec) bool {
+	return spec.SupportsReadOperation("list") || spec.SupportsReadOperation("show")
+}
+
+func readOperationNames(spec resources.ResourceSpec) []string {
+	var names []string
 	for _, op := range spec.Operations {
-		if op.Name == "list" && op.Capability == resources.CapabilityRead {
-			return true
+		if op.Capability == resources.CapabilityRead {
+			names = append(names, op.Name)
 		}
 	}
-	return false
+	return names
 }
 
 func dumpResourceSelected(selected map[dumpResourceKey]bool, spec resources.ResourceSpec) bool {

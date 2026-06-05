@@ -8,6 +8,8 @@ import (
 
 	"github.com/dvmrry/zscalerctl/internal/resources"
 
+	advancedsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/advanced_settings"
+	advancedthreatsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/advancedthreatsettings"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts"
 	authsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/auth_settings"
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
@@ -22,6 +24,7 @@ import (
 	filetypecontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol"
 	customfiletypes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol/custom_file_types"
 	firewalldnscontrolpolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewalldnscontrolpolicies"
+	endusernotification "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/end_user_notification"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -37,9 +40,14 @@ import (
 	zpagateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/zpa_gateways"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
+	malwareprotection "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/malware_protection"
+	mobilethreatsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/mobile_threat_settings"
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
+	organizationdetails "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/organization_details"
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
 	sandboxrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sandbox/sandbox_rules"
+	sandboxsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sandbox/sandbox_settings"
+	securitypolicysettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/security_policy_settings"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
 	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
@@ -65,7 +73,7 @@ func TestReviewedSDKShapesMatchCatalogOrIgnoredRegistry(t *testing.T) {
 	}
 }
 
-func TestReviewedSDKShapesCoverCatalogListResources(t *testing.T) {
+func TestReviewedSDKShapesCoverCatalogReadResources(t *testing.T) {
 	t.Parallel()
 
 	reviewed := map[string]struct{}{}
@@ -78,7 +86,7 @@ func TestReviewedSDKShapesCoverCatalogListResources(t *testing.T) {
 
 	var missing []string
 	for _, spec := range resources.Catalog() {
-		if !specHasReadListOperation(spec) {
+		if !specHasReadOperation(spec) {
 			continue
 		}
 		key := resourceReviewKey(spec.Product, spec.Name)
@@ -88,7 +96,7 @@ func TestReviewedSDKShapesCoverCatalogListResources(t *testing.T) {
 	}
 	sort.Strings(missing)
 	if len(missing) > 0 {
-		t.Fatalf("reviewedSDKShapes() missing top-level SDK shape reviews for catalog resources: %v", missing)
+		t.Fatalf("reviewedSDKShapes() missing top-level SDK shape reviews for catalog read resources: %v", missing)
 	}
 }
 
@@ -1821,6 +1829,104 @@ func reviewedSDKShapes() []sdkShapeReview {
 			),
 		},
 		{
+			name:          "advancedsettings.AdvancedSettings",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceAdvancedSettings,
+			typ:           reflect.TypeOf(advancedsettings.AdvancedSettings{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceAdvancedSettings),
+		},
+		{
+			name:          "advancedthreatsettings.AdvancedThreatSettings",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceAdvancedThreatSettings,
+			typ:           reflect.TypeOf(advancedthreatsettings.AdvancedThreatSettings{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceAdvancedThreatSettings),
+		},
+		{
+			name:          "mobilethreatsettings.MobileAdvanceThreatSettings",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceMobileThreatSettings,
+			typ:           reflect.TypeOf(mobilethreatsettings.MobileAdvanceThreatSettings{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceMobileThreatSettings),
+		},
+		{
+			name:          "sandboxsettings.BaAdvancedSettings",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceSandboxSettings,
+			typ:           reflect.TypeOf(sandboxsettings.BaAdvancedSettings{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceSandboxSettings),
+		},
+		{
+			name:          "endusernotification.UserNotificationSettings",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceEndUserNotification,
+			typ:           reflect.TypeOf(endusernotification.UserNotificationSettings{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceEndUserNotification),
+		},
+		{
+			name:          "organizationdetails.Organization",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceOrgInformation,
+			typ:           reflect.TypeOf(organizationdetails.Organization{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceOrgInformation),
+		},
+		{
+			name:          "malwareprotection.MalwarePolicy",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceATPMalwarePolicy,
+			typ:           reflect.TypeOf(malwareprotection.MalwarePolicy{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceATPMalwarePolicy),
+		},
+		{
+			name:          "malwareprotection.MalwareSettings",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceATPMalwareSettings,
+			typ:           reflect.TypeOf(malwareprotection.MalwareSettings{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceATPMalwareSettings),
+		},
+		{
+			name:          "malwareprotection.ATPMalwareInspection",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceATPMalwareInspection,
+			typ:           reflect.TypeOf(malwareprotection.ATPMalwareInspection{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceATPMalwareInspection),
+		},
+		{
+			name:          "malwareprotection.ATPMalwareProtocols",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceATPMalwareProtocols,
+			typ:           reflect.TypeOf(malwareprotection.ATPMalwareProtocols{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceATPMalwareProtocols),
+		},
+		{
+			name:          "advancedthreatsettings.MaliciousURLs",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceMaliciousURLs,
+			typ:           reflect.TypeOf(advancedthreatsettings.MaliciousURLs{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceMaliciousURLs),
+		},
+		{
+			name:          "advancedthreatsettings.SecurityExceptions",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceSecurityExceptions,
+			typ:           reflect.TypeOf(advancedthreatsettings.SecurityExceptions{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceSecurityExceptions),
+		},
+		{
+			name:          "securitypolicysettings.ListUrls/allow",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceSecurityPolicyURLAllowlist,
+			typ:           reflect.TypeOf(securitypolicysettings.ListUrls{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceSecurityPolicyURLAllowlist),
+		},
+		{
+			name:          "securitypolicysettings.ListUrls/deny",
+			resource:      resources.ProductZIA,
+			resourceName:  resourceSecurityPolicyURLDenylist,
+			typ:           reflect.TypeOf(securitypolicysettings.ListUrls{}),
+			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceSecurityPolicyURLDenylist),
+		},
+		{
 			name: "workloadgroups.WorkloadTagExpression",
 			typ:  reflect.TypeOf(workloadgroups.WorkloadTagExpression{}),
 			ignoredFields: ignoredBecause(
@@ -1875,6 +1981,19 @@ func catalogFieldNames(spec resources.ResourceSpec) map[string]struct{} {
 	for _, field := range spec.Fields {
 		fields[field.JSONField()] = struct{}{}
 	}
+	return fields
+}
+
+func catalogFieldsFor(product resources.Product, name string) []string {
+	spec, ok := resources.FindSpec(product, name)
+	if !ok {
+		panic("missing catalog spec " + resourceReviewKey(product, name))
+	}
+	fields := make([]string, 0, len(spec.Fields))
+	for _, field := range spec.Fields {
+		fields = append(fields, field.JSONField())
+	}
+	sort.Strings(fields)
 	return fields
 }
 
@@ -1938,9 +2057,9 @@ func namesSet(names []string) map[string]struct{} {
 	return out
 }
 
-func specHasReadListOperation(spec resources.ResourceSpec) bool {
+func specHasReadOperation(spec resources.ResourceSpec) bool {
 	for _, op := range spec.Operations {
-		if op.Name == "list" && op.Capability == resources.CapabilityRead {
+		if op.Capability == resources.CapabilityRead {
 			return true
 		}
 	}
