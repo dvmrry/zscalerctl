@@ -534,7 +534,7 @@ func (a *App) runProduct(ctx context.Context, cfg config.Config, opts globalOpti
 		if err != nil {
 			return err
 		}
-		return a.writeProjectedRecord(cfg, opts, spec, projected)
+		return a.writeProjectedRecord(cfg, opts, spec, projected, op)
 	}
 	if op == "get" {
 		record, err := reader.Get(ctx, product, resource, args[2])
@@ -545,7 +545,7 @@ func (a *App) runProduct(ctx context.Context, cfg config.Config, opts globalOpti
 		if err != nil {
 			return err
 		}
-		return a.writeProjectedRecord(cfg, opts, spec, projected)
+		return a.writeProjectedRecord(cfg, opts, spec, projected, op)
 	}
 	records, err := reader.List(ctx, product, resource)
 	if err != nil {
@@ -761,6 +761,7 @@ func (a *App) writeProjectedRecord(
 	opts globalOptions,
 	spec resources.ResourceSpec,
 	record resources.ProjectedRecord,
+	operation string,
 ) error {
 	switch opts.format {
 	case output.FormatJSON:
@@ -768,7 +769,7 @@ func (a *App) writeProjectedRecord(
 	case output.FormatTable:
 		return a.renderer(cfg, opts).WriteText(a.out, renderRecordsTable(spec, cfg.Defaults.Redaction, resources.NewProjectedRecords([]resources.ProjectedRecord{record}), a.style(opts)))
 	default:
-		return fmt.Errorf("unhandled output format %q for resource get", opts.format)
+		return fmt.Errorf("unhandled output format %q for resource %s", opts.format, operation)
 	}
 }
 
