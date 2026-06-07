@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
+ROOT="$repo_root"
 RULES="${ROOT}/semgrep/rules/zscalerctl.yml"
 SEMGREP_VERSION="${SEMGREP_VERSION:-1.164.0}"
 

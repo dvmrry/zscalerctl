@@ -11,6 +11,7 @@ registered path exists.
 | Script | Category | Called by | Validation |
 | --- | --- | --- | --- |
 | `scripts/catalog-draft.go` | dev | Manual `go run`; exercised by `scripts/test-catalog-draft.sh` | `make verify-catalog-draft` |
+| `scripts/lib.sh` | lib | Sourced by repository shell scripts | Covered by scripts that source it during `make check` |
 | `scripts/live-smoke.sh` | smoke | `make live-smoke`; manual live tenant validation | `scripts/test-live-smoke.sh` |
 | `scripts/next-version.sh` | release | `.github/workflows/release.yml` | `scripts/test-next-version.sh` |
 | `scripts/pr-labels-for-commit.sh` | release | `.github/workflows/release.yml` | `scripts/test-pr-labels-for-commit.sh` |
