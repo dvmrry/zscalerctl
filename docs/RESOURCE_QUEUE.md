@@ -287,6 +287,13 @@ Each retry must be a focused probe that records the exact status code, auth
 mode, product cloud, endpoint path, SDK version, source commit, and whether the
 run used source or a release binary.
 
+The pinned-SDK source recheck for this backlog lives in
+[Deferred Resource SDK Recheck](DEFERRED_RESOURCE_RECHECK.md). That document
+records SDK package names, read functions, endpoint literals, mutating
+neighbors, and the current recheck conclusion for each deferred resource. Use it
+before deciding whether a failure was likely a mapping mistake, a product/auth
+boundary issue, or a deliberate privacy/material hold.
+
 | Resource | Last evidence | Required next probe |
 | --- | --- | --- |
 | `zia/network-service-groups` | Early live-smoke request failure; exact status not recorded. | Retry under current legacy-ZIA config with improved smoke summary; record status and endpoint. |
