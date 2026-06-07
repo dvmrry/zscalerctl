@@ -1462,6 +1462,198 @@ Fields:
 | `description` | Free text | `standard` | Standard-only operator context; scanned with free-text and rendered-string backstops. |
 | `configKey`, `configValue`, `configValueInt`, `customerId`, `targetGid` | Secret or unmodeled nested structure | none | Dropped because override keys, values, and tenant/target identifiers require resource-specific review before exposure. |
 
+## ZTW Workload Groups
+
+Commands:
+
+```sh
+zscalerctl ztw workload-groups list
+zscalerctl ztw workload-groups get <id>
+zscalerctl dump --products ztw --resources ztw/workload-groups --out ./scratch-live-smoke
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | ZTW workload group identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `expression` | Secret | never | Tag-expression text is dropped in the first ZTW pass because it can encode tenant tag keys and values. |
+| `lastModifiedTime` | Operational metadata | `standard`, `share` | SDK timestamp value. |
+| `lastModifiedBy` | Secret | never | Admin identity reference is mapped into source records and dropped by projection. |
+| `expressionJson` | Secret | never | Structured tag-expression graph is mapped into source records and dropped by projection. |
+
+The SDK also returns nested expression containers and tag key/value pairs under
+`expressionJson`. The reader maps that graph so SDK shape drift is visible to
+tests, but the catalog does not allow it to render.
+
+## ZTW Public Cloud Accounts
+
+Commands:
+
+```sh
+zscalerctl ztw public-cloud-accounts list
+zscalerctl ztw public-cloud-accounts get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `platformId` | Operational metadata | `standard`, `share`, `paranoid` | Internal record ID and cloud platform. |
+| `accountId` | Sensitive identifier | `standard` | Cloud account/subscription identifier; local-only. |
+
+## ZTW Dns Gateways
+
+Commands:
+
+```sh
+zscalerctl ztw dns-gateways list
+zscalerctl ztw dns-gateways get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `dnsGatewayType` | Operational metadata | `standard`, `share`, `paranoid` | Gateway identifier and type. |
+| `name`, `failureBehavior` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `primaryIp`, `secondaryIp` | Sensitive identifier | `standard` | Local-only gateway addresses. |
+| `lastModifiedTime` | Operational metadata | `standard`, `share` | SDK timestamp value. |
+| `ecDnsGatewayOptionsPrimary`, `ecDnsGatewayOptionsSecondary`, `lastModifiedBy` | Secret | never | Gateway option internals and admin identity are dropped in the first ZTW pass. |
+
+## ZTW Forwarding Gateways
+
+Commands:
+
+```sh
+zscalerctl ztw forwarding-gateways list
+zscalerctl ztw forwarding-gateways get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `failClosed`, `primaryType`, `secondaryType`, `type`, `dnsGatewayType` | Operational metadata | `standard`, `share`, `paranoid` | Gateway identity and behavior flags. |
+| `name`, `failureBehavior` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `manualPrimary`, `manualSecondary`, `primaryIp`, `secondaryIp` | Sensitive identifier | `standard` | Local-only gateway endpoints. |
+| `subcloudPrimary`, `subcloudSecondary` | Tenant configuration | `standard` | Rendered as id/name references only; `externalId` and extensions are dropped. |
+| `lastModifiedTime` | Operational metadata | `standard`, `share` | SDK timestamp value. |
+| `ecDnsGatewayOptionsPrimary`, `ecDnsGatewayOptionsSecondary`, `lastModifiedBy` | Secret | never | Gateway option internals and admin identity are dropped in the first ZTW pass. |
+
+## ZTW Ec Groups
+
+Commands:
+
+```sh
+zscalerctl ztw ec-groups list
+zscalerctl ztw ec-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `deployType`, `status`, `platform`, `maxEcCount` | Operational metadata | `standard`, `share`, `paranoid` | EC group identity and state. |
+| `name`, `tunnelMode` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `desc` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `awsAvailabilityZone`, `azureAvailabilityZone` | Sensitive identifier | `standard` | Local-only cloud placement metadata. |
+| `location`, `provTemplate` | Tenant configuration | `standard` | Rendered as id/name references only; `externalId` and extensions are dropped. |
+| `ecVMs` | Secret | never | EC VM and network internals are dropped; use a dedicated resource later if needed. |
+
+## ZTW IP Source Groups
+
+Commands:
+
+```sh
+zscalerctl ztw ip-source-groups list
+zscalerctl ztw ip-source-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `creatorContext`, `isNonEditable` | Operational metadata | `standard`, `share`, `paranoid` | Group identity and immutable/predefined state. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `ipAddresses` | Sensitive identifier | `standard` | Local-only source addresses. |
+
+## ZTW IP Destination Groups
+
+Commands:
+
+```sh
+zscalerctl ztw ip-destination-groups list
+zscalerctl ztw ip-destination-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `type`, `countries`, `isNonEditable` | Operational metadata | `standard`, `share`, `paranoid` for `id`, `type`, `isNonEditable`; `standard`, `share` for `countries` | Group identity and broad metadata. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `addresses`, `ipCategories` | Sensitive identifier | `standard` | Local-only destination addresses and category references. |
+
+## ZTW IP Groups
+
+Commands:
+
+```sh
+zscalerctl ztw ip-groups list
+zscalerctl ztw ip-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `creatorContext`, `isNonEditable`, `extranetIpPool`, `isPredefined` | Operational metadata | `standard`, `share`, `paranoid` | Group identity and immutable/predefined state. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `ipAddresses` | Sensitive identifier | `standard` | Local-only addresses. |
+
+## ZTW Network Services
+
+Commands:
+
+```sh
+zscalerctl ztw network-services list
+zscalerctl ztw network-services get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `type`, `isNameL10nTag`, `creatorContext` | Operational metadata | `standard`, `share`, `paranoid` | Service identity and metadata. |
+| `name`, `tag` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `srcTcpPorts`, `destTcpPorts`, `srcUdpPorts`, `destUdpPorts` | Tenant configuration | `standard`, `share` | Port ranges are rendered as `start`/`end` pairs. |
+
+## ZTW Network Service Groups
+
+Commands:
+
+```sh
+zscalerctl ztw network-service-groups list
+zscalerctl ztw network-service-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `creatorContext` | Operational metadata | `standard`, `share`, `paranoid` | Group identity and source context. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `services` | Tenant configuration | `standard` | Rendered as id/name references only; service ports/details are owned by `ztw/network-services`. |
+
 ## Deferred Resource Follow-Ups
 
 - `zia/network-service-groups`: generated and locally validated, but removed
@@ -1516,7 +1708,7 @@ Fields:
 
 Before enabling another resource:
 
-- Start with `scripts/scaffold-resource.sh --product <zia|zpa> --resource
+- Start with `scripts/scaffold-resource.sh --product <zia|zpa|ztw> --resource
   <name> --package <sdk-package> --type <sdk-type>` to create a review bundle
   under `scratch/resource-drafts/`. The bundle wraps `catalog-draft.go`, adds
   reader/docs/validation notes, and does not mutate production files.

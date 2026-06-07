@@ -76,6 +76,17 @@ import (
 	zpaserviceedgecontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgecontroller"
 	zpaserviceedgegroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgegroup"
 	zpatrustednetwork "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/trustednetwork"
+	ztwcommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/common"
+	ztwdnsgateway "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/dns_gateway"
+	ztwecgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/ecgroup"
+	ztwziaforwardinggateway "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/forwarding_gateways/zia_forwarding_gateway"
+	ztwipdestinationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipdestinationgroups"
+	ztwipgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipgroups"
+	ztwipsourcegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipsourcegroups"
+	ztwnetworkservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networkservicegroups"
+	ztwnetworkservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networkservices"
+	ztwpubliccloudaccount "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/provisioning/public_cloud_account"
+	ztwworkloadgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/workload_groups"
 )
 
 func TestReviewedSDKShapesMatchCatalogOrIgnoredRegistry(t *testing.T) {
@@ -1349,6 +1360,176 @@ func reviewedSDKShapes() []sdkShapeReview {
 			),
 		},
 		{
+			name:         "ztwworkloadgroups.WorkloadGroup",
+			resource:     resources.ProductZTW,
+			resourceName: resourceWorkloadGroups,
+			typ:          reflect.TypeOf(ztwworkloadgroups.WorkloadGroup{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"expression",
+				"lastModifiedTime",
+				"lastModifiedBy",
+				"expressionJson",
+			},
+		},
+		{
+			name:         "ztwpubliccloudaccount.PublicCloudAccountDetails",
+			resource:     resources.ProductZTW,
+			resourceName: resourcePublicCloudAccts,
+			typ:          reflect.TypeOf(ztwpubliccloudaccount.PublicCloudAccountDetails{}),
+			catalogFields: []string{
+				"id",
+				"accountId",
+				"platformId",
+			},
+		},
+		{
+			name:         "ztwdnsgateway.DNSGateway",
+			resource:     resources.ProductZTW,
+			resourceName: resourceDNSGateways,
+			typ:          reflect.TypeOf(ztwdnsgateway.DNSGateway{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"dnsGatewayType",
+				"ecDnsGatewayOptionsPrimary",
+				"ecDnsGatewayOptionsSecondary",
+				"failureBehavior",
+				"primaryIp",
+				"secondaryIp",
+				"lastModifiedTime",
+				"lastModifiedBy",
+			},
+		},
+		{
+			name:         "ztwziaforwardinggateway.ECGateway",
+			resource:     resources.ProductZTW,
+			resourceName: resourceForwardingGWs,
+			typ:          reflect.TypeOf(ztwziaforwardinggateway.ECGateway{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"failClosed",
+				"manualPrimary",
+				"manualSecondary",
+				"subcloudPrimary",
+				"subcloudSecondary",
+				"primaryType",
+				"secondaryType",
+				"type",
+				"failureBehavior",
+				"dnsGatewayType",
+				"primaryIp",
+				"secondaryIp",
+				"ecDnsGatewayOptionsPrimary",
+				"ecDnsGatewayOptionsSecondary",
+				"lastModifiedBy",
+				"lastModifiedTime",
+			},
+		},
+		{
+			name:         "ztwecgroup.EcGroup",
+			resource:     resources.ProductZTW,
+			resourceName: resourceECGroups,
+			typ:          reflect.TypeOf(ztwecgroup.EcGroup{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"desc",
+				"deployType",
+				"status",
+				"platform",
+				"awsAvailabilityZone",
+				"azureAvailabilityZone",
+				"maxEcCount",
+				"tunnelMode",
+				"location",
+				"provTemplate",
+				"ecVMs",
+			},
+		},
+		{
+			name:         "ztwipsourcegroups.IPSourceGroups",
+			resource:     resources.ProductZTW,
+			resourceName: resourceIPSourceGroups,
+			typ:          reflect.TypeOf(ztwipsourcegroups.IPSourceGroups{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"ipAddresses",
+				"creatorContext",
+				"isNonEditable",
+			},
+		},
+		{
+			name:         "ztwipdestinationgroups.IPDestinationGroups",
+			resource:     resources.ProductZTW,
+			resourceName: resourceIPDestGroups,
+			typ:          reflect.TypeOf(ztwipdestinationgroups.IPDestinationGroups{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"type",
+				"addresses",
+				"ipCategories",
+				"countries",
+				"isNonEditable",
+			},
+		},
+		{
+			name:         "ztwipgroups.IPGroups",
+			resource:     resources.ProductZTW,
+			resourceName: resourceIPGroups,
+			typ:          reflect.TypeOf(ztwipgroups.IPGroups{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"ipAddresses",
+				"creatorContext",
+				"isNonEditable",
+				"extranetIpPool",
+				"isPredefined",
+			},
+		},
+		{
+			name:         "ztwnetworkservices.NetworkServices",
+			resource:     resources.ProductZTW,
+			resourceName: resourceNetworkServices,
+			typ:          reflect.TypeOf(ztwnetworkservices.NetworkServices{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"tag",
+				"srcTcpPorts",
+				"destTcpPorts",
+				"srcUdpPorts",
+				"destUdpPorts",
+				"type",
+				"isNameL10nTag",
+				"creatorContext",
+			},
+		},
+		{
+			name:         "ztwnetworkservicegroups.NetworkServiceGroups",
+			resource:     resources.ProductZTW,
+			resourceName: resourceNetworkSvcGroups,
+			typ:          reflect.TypeOf(ztwnetworkservicegroups.NetworkServiceGroups{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"services",
+				"description",
+				"creatorContext",
+			},
+		},
+		{
 			name:         "alerts.AlertSubscriptions",
 			resource:     resources.ProductZIA,
 			resourceName: resourceAlertSubs,
@@ -2556,6 +2737,92 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"covered by dropped expressionJson parent",
 				"key",
 				"value",
+			),
+		},
+		{
+			name: "ztwworkloadgroups.WorkloadTagExpression",
+			typ:  reflect.TypeOf(ztwworkloadgroups.WorkloadTagExpression{}),
+			ignoredFields: ignoredBecause(
+				"covered by dropped expressionJson parent",
+				"expressionContainers",
+			),
+		},
+		{
+			name: "ztwworkloadgroups.ExpressionContainer",
+			typ:  reflect.TypeOf(ztwworkloadgroups.ExpressionContainer{}),
+			ignoredFields: ignoredBecause(
+				"covered by dropped expressionJson parent",
+				"tagType",
+				"operator",
+				"tagContainer",
+			),
+		},
+		{
+			name: "ztwworkloadgroups.TagContainer",
+			typ:  reflect.TypeOf(ztwworkloadgroups.TagContainer{}),
+			ignoredFields: ignoredBecause(
+				"covered by dropped expressionJson parent",
+				"tags",
+				"operator",
+			),
+		},
+		{
+			name: "ztwworkloadgroups.Tags",
+			typ:  reflect.TypeOf(ztwworkloadgroups.Tags{}),
+			ignoredFields: ignoredBecause(
+				"covered by dropped expressionJson parent",
+				"key",
+				"value",
+			),
+		},
+		{
+			name: "ztwcommon.CommonIDNameExternalID",
+			typ:  reflect.TypeOf(ztwcommon.CommonIDNameExternalID{}),
+			ignoredFields: ignoredBecause(
+				"used as id/name reference; additional metadata is dropped by nested catalog fields",
+				"id",
+				"name",
+				"isNameL10nTag",
+				"extensions",
+				"deleted",
+				"externalId",
+				"associationTime",
+			),
+		},
+		{
+			name: "ztwnetworkservices.NetworkPorts",
+			typ:  reflect.TypeOf(ztwnetworkservices.NetworkPorts{}),
+			ignoredFields: ignoredBecause(
+				"covered by modeled network port range parent",
+				"start",
+				"end",
+			),
+		},
+		{
+			name: "ztwnetworkservicegroups.Services",
+			typ:  reflect.TypeOf(ztwnetworkservicegroups.Services{}),
+			ignoredFields: ignoredBecause(
+				"network service groups render child services as id/name references only; ztw/network-services owns service details",
+				"id",
+				"name",
+				"tag",
+				"srcTcpPorts",
+				"destTcpPorts",
+				"srcUdpPorts",
+				"destUdpPorts",
+				"type",
+				"description",
+				"isNameL10nTag",
+			),
+		},
+		{
+			name: "ztwcommon.IDNameExtensions",
+			typ:  reflect.TypeOf(ztwcommon.IDNameExtensions{}),
+			ignoredFields: ignoredBecause(
+				"covered by dropped lastModifiedBy parent",
+				"id",
+				"name",
+				"extensions",
 			),
 		},
 		{

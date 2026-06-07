@@ -62,6 +62,17 @@ import (
 	zpaservergroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup"
 	zpaserviceedgecontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgecontroller"
 	zpaserviceedgegroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgegroup"
+	ztwcommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/common"
+	ztwdnsgateway "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/dns_gateway"
+	ztwecgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/ecgroup"
+	ztwziaforwardinggateway "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/forwarding_gateways/zia_forwarding_gateway"
+	ztwipdestinationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipdestinationgroups"
+	ztwipgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipgroups"
+	ztwipsourcegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipsourcegroups"
+	ztwnetworkservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networkservicegroups"
+	ztwnetworkservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networkservices"
+	ztwpubliccloudaccount "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/provisioning/public_cloud_account"
+	ztwworkloadgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/workload_groups"
 
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/resources"
@@ -169,6 +180,17 @@ func TestNewReaderRequiresExplicitZscalerctlCredentials(t *testing.T) {
 
 	if _, err := NewReader(ReaderConfig{}); !errors.Is(err, ErrMissingCredentials) {
 		t.Fatalf("NewReader(empty) error = %v, want ErrMissingCredentials", err)
+	}
+}
+
+func TestPerCallServiceRejectsZTWWithLegacyZIACredentials(t *testing.T) {
+	t.Parallel()
+
+	service := perCallService{cfg: validLegacyReaderConfig()}
+
+	_, _, err := service.service(context.Background(), resources.ProductZTW)
+	if !errors.Is(err, ErrMissingCredentials) {
+		t.Fatalf("perCallService.service(ctx, ztw) error = %v, want ErrMissingCredentials", err)
 	}
 }
 
@@ -2442,6 +2464,245 @@ func TestReaderListWorkloadGroupsProjectsSDKShapeThroughAllowList(t *testing.T) 
 	}
 	if got["lastModifiedTime"] != 1700000000 {
 		t.Errorf("projected workload-groups lastModifiedTime = %v, want 1700000000", got["lastModifiedTime"])
+	}
+}
+
+func TestReaderListZTWWorkloadGroupsProjectsSDKShapeThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary      = "ztw-workload-group-psk-canary"
+		adminCanary = "ztw-workload-group-admin-canary"
+		tagCanary   = "ztw-workload-group-tag-canary"
+	)
+	reader := &SDKReader{
+		cfg: validReaderConfig(),
+		handlers: map[resourceKey]resourceHandler{
+			{product: resources.ProductZTW, name: resourceWorkloadGroups}: newListGetHandler(
+				resourceWorkloadGroups,
+				func(context.Context) ([]ztwworkloadgroups.WorkloadGroup, error) {
+					return []ztwworkloadgroups.WorkloadGroup{
+						{
+							ID:               1901,
+							Name:             "Cloud workload group",
+							Description:      "temporary psk=" + canary,
+							Expression:       "tags.value psk=" + canary,
+							LastModifiedTime: 1700000100,
+							LastModifiedBy: &ztwcommon.IDNameExtensions{
+								ID:   9004,
+								Name: adminCanary,
+							},
+							WorkloadTagExpression: ztwworkloadgroups.WorkloadTagExpression{
+								ExpressionContainers: []ztwworkloadgroups.ExpressionContainer{
+									{
+										TagType:  "TAG",
+										Operator: "AND",
+										TagContainer: ztwworkloadgroups.TagContainer{
+											Operator: "OR",
+											Tags: []ztwworkloadgroups.Tags{
+												{
+													Key:   "owner",
+													Value: tagCanary,
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					}, nil
+				},
+				intIDGetter(func(context.Context, int) (*ztwworkloadgroups.WorkloadGroup, error) { return nil, nil }),
+				ztwWorkloadGroupSourceRecord,
+			),
+		},
+	}
+
+	records, err := reader.List(context.Background(), resources.ProductZTW, resourceWorkloadGroups)
+	if err != nil {
+		t.Fatalf("SDKReader.List(ztw, workload-groups) error = %v, want nil", err)
+	}
+	got := projectOneRecord(t, resources.ProductZTW, resourceWorkloadGroups, records)
+	assertNoCanaries(t, "ztw workload-groups", got, canary, adminCanary, tagCanary)
+	for _, field := range []string{"expression", "lastModifiedBy", "expressionJson"} {
+		if _, ok := got[field]; ok {
+			t.Errorf("projected ztw workload-groups = %#v, want no %s", got, field)
+		}
+	}
+	if got["lastModifiedTime"] != 1700000100 {
+		t.Errorf("projected ztw workload-groups lastModifiedTime = %v, want 1700000100", got["lastModifiedTime"])
+	}
+	description := toString(got["description"])
+	if !strings.Contains(description, "<REDACTED:SECRET>") {
+		t.Errorf("projected ztw workload-groups description = %v, want redacted secret marker", got["description"])
+	}
+}
+
+func TestReaderZTWReferenceBatchProjectsSDKShapesThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const canary = "ztw-reference-batch-psk-canary"
+	cases := []struct {
+		name         string
+		record       resources.SourceRecord
+		absentFields []string
+	}{
+		{
+			name: resourcePublicCloudAccts,
+			record: ztwPublicCloudAccountSourceRecord(ztwpubliccloudaccount.PublicCloudAccountDetails{
+				ID:         1902,
+				AccountID:  "account psk=" + canary,
+				PlatformID: "AWS",
+			}),
+		},
+		{
+			name: resourceDNSGateways,
+			record: ztwDNSGatewaySourceRecord(ztwdnsgateway.DNSGateway{
+				ID:                           1903,
+				Name:                         "DNS gateway",
+				DNSGatewayType:               "PRIMARY",
+				ECDnsGatewayOptionsPrimary:   "primary psk=" + canary,
+				ECDnsGatewayOptionsSecondary: "secondary psk=" + canary,
+				FailureBehavior:              "FAIL_CLOSED",
+				PrimaryIP:                    "primary psk=" + canary,
+				SecondaryIP:                  "secondary psk=" + canary,
+				LastModifiedTime:             1700000200,
+				LastModifiedBy: &ztwcommon.CommonIDNameExternalID{
+					ID:   9005,
+					Name: "admin psk=" + canary,
+				},
+			}),
+			absentFields: []string{"ecDnsGatewayOptionsPrimary", "ecDnsGatewayOptionsSecondary", "lastModifiedBy"},
+		},
+		{
+			name: resourceForwardingGWs,
+			record: ztwForwardingGatewaySourceRecord(ztwziaforwardinggateway.ECGateway{
+				ID:                           1904,
+				Name:                         "Forwarding gateway",
+				Description:                  "temporary psk=" + canary,
+				FailClosed:                   true,
+				ManualPrimary:                "manual psk=" + canary,
+				ManualSecondary:              "secondary psk=" + canary,
+				SubCloudPrimary:              &ztwcommon.CommonIDNameExternalID{ID: 10, Name: "subcloud", ExternalID: canary},
+				SubCloudSecondary:            &ztwcommon.CommonIDNameExternalID{ID: 11, Name: "subcloud secondary", ExternalID: canary},
+				PrimaryType:                  "MANUAL_OVERRIDE",
+				SecondaryType:                "AUTO",
+				Type:                         "ZIA",
+				FailureBehavior:              "FAIL_CLOSED",
+				DNSGatewayType:               "PRIMARY",
+				PrimaryIP:                    "primary psk=" + canary,
+				SecondaryIP:                  "secondary psk=" + canary,
+				ECDNSGatewayOptionsPrimary:   "primary option psk=" + canary,
+				ECDNSGatewayOptionsSecondary: "secondary option psk=" + canary,
+				LastModifiedBy:               &ztwcommon.IDNameExtensions{ID: 9006, Name: "admin psk=" + canary},
+				LastModifiedTime:             1700000300,
+			}),
+			absentFields: []string{"ecDnsGatewayOptionsPrimary", "ecDnsGatewayOptionsSecondary", "lastModifiedBy"},
+		},
+		{
+			name: resourceECGroups,
+			record: ztwECGroupSourceRecord(ztwecgroup.EcGroup{
+				ID:                    1905,
+				Name:                  "EC group",
+				Description:           "temporary psk=" + canary,
+				DeployType:            "DEDICATED",
+				Status:                []string{"ACTIVE"},
+				Platform:              "AWS",
+				AWSAvailabilityZone:   "az psk=" + canary,
+				AzureAvailabilityZone: "azure psk=" + canary,
+				MaxEcCount:            4,
+				TunnelMode:            "GRE",
+				Location:              &ztwcommon.CommonIDNameExternalID{ID: 20, Name: "location", ExternalID: canary},
+				ProvTemplate:          &ztwcommon.CommonIDNameExternalID{ID: 21, Name: "template", ExternalID: canary},
+				ECVMs:                 []ztwcommon.ECVMs{{ID: 30, Name: "ecvm psk=" + canary}},
+			}),
+			absentFields: []string{"ecVMs"},
+		},
+		{
+			name: resourceIPSourceGroups,
+			record: ztwIPSourceGroupSourceRecord(ztwipsourcegroups.IPSourceGroups{
+				ID:             1906,
+				Name:           "IP source group",
+				Description:    "temporary psk=" + canary,
+				IPAddresses:    []string{"source psk=" + canary},
+				CreatorContext: "EC",
+				IsNonEditable:  false,
+			}),
+		},
+		{
+			name: resourceIPDestGroups,
+			record: ztwIPDestinationGroupSourceRecord(ztwipdestinationgroups.IPDestinationGroups{
+				ID:            1907,
+				Name:          "IP destination group",
+				Description:   "temporary psk=" + canary,
+				Type:          "DSTN_IP",
+				Addresses:     []string{"dest psk=" + canary},
+				IPCategories:  []string{"category psk=" + canary},
+				Countries:     []string{"US"},
+				IsNonEditable: false,
+			}),
+		},
+		{
+			name: resourceIPGroups,
+			record: ztwIPGroupSourceRecord(ztwipgroups.IPGroups{
+				ID:             1908,
+				Name:           "IP group",
+				Description:    "temporary psk=" + canary,
+				IPAddresses:    []string{"ip psk=" + canary},
+				CreatorContext: "EC",
+				IsNonEditable:  false,
+				ExtranetIPPool: true,
+				IsPredefined:   false,
+			}),
+		},
+		{
+			name: resourceNetworkServices,
+			record: ztwNetworkServiceSourceRecord(ztwnetworkservices.NetworkServices{
+				ID:             1909,
+				Name:           "Network service",
+				Description:    "temporary psk=" + canary,
+				Tag:            "tag psk=" + canary,
+				SrcTCPPorts:    []ztwnetworkservices.NetworkPorts{{Start: 1000, End: 1001}},
+				DestTCPPorts:   []ztwnetworkservices.NetworkPorts{{Start: 443, End: 443}},
+				SrcUDPPorts:    []ztwnetworkservices.NetworkPorts{{Start: 2000, End: 2001}},
+				DestUDPPorts:   []ztwnetworkservices.NetworkPorts{{Start: 53, End: 53}},
+				Type:           "CUSTOM",
+				IsNameL10nTag:  false,
+				CreatorContext: "EC",
+			}),
+		},
+		{
+			name: resourceNetworkSvcGroups,
+			record: ztwNetworkServiceGroupSourceRecord(ztwnetworkservicegroups.NetworkServiceGroups{
+				ID:          1910,
+				Name:        "Network service group",
+				Description: "temporary psk=" + canary,
+				Services: []ztwnetworkservicegroups.Services{
+					{
+						ID:          100,
+						Name:        "Referenced service",
+						Tag:         "service tag psk=" + canary,
+						Description: "service description psk=" + canary,
+					},
+				},
+				CreatorContext: "EC",
+			}),
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := projectOneRecord(t, resources.ProductZTW, tc.name, []resources.SourceRecord{tc.record})
+			assertNoCanaries(t, "ztw "+tc.name, got, canary)
+			for _, field := range tc.absentFields {
+				if _, ok := got[field]; ok {
+					t.Errorf("projected ztw %s = %#v, want no %s", tc.name, got, field)
+				}
+			}
+		})
 	}
 }
 
