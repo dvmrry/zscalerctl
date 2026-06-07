@@ -1,46 +1,36 @@
 # zscalerctl
 
-`zscalerctl` is an unofficial, security-first Go CLI for authorized Zscaler
-administrators. It is read-only by design and focuses on safe configuration
-query, inventory, and controlled sanitized exports.
+[![CI](https://github.com/dvmrry/zscalerctl/actions/workflows/ci.yml/badge.svg)](https://github.com/dvmrry/zscalerctl/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/dvmrry/zscalerctl/actions/workflows/codeql.yml/badge.svg)](https://github.com/dvmrry/zscalerctl/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/dvmrry/zscalerctl/badge)](https://scorecard.dev/viewer/?uri=github.com/dvmrry/zscalerctl)
+[![Release](https://img.shields.io/github/v/release/dvmrry/zscalerctl)](https://github.com/dvmrry/zscalerctl/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8)](go.mod)
 
-This project is not affiliated with, endorsed by, or sponsored by Zscaler.
+> Unofficial, security-first, **read-only** CLI for authorized Zscaler administrators — safe configuration query, inventory, and sanitized exports.
 
-The canonical binary is `zscalerctl`. If you prefer a short command locally,
-use a shell alias:
+A single Go binary, agentic/pipeline-first by design, so one reviewed command can replace duplicated API snippets across your workflows. Not affiliated with, endorsed by, or sponsored by Zscaler.
 
-```sh
-alias zctl=zscalerctl
-```
+## What you get
 
-## What It Is For
+- **Read-only by design** — no write commands and no raw API executor (and none planned for v1).
+- **Agentic-first output** — explicit, deterministic JSON for pipelines; human tables are best-effort.
+- **Explicit auth only** — reads only `ZSCALERCTL_*` config; never the Zscaler SDK's own env vars or files.
+- **Leak-resistant** — allow-list projection into safe views; redaction and secret scanning as defense-in-depth.
+- **Sanitized, fail-closed dumps** — releases ship checksums, per-target SBOMs, and provenance attestations.
+- **Stable automation contract** — documented exit codes and JSON error envelopes.
 
-The primary use case is CLI and agentic automation: one reviewed command that
-can replace duplicated Python snippets across pipelines and workflows. Human
-tables should be readable, but machine output should stay explicit,
-deterministic, and script-friendly.
-
-`zscalerctl` currently exposes reviewed read/list/show coverage across ZIA, ZPA,
-and ZTW. The current catalog is the source of truth:
+Reviewed read/list/show coverage spans **ZIA, ZPA, and ZTW**. The catalog is the source of truth:
 
 ```sh
 zscalerctl --format json schema list
 ```
 
-For the human-readable resource reference, see
-[docs/RESOURCES.md](docs/RESOURCES.md). For queued, deferred, and future
-resource work, see [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md).
-
-ZCC was scouted and smoke-tested, but the first conservative ZCC PAPI v2 batch
-returned 404 for every staged list endpoint under production OneAPI. ZCC remains
-deferred until endpoint, auth, or entitlement behavior is understood.
+See [docs/RESOURCES.md](docs/RESOURCES.md) for the resource reference and [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md) for deferred and queued work. (ZCC is deferred — initial PAPI v2 smoke returned OneAPI 404s; details in the queue.)
 
 ## Install
 
-Release archives are published for macOS, Linux, and Windows. Releases include
-checksums, per-target CycloneDX SBOMs, and GitHub provenance attestations. See
-[docs/INSTALL.md](docs/INSTALL.md) for installation, artifact verification,
-credential, proxy, shell-completion, and platform notes.
+Release archives for macOS, Linux, and Windows include checksums, CycloneDX SBOMs, and GitHub provenance attestations. See [docs/INSTALL.md](docs/INSTALL.md) for verification, credentials, proxy, completions, and platform notes.
 
 From a checkout:
 
@@ -49,154 +39,91 @@ go install ./cmd/zscalerctl
 zscalerctl version
 ```
 
-## Quick Start
-
-Check local configuration without contacting Zscaler:
+## Quick start
 
 ```sh
+# Inspect local config without contacting Zscaler
 zscalerctl doctor
 zscalerctl auth status
-zscalerctl config show
-```
 
-Inspect the reviewed resource catalog:
-
-```sh
+# Browse the reviewed catalog
 zscalerctl schema list
-zscalerctl --format json schema list
-```
 
-Read resources:
-
-```sh
+# Read resources
 zscalerctl zia locations list
-zscalerctl zia locations get <id>
 zscalerctl zpa server-groups list
 zscalerctl ztw workload-groups list
-```
 
-Write a sanitized dump:
-
-```sh
+# Write a sanitized, fail-closed dump
 zscalerctl dump --products zia --out ./dump
-zscalerctl dump --resources zia/locations,zpa/server-groups --out ./dump-subset
-zscalerctl dump --continue-on-error --out ./partial-dump
 ```
 
-Use `--output <path>` to write command output to a single restricted file. Use
-`dump --out <dir>` for dump directories; `--output` and `dump` are intentionally
-not combined.
+JSON is the automation surface — add `--format json` to any read command. Use `--output <path>` to write a single command's output to a restricted file; use `dump --out <dir>` for dump directories (the two are intentionally not combined).
 
 ## Authentication
 
-The CLI reads only explicit `ZSCALERCTL_*` configuration. It does not read the
-Zscaler SDK's own environment variables or SDK config files. SDK response
-caching is disabled, SDK logging is muted, and ambient proxy variables are
-ignored unless opted in.
-
-OneAPI is the default auth mode:
+OneAPI is the default. The CLI reads only explicit `ZSCALERCTL_*` values:
 
 ```sh
 export ZSCALERCTL_CLIENT_ID=<client-id>
 export ZSCALERCTL_CLIENT_SECRET_FILE=/path/to/owner-only/secret-file
 export ZSCALERCTL_VANITY_DOMAIN=<vanity-domain>
 export ZSCALERCTL_CLOUD=PRODUCTION
-export ZSCALERCTL_ZPA_CUSTOMER_ID=<zpa-customer-id> # required for ZPA resources
+export ZSCALERCTL_ZPA_CUSTOMER_ID=<zpa-customer-id>   # ZPA resources only
 ```
 
-ZIA legacy credentials are still supported for read-only ZIA resources. Detailed
-legacy, proxy, config-file, Windows, and secret-file behavior lives in
-[docs/INSTALL.md](docs/INSTALL.md).
+ZIA legacy credentials are supported for ZIA resources. Legacy, proxy, config-file, Windows, and secret-file details live in [docs/INSTALL.md](docs/INSTALL.md). Corporate proxy use is opt-in via `ZSCALERCTL_PROXY_FROM_ENV=true`.
 
-Corporate proxy settings are opt-in. To use standard `HTTPS_PROXY`,
-`HTTP_PROXY`, and `NO_PROXY` values, set:
+## Automation contract
 
-```sh
-export ZSCALERCTL_PROXY_FROM_ENV=true
-```
-
-## Security Posture
-
-This is defensive administration software. It is not an exploitation,
-credential discovery, bypass, traffic interception, or attack-path tool.
-
-The primary leak-prevention model is allow-list projection into safe view
-records. Output redaction and secret scanning are defense-in-depth, not an
-excuse to render raw API responses.
-
-Administrator-controlled free-text fields are standard-only catalog exceptions:
-each one must be justified in the schema, scanner-backed, and excluded from
-`share` and `paranoid` output.
-
-Version 1 must not include write commands or a generic raw API executor.
-
-Table output is best-effort for quick human inspection. JSON and dump output are
-the primary automation surfaces.
-
-## Dumps
-
-Dump commands fail closed by default: if a selected resource fails, no dump is
-written. `--continue-on-error` is opt-in and writes a clearly marked partial
-dump with `manifest.json` status `partial` and value-free `errors.ndjson`. A
-partial dump exits with code `6`, not success.
-
-`make live-smoke` validates the current branch's live-smoke resource manifest
-or explicit `LIVE_SMOKE_RESOURCES` selection and writes artifacts to a secure
-temporary directory. Set `LIVE_SMOKE_OUT=./scratch-live-smoke` only when you
-want a predictable artifact path.
-
-## Automation Contract
-
-Exit codes are stable for automation:
+Exit codes are stable for scripting:
 
 | Code | Meaning |
 | --- | --- |
-| `0` | Complete success. |
-| `1` | Internal or unclassified failure. |
-| `2` | Usage or argument error. |
-| `3` | Missing or invalid credentials. |
-| `4` | Product/resource not found. |
-| `5` | Live Zscaler API access failure. |
-| `6` | Partial dump written; inspect `manifest.json` and `errors.ndjson`. |
+| `0` | Success |
+| `1` | Internal or unclassified failure |
+| `2` | Usage or argument error |
+| `3` | Missing or invalid credentials |
+| `4` | Product/resource not found |
+| `5` | Live Zscaler API access failure |
+| `6` | Partial dump written (inspect `manifest.json` and `errors.ndjson`) |
 
-When `--format json` is requested and a command fails, diagnostics are emitted
-as a redacted JSON envelope on stderr:
+With `--format json`, a failing command emits a redacted envelope on stderr:
 
 ```json
-{
-  "error": {
-    "kind": "missing_credentials",
-    "message": "missing zscaler API credentials: ZSCALERCTL_CLIENT_ID is required"
-  }
-}
+{ "error": { "kind": "missing_credentials", "message": "ZSCALERCTL_CLIENT_ID is required" } }
 ```
+
+## Security posture
+
+- Defensive administration only — not an exploitation, credential-discovery, bypass, or traffic-interception tool.
+- Primary leak control is **allow-list projection** into safe view records; redaction and secret scanning are defense-in-depth, not a license to render raw API responses.
+- **v1 ships no write commands and no generic raw API executor.**
+
+Full model: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) · [docs/DATA_CLASSIFICATION.md](docs/DATA_CLASSIFICATION.md).
 
 ## Documentation
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+**Usage**
+- [docs/INSTALL.md](docs/INSTALL.md) — install, verify, configure
+- [docs/RESOURCES.md](docs/RESOURCES.md) — enabled resource reference
+- [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md) — deferred / queued / excluded state
+
+**Security & governance**
 - [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
 - [docs/DATA_CLASSIFICATION.md](docs/DATA_CLASSIFICATION.md)
 - [docs/ZSCALER_SENSITIVE_DATA.md](docs/ZSCALER_SENSITIVE_DATA.md)
-- [docs/INSTALL.md](docs/INSTALL.md)
-- [docs/RESOURCES.md](docs/RESOURCES.md)
-- [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md)
-- [docs/SDK_SURFACE_INVENTORY.md](docs/SDK_SURFACE_INVENTORY.md)
-- [docs/ZSCALER_PRODUCT_SCOPE_PLAN.md](docs/ZSCALER_PRODUCT_SCOPE_PLAN.md)
-- [docs/VERSIONING.md](docs/VERSIONING.md)
-- [docs/DEPENDENCY_POLICY.md](docs/DEPENDENCY_POLICY.md)
-- [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+**Project**
+- [docs/VERSIONING.md](docs/VERSIONING.md) · [docs/DEPENDENCY_POLICY.md](docs/DEPENDENCY_POLICY.md) · [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
+- [docs/SDK_SURFACE_INVENTORY.md](docs/SDK_SURFACE_INVENTORY.md) · [docs/ZSCALER_PRODUCT_SCOPE_PLAN.md](docs/ZSCALER_PRODUCT_SCOPE_PLAN.md) · [docs/SCRIPTS.md](docs/SCRIPTS.md)
 
 ## Development
 
 ```sh
-make check
-make live-smoke
-make sdk-surface-inventory
+make check        # full gate: tests, vet, vuln, staticcheck, semgrep, doc + registry verifiers
+make live-smoke   # validate the live-smoke resource manifest (artifacts to a temp dir)
 ```
 
-Optional local checks once installed:
-
-```sh
-gitleaks dir .
-gitleaks git .
-```
+License: [Apache-2.0](LICENSE).
