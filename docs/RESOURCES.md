@@ -1900,17 +1900,17 @@ Fields:
 ## Deferred Resource Follow-Ups
 
 - `zia/dlp-engines`: generated and locally validated, but removed from the
-  DLP-reference batch after live smoke reported a list request failure under
-  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  DLP-reference batch after endpoint validation reported a list request failure
+  under ZIA legacy credentials. Investigate the endpoint behavior separately
   before enabling it in the catalog.
 - `zia/dlp-dictionaries`: generated and locally validated, but removed from the
-  DLP-reference batch after live smoke reported a list request failure under
-  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  DLP-reference batch after endpoint validation reported a list request failure
+  under ZIA legacy credentials. Investigate the endpoint behavior separately
   before enabling it in the catalog.
 - `zia/c2c-incident-receivers`, `zia/dlp-edm-schemas`,
   `zia/dlp-idm-profile-lite`, `zia/dlp-idm-profiles`, `zia/dlp-web-rules`,
   `zia/traffic-capture-rules`, and `zia/extranets`: generated and locally
-  validated in the smoke-lab branch, but removed after work-machine live smoke
+  validated in a disposable branch, but removed after endpoint validation
   reported `live_access_failed` list request failures under ZIA legacy
   credentials. Investigate endpoint behavior and auth-mode support separately
   before enabling them in the catalog.

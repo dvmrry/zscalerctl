@@ -31,8 +31,8 @@ SDK_DIR="$(go list -m -f '{{.Dir}}' -mod=mod github.com/zscaler/zscaler-sdk-go/v
 
 Then inspect the package named in the table below under `$SDK_DIR/zscaler/...`
 for exported read functions, adjacent mutators, and endpoint literals. The table
-is intentionally compact; the queue remains the source of truth for live-smoke
-state.
+is intentionally compact; the queue remains the source of truth for resource
+posture.
 
 ## Summary
 
@@ -45,7 +45,7 @@ state.
   `devicegroups`, and the endpoint is `/zia/api/v1/deviceGroups/devices`, not a
   standalone `/devices` surface.
 - The three ZCC rows share the same PAPI v2 product route shape and all returned
-  `404` in production OneAPI smoke. Treat that as a ZCC route/auth/entitlement
+  `404` during endpoint investigation. Treat that as a ZCC route/auth/entitlement
   boundary investigation before treating the resources independently.
 - The ZPA private-cloud rows returned different auth-class failures (`403` and
   `401`) and have mutating neighbors. Keep them out until the role/scope and
@@ -55,8 +55,8 @@ state.
 
 | Bucket | Resources | Next action |
 | --- | --- | --- |
-| Promoted ordinary endpoint rechecks | `zia/network-service-groups`, `zia/network-applications`, `zia/email-profiles`, `zia/dlp-incident-receiver-servers`, `zia/dlp-notification-templates` | Promoted in a focused branch using SDK v3.8.38 after work-machine live smoke passed. |
-| Promoted identity/device rechecks | `zia/departments`, `zia/users`, `zia/devices` | Promoted after focused work-machine live smoke passed with standard-mode visibility and share/paranoid identifier stripping. |
+| Promoted ordinary endpoint rechecks | `zia/network-service-groups`, `zia/network-applications`, `zia/email-profiles`, `zia/dlp-incident-receiver-servers`, `zia/dlp-notification-templates` | Cataloged in a focused branch using SDK v3.8.38 after endpoint-specific review. |
+| Promoted identity/device rechecks | `zia/departments`, `zia/users`, `zia/devices` | Cataloged with standard-mode visibility and share/paranoid identifier stripping. |
 | DLP and capture policy holds | `zia/dlp-engines`, `zia/dlp-dictionaries`, `zia/dlp-edm-schemas`, `zia/dlp-idm-profile-lite`, `zia/dlp-idm-profiles`, `zia/dlp-web-rules`, `zia/traffic-capture-rules`, `zia/c2c-incident-receivers`, `zia/extranets` | Retry only in small, family-specific probes. Cataloging still needs conservative field review because these carry policy logic, destinations, identifiers, or matching criteria. |
 | IPS policy-adjacent hold | `zia/ips-signature-rules` | SDK read path exists, but the package includes import, export, and validation operations. Probe endpoint availability before considering IPS policy surfaces. |
 | ZPA product-feature/auth holds | `zpa/private-cloud-groups`, `zpa/private-cloud-controllers` | Do not batch with ordinary ZPA references. Retry only after role/scope or feature availability changes. |
@@ -66,16 +66,16 @@ state.
 
 | Resource | SDK source evidence | Recheck conclusion |
 | --- | --- | --- |
-| `zia/network-service-groups` | Package `firewallpolicies/networkservicegroups`; read functions `GetNetworkServiceGroups`, `GetNetworkServiceGroupsByName`, `GetAllNetworkServiceGroups`; endpoint `/zia/api/v1/networkServiceGroups`; create/update/delete neighbors. | Promoted after focused live smoke passed, using the package-specific read names and reference-only child services. |
-| `zia/network-applications` | Package `firewallpolicies/networkapplications`; read functions `GetNetworkApplication`, `GetByName`, `GetAll`; endpoint `/zia/api/v1/networkApplications`; no mutating functions found in the package. | Promoted after focused live smoke passed. The adapter uses a bounded single-page read because SDK `GetAll` can loop if this static catalog endpoint ignores pagination. |
-| `zia/departments` | Package `usermanagement/departments`; read functions `GetDepartments`, `GetDepartmentLite`, `GetDepartmentsByName`, `GetAll`, `GetAllLite`; endpoints `/zia/api/v1/departments` and `/lite`; create/update/delete neighbors. | Promoted after focused live smoke passed. Comments remain standard-only free text. |
-| `zia/users` | Package `usermanagement/users`; read functions `Get`, `GetUserByName`, `GetAllUsers`, `GetAllAuditors`, `GetUserReferences`; endpoints include `/zia/api/v1/users`, `/auditors`, `/references`, `/bulkDelete`; create/update/delete/bulk-delete neighbors. | Promoted after focused live smoke passed. Employee identity/contact fields render in standard only; password and custom/unreviewed child details are dropped. |
-| `zia/devices` | Package `devicegroups`; read functions include `GetAllDevicesGroups`, `GetDevicesByID`, `GetDevicesByName`, `GetDevicesByModel`, `GetDevicesByOwner`, `GetDevicesByOSType`, `GetDevicesByOSVersion`, `GetAllDevices`; endpoints `/zia/api/v1/deviceGroups` and `/zia/api/v1/deviceGroups/devices`. | Promoted after focused live smoke passed under `zia/devices`; device and owner identifiers render in standard only. |
-| `zia/email-profiles` | Package `email_profiles`; read functions `Get`, `GetEmailProfileByName`, `GetAllLite`, `GetAll`, `GetCount`; endpoints `/zia/api/v1/emailRecipientProfile`, `/lite`, `/count`; create/update/delete neighbors. | Promoted after focused live smoke passed, with recipient emails visible only in standard mode. |
+| `zia/network-service-groups` | Package `firewallpolicies/networkservicegroups`; read functions `GetNetworkServiceGroups`, `GetNetworkServiceGroupsByName`, `GetAllNetworkServiceGroups`; endpoint `/zia/api/v1/networkServiceGroups`; create/update/delete neighbors. | Cataloged using the package-specific read names and reference-only child services. |
+| `zia/network-applications` | Package `firewallpolicies/networkapplications`; read functions `GetNetworkApplication`, `GetByName`, `GetAll`; endpoint `/zia/api/v1/networkApplications`; no mutating functions found in the package. | Cataloged with a bounded single-page read because SDK `GetAll` can loop if this static catalog endpoint ignores pagination. |
+| `zia/departments` | Package `usermanagement/departments`; read functions `GetDepartments`, `GetDepartmentLite`, `GetDepartmentsByName`, `GetAll`, `GetAllLite`; endpoints `/zia/api/v1/departments` and `/lite`; create/update/delete neighbors. | Cataloged as identity-like metadata. Comments remain standard-only free text. |
+| `zia/users` | Package `usermanagement/users`; read functions `Get`, `GetUserByName`, `GetAllUsers`, `GetAllAuditors`, `GetUserReferences`; endpoints include `/zia/api/v1/users`, `/auditors`, `/references`, `/bulkDelete`; create/update/delete/bulk-delete neighbors. | Cataloged with employee identity/contact fields in standard mode only; password and custom/unreviewed child details are dropped. |
+| `zia/devices` | Package `devicegroups`; read functions include `GetAllDevicesGroups`, `GetDevicesByID`, `GetDevicesByName`, `GetDevicesByModel`, `GetDevicesByOwner`, `GetDevicesByOSType`, `GetDevicesByOSVersion`, `GetAllDevices`; endpoints `/zia/api/v1/deviceGroups` and `/zia/api/v1/deviceGroups/devices`. | Cataloged under `zia/devices`; device and owner identifiers render in standard mode only. |
+| `zia/email-profiles` | Package `email_profiles`; read functions `Get`, `GetEmailProfileByName`, `GetAllLite`, `GetAll`, `GetCount`; endpoints `/zia/api/v1/emailRecipientProfile`, `/lite`, `/count`; create/update/delete neighbors. | Cataloged with recipient emails visible only in standard mode. |
 | `zia/dlp-engines` | Package `dlp/dlp_engines`; read functions `Get`, `GetByName`, `GetAll`, `GetEngineLiteID`, `GetByPredefinedEngine`, `GetAllEngineLite`; endpoints `/zia/api/v1/dlpEngines` and `/zia/api/v1/dlpEngines/lite`; create/update/delete neighbors. | SDK-backed, but DLP matching logic is sensitive. Retry only with DLP-family review. |
 | `zia/dlp-dictionaries` | Package `dlp/dlpdictionaries`; read functions `Get`, `GetByName`, `GetPredefinedIdentifiers`, `GetAll`; endpoint `/zia/api/v1/dlpDictionaries`; create/update/delete neighbor. | SDK-backed, but dictionary content and match criteria can be sensitive. Hold for DLP-family review. |
-| `zia/dlp-incident-receiver-servers` | Package `dlp/dlp_incident_receiver_servers`; read functions `Get`, `GetByName`, `GetAll`; endpoint `/zia/api/v1/incidentReceiverServers`; no mutating functions found in the package. | Promoted after focused live smoke passed, with receiver URL visible only in standard mode. |
-| `zia/dlp-notification-templates` | Package `dlp/dlp_notification_templates`; read functions `Get`, `GetByName`, `GetAll`; endpoint `/zia/api/v1/dlpNotificationTemplates`; create/update/delete neighbors. | Promoted after focused live smoke passed, with notification message bodies dropped. |
+| `zia/dlp-incident-receiver-servers` | Package `dlp/dlp_incident_receiver_servers`; read functions `Get`, `GetByName`, `GetAll`; endpoint `/zia/api/v1/incidentReceiverServers`; no mutating functions found in the package. | Cataloged with receiver URL visible only in standard mode. |
+| `zia/dlp-notification-templates` | Package `dlp/dlp_notification_templates`; read functions `Get`, `GetByName`, `GetAll`; endpoint `/zia/api/v1/dlpNotificationTemplates`; create/update/delete neighbors. | Cataloged with notification message bodies dropped. |
 | `zia/ips-signature-rules` | Package `ips_control_policies/ips_signature_rules`; read functions `Get`, `GetByName`, `GetAll`, `GetImportIPSSignatureRulesStatus`; endpoints include `/zia/api/v1/ipsSignatureRules`, `/export`, `/import`, `/validateRuleText`; create/update/delete/import/export/validate neighbors. | SDK-backed but not a simple config surface. Probe availability separately before using it to infer anything about IPS policies. |
 | `zia/c2c-incident-receivers` | Package `c2c_incident_receiver`; read functions `Get`, `GetC2CIRName`, `GetAllLite`, `GetAll`; endpoints `/zia/api/v1/cloudToCloudIR`, `/lite`, `/count`; `ValidateDelete` neighbor. | SDK-backed but includes tenant authorization and receiver destination concepts. Hold for focused review. |
 | `zia/dlp-edm-schemas` | Package `dlp/dlp_exact_data_match`; read functions `GetDLPEDMSchemaID`, `GetDLPEDMByName`, `GetAll`; endpoint `/zia/api/v1/dlpExactDataMatchSchemas`; no mutating functions found in the package. | SDK-backed but EDM schema names and columns can disclose sensitive data models. Hold for DLP-family review. |
