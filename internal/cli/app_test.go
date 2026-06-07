@@ -302,6 +302,29 @@ func TestGlobalOutputWritesSuccessfulCommandToOwnerOnlyFile(t *testing.T) {
 	}
 }
 
+func TestGlobalOutputTreatsDestinationAsNonTTYForColorAuto(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	outPath := filepath.Join(t.TempDir(), "doctor.txt")
+	app := cli.NewWithOptions(&out, &errOut, []string{"TERM=xterm-256color"}, cli.Options{StdoutTTY: true})
+
+	err := app.Run(context.Background(), []string{"doctor", "--output", outPath})
+	if err != nil {
+		t.Fatalf("App.Run(doctor --output) error = %v, want nil", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(doctor --output) stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(doctor --output) stderr = %q, want empty", errOut.String())
+	}
+	body := readFile(t, outPath)
+	if strings.Contains(body, "\x1b[") {
+		t.Errorf("output file body = %q, want no ANSI escapes", body)
+	}
+}
+
 func TestGlobalOutputDoesNotCreateFileOnError(t *testing.T) {
 	t.Parallel()
 
@@ -386,6 +409,61 @@ func TestCompletionScriptsDoNotReadCredentialFilesOrUseReader(t *testing.T) {
 			}
 			if errOut.Len() != 0 {
 				t.Errorf("App.Run(completion %s) stderr = %q, want empty", shell, errOut.String())
+			}
+		})
+	}
+}
+
+func TestCompletionScriptsReflectCatalogProducts(t *testing.T) {
+	t.Parallel()
+
+	products := catalogProductsForTest()
+	cases := []struct {
+		shell   string
+		snippet func(string) string
+	}{
+		{
+			shell: "bash",
+			snippet: func(product string) string {
+				return "    " + product + ") COMPREPLY="
+			},
+		},
+		{
+			shell: "zsh",
+			snippet: func(product string) string {
+				return "    " + product + ") compadd --"
+			},
+		},
+		{
+			shell: "fish",
+			snippet: func(product string) string {
+				return "__fish_seen_subcommand_from " + product + "'"
+			},
+		},
+	}
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.shell, func(t *testing.T) {
+			t.Parallel()
+
+			var out, errOut bytes.Buffer
+			app := cli.New(&out, &errOut, nil)
+
+			err := app.Run(context.Background(), []string{"completion", tt.shell})
+			if err != nil {
+				t.Fatalf("App.Run(completion %s) error = %v, want nil", tt.shell, err)
+			}
+			for _, product := range []string{"zia", "zpa", "ztw", "zcc"} {
+				snippet := tt.snippet(product)
+				if products[product] && !strings.Contains(out.String(), snippet) {
+					t.Errorf("App.Run(completion %s) stdout = %q, want product branch %q", tt.shell, out.String(), snippet)
+				}
+				if !products[product] && strings.Contains(out.String(), snippet) {
+					t.Errorf("App.Run(completion %s) stdout = %q, want no product branch %q", tt.shell, out.String(), snippet)
+				}
+			}
+			if errOut.Len() != 0 {
+				t.Errorf("App.Run(completion %s) stderr = %q, want empty", tt.shell, errOut.String())
 			}
 		})
 	}
@@ -1546,4 +1624,12 @@ func hasReadListOperation(spec resources.ResourceSpec) bool {
 		}
 	}
 	return false
+}
+
+func catalogProductsForTest() map[string]bool {
+	products := map[string]bool{}
+	for _, spec := range resources.Catalog() {
+		products[string(spec.Product)] = true
+	}
+	return products
 }

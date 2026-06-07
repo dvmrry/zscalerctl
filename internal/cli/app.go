@@ -795,7 +795,8 @@ func formatTableValue(value any) string {
 }
 
 func (a *App) style(opts globalOptions) output.Style {
-	color := output.ShouldColor(opts.colorMode, a.env, a.stdoutTTY)
+	stdoutTTY := a.stdoutTTY && opts.output == ""
+	color := output.ShouldColor(opts.colorMode, a.env, stdoutTTY)
 	return output.NewStyle(color, output.Supports256Color(a.env))
 }
 
