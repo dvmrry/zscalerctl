@@ -60,10 +60,11 @@ what "validated" means:
 
 ## Auth And Environment Posture
 
-OneAPI is the expansion target, but legacy ZIA remains the current
-production-proven path until production OneAPI is available and smoked. Do not
-remove, downgrade, or mark legacy-proven resources unsupported based only on
-dev OneAPI results.
+OneAPI is the expansion target and has been production-smoked for the current
+ZPA and ZTW catalog resources. Legacy ZIA remains supported and proven for ZIA
+resources. Do not remove, downgrade, or mark legacy-proven ZIA resources
+unsupported based only on dev OneAPI results or on unrelated product-family
+failures.
 
 Dev `zscalertwo` OneAPI is useful for endpoint availability scouting:
 
@@ -157,99 +158,14 @@ This should be implemented through shared resolver logic plus small
 per-resource catalog metadata, not by hardwiring lookup behavior into every
 resource handler.
 
-## Next Apply Batches
-
-These batches are ordered for small, focused PRs. Each batch should become a
-series of one-resource production changes unless the resources are deliberately
-paired. Do not start the next batch until the preceding draft PR is resolved.
-
-### Batch A: File And Sandbox Policy Rules
-
-These are high-value policy surfaces with ordinary list/get SDK functions, but
-they include many nested references. Keep the first pass conservative: map the
-full SDK shape, allow only the generated safe names and any deliberately
-reviewed policy metadata, and drop admin/user/device/ZPA nested details unless
-they are explicitly modeled.
-
-| Resource | SDK package | SDK type | List | Get | Notes |
-| --- | --- | --- | --- | --- | --- |
-| `zia/file-type-rules` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol` | `FileTypeRules` | `GetAll` | `Get` | Policy rule surface; expect nested locations, groups, users, devices, labels, and ZPA segment references. |
-| `zia/sandbox-rules` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sandbox/sandbox_rules` | `SandboxRules` | `GetAll` | `Get` | Policy rule surface; expect nested locations, groups, users, devices, labels, URL categories, and ZPA segment references. |
-
-Scaffold commands:
-
-```sh
-make scaffold-resource PRODUCT=zia RESOURCE=file-type-rules PACKAGE=github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol TYPE=FileTypeRules FORCE=1
-make scaffold-resource PRODUCT=zia RESOURCE=sandbox-rules PACKAGE=github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sandbox/sandbox_rules TYPE=SandboxRules FORCE=1
-```
-
-### Batch B: DNS Policy Rules
-
-This is a useful policy surface but likely to be noisier. Keep it separate from
-Batch A so a single endpoint failure can be trimmed without losing the whole
-policy-rule wave.
-
-| Resource | SDK package | SDK type | List | Get | Notes |
-| --- | --- | --- | --- | --- | --- |
-| `zia/firewall-dns-rules` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewalldnscontrolpolicies` | `FirewallDNSRules` | `GetAll` | `Get` | DNS policy rules; expect location, group, source/destination, gateway, and ZPA IP group references. |
-
-Scaffold commands:
-
-```sh
-make scaffold-resource PRODUCT=zia RESOURCE=firewall-dns-rules PACKAGE=github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewalldnscontrolpolicies TYPE=FirewallDNSRules FORCE=1
-```
-
-### Batch C: Custom File References
-
-This may need a small custom list closure because the SDK function name is not
-exactly `GetAll`, but it still looks like a read-only resource-shaped surface.
-
-| Resource | SDK package | SDK type | List | Get | Notes |
-| --- | --- | --- | --- | --- | --- |
-| `zia/custom-file-types` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol/custom_file_types` | `CustomFileTypes` | `GetCustomFileTypes` | `Get` | Useful companion to file-type rules; inspect file-extension and pattern fields conservatively. |
-
-Scaffold commands:
-
-```sh
-make scaffold-resource PRODUCT=zia RESOURCE=custom-file-types PACKAGE=github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol/custom_file_types TYPE=CustomFileTypes FORCE=1
-```
-
-## Scouted Backlog
-
-The following candidates came from a full SDK module-cache scout, not from the
-current vendored import set. They are queue evidence only. Re-run the scaffold
-commands from current SDK source before applying any of them.
-
-### Batch E: Remaining ZIA Traffic Forwarding References
-
-These are read-like traffic-forwarding references. Avoid `vpncredentials` in
-ordinary batch work; it is credential-bearing by name and should be treated as a
-separate secret-material decision.
-
-| Resource | SDK package | SDK type | List | Get | Notes |
-| --- | --- | --- | --- | --- | --- |
-| `zia/zpa-gateways` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/zpa_gateways` | `ZPAGateways` | `GetAll` | `Get` | ZPA gateway references used by forwarding policy. |
-
-### Batch G: NSS Feed Metadata
-
-This completes one open item from the remaining ZIA list/get queue. NSS feeds are
-broad logging surfaces, so the smoke-lab pass keeps credential, connection,
-collaborator, location, and high-risk nested details dropped until live data
-proves the shape is useful.
-
-| Resource | SDK package | SDK type | List | Get | Notes |
-| --- | --- | --- | --- | --- | --- |
-| `zia/nss-feeds` | `github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/cloudnss` | `NSSFeed` | `GetAll` | `Get` | Feed metadata and reviewed filters render; connection auth, headers, certificates, VPN credentials, and collaborator/location refs remain dropped or local-only. |
-
 ## Remaining SDK Package Review
 
-After the auth-settings singleton smoke seam and the smoke-lab trim, the current
-branch catalog contains 44 ZIA resources. The table below tracks SDK package
-surfaces that remain outside the catalog and still need a shape or policy
-decision. The deferred table later in this document tracks generated resources
-that were removed after live smoke reported request failures. These are
-package-level scouting notes, not a promise that every row should become a
-resource.
+The current enabled catalog contains 58 ZIA resources, 16 ZPA resources, and 10
+ZTW resources. The table below tracks SDK package surfaces that remain outside
+the catalog and still need a shape, endpoint, auth-mode, or policy decision.
+The deferred table later in this document tracks generated resources that were
+removed after live smoke reported request failures. These are package-level
+scouting notes, not a promise that every row should become a resource.
 
 | SDK package | Review posture |
 | --- | --- |
@@ -305,7 +221,7 @@ The remaining non-deferred items split into these work tracks:
 | --- | --- | --- |
 | List-only or name-get candidates | `browser_isolation`, `dlp/dlp_exact_data_match_lite`, `location/locationlite`, `trafficforwarding/dc_exclusions`, `trafficforwarding/sub_clouds` | Add explicit list-only/dump-only reader semantics before queueing. `locationlite` should wait for a concrete performance or pagination reason because it overlaps `locations` and `sublocations`. |
 | SaaS/CASB split candidates | `saas_security_api`, `saas_security_api/casb_dlp_rules`, `saas_security_api/casb_malware_rules` | Split `saas_security_api` into separate resources such as domain profiles, quarantine tombstone templates, CASB email labels, CASB tenants, and SaaS scan info. CASB DLP/malware rules can use list/dump via `/all`, but `get` needs a rule-type decision. |
-| Deferred live/auth failures | `dlp/dlp_engines`, `dlp/dlp_incident_receiver_servers`, `dlp/dlp_notification_templates`, `dlp/dlpdictionaries`, `email_profiles`, `firewallpolicies/networkapplications`, `firewallpolicies/networkservicegroups`, `ips_control_policies/ips_signature_rules`, `usermanagement/departments`, `usermanagement/users`, `zcc/trusted-networks`, `zcc/notification-templates`, `zcc/zia-postures` | Do not retry as ordinary batch work. Revisit with focused endpoint/auth scouting, ideally under controlled production OneAPI. |
+| Deferred live/auth failures | `dlp/dlp_engines`, `dlp/dlp_incident_receiver_servers`, `dlp/dlp_notification_templates`, `dlp/dlpdictionaries`, `email_profiles`, `firewallpolicies/networkapplications`, `firewallpolicies/networkservicegroups`, `ips_control_policies/ips_signature_rules`, `usermanagement/departments`, `usermanagement/users`, `zcc/trusted-networks`, `zcc/notification-templates`, `zcc/zia-postures` | Retry only as focused endpoint/auth probes that record exact status code, auth mode, product cloud, endpoint path, and source commit. |
 | Adjacent-to-failure scout | `ips_control_policies/ips_policies` | Ordinary list/get shape, but adjacent to the failed IPS signature-rule endpoint. Probe separately before queueing. |
 | Privacy, identity, export, or material surfaces | `adminauditlogs`, `adminuserrolemgmt/admins`, `adminuserrolemgmt/roles`, `intermediatecacertificates`, `scim_api`, `trafficforwarding/vpncredentials` | Hold for explicit privacy/material policy. These are not ordinary inventory resources. |
 | Helper/catalog/diagnostic surfaces | `apptotal`, `trafficforwarding/virtualipaddress` | Do not force into config dump semantics. Treat as future lookup/report/diagnostic commands if needed. |
@@ -351,7 +267,6 @@ reader shape is explicit.
 
 | Candidate | Reason to pause |
 | --- | --- |
-| Singleton settings resources such as advanced settings, auth settings, malware protection, mobile threat settings, secure browsing, and security policy settings | They are read-only but not list resources. They likely need a singleton reader pattern and manifest semantics before cataloging. |
 | Browser isolation profiles | SDK exposes `GetAll` and name lookup, but no integer `Get`; decide whether list-only resources are allowed before enabling. |
 | PAC files | SDK exposes versioned/list functions that do not match the current `list`/`get <id>` model directly. |
 | Cloud application policy lists | SDK functions take parameter maps; decide stable defaults before exposing. |
@@ -361,51 +276,55 @@ reader shape is explicit.
 | IPS policies | Adjacent to the deferred `zia/ips-signature-rules` endpoint; confirm the endpoint and entitlement behavior is genuinely distinct before applying. |
 | Sub-clouds | `GetAll` returns `SubClouds`, but integer `Get` returns `SubCloudCountryDCExclusionInfo`; decide whether this is one resource, two resources, or list-only metadata. |
 | ZIA VPN credentials | SDK exposes read-like functions, but the package and fields are credential-bearing by name. Decide whether any public metadata can render before cataloging. |
-| ZCC/ZDX/ZTW/Zidentity/ZWA products | Full SDK evidence exists, but product auth, live-smoke commands, and output semantics are not established in this tool. Keep product tracks separate from ZIA and ZPA breadth work; see `docs/ZSCALER_PRODUCT_SCOPE_PLAN.md`. |
+| ZCC product resources | First ZCC PAPI v2 OneAPI smoke returned 404 for all three conservative endpoints. Revisit as an endpoint-boundary probe before catalog work; see the deferred table below. |
+| ZDX/Zidentity/ZWA products | Full SDK evidence exists, but output semantics and safety posture are product-specific. Keep product tracks separate from ZIA, ZPA, and ZTW breadth work; see `docs/ZSCALER_PRODUCT_SCOPE_PLAN.md`. |
 
-## Deferred After Live Smoke Failures
+## Deferred Retest / Investigation Backlog
 
 These were generated and locally validated, then removed after live smoke
-reported list/request failures. Do not retry as ordinary batch work; investigate
-endpoint behavior and auth-mode support first.
+reported list/request failures. Do not retry them as an ordinary breadth batch.
+Each retry must be a focused probe that records the exact status code, auth
+mode, product cloud, endpoint path, SDK version, source commit, and whether the
+run used source or a release binary.
 
-| Resource | Observed status |
-| --- | --- |
-| `zia/network-service-groups` | Request failure in the first policy-reference batch. |
-| `zia/network-applications` | Request failure while `zia/network-application-groups` succeeded. |
-| `zia/departments` | List request failure under ZIA legacy credentials. |
-| `zia/users` | List request failure under ZIA legacy credentials. |
-| `zia/devices` | List request failure under ZIA legacy credentials. |
-| `zia/email-profiles` | List request failure under ZIA legacy credentials. |
-| `zia/dlp-engines` | List request failure under ZIA legacy credentials. |
-| `zia/dlp-dictionaries` | List request failure under ZIA legacy credentials. |
-| `zia/dlp-incident-receiver-servers` | List request failure under ZIA legacy credentials. |
-| `zia/dlp-notification-templates` | List request failure under ZIA legacy credentials. |
-| `zia/ips-signature-rules` | List request failure under ZIA legacy credentials. |
-| `zia/c2c-incident-receivers` | List request failure under ZIA legacy credentials (`live_access_failed`). |
-| `zia/dlp-edm-schemas` | List request failure under ZIA legacy credentials (`live_access_failed`). |
-| `zia/dlp-idm-profile-lite` | List request failure under ZIA legacy credentials (`live_access_failed`). |
-| `zia/dlp-idm-profiles` | List request failure under ZIA legacy credentials (`live_access_failed`). |
-| `zia/dlp-web-rules` | List request failure under ZIA legacy credentials (`live_access_failed`). |
-| `zia/traffic-capture-rules` | List request failure under ZIA legacy credentials (`live_access_failed`). |
-| `zia/extranets` | List request failure under ZIA legacy credentials (`live_access_failed`). |
-| `zpa/private-cloud-groups` | List request failure under production OneAPI/ZPA credentials (`live_access_failed`, status 403). |
-| `zpa/private-cloud-controllers` | List request failure under production OneAPI/ZPA credentials (`live_access_failed`, status 401). |
-| `zcc/trusted-networks` | List request failure under production OneAPI/ZCC credentials (`live_access_failed`, status 404). |
-| `zcc/notification-templates` | List request failure under production OneAPI/ZCC credentials (`live_access_failed`, status 404). |
-| `zcc/zia-postures` | List request failure under production OneAPI/ZCC credentials (`live_access_failed`, status 404). |
+| Resource | Last evidence | Required next probe |
+| --- | --- | --- |
+| `zia/network-service-groups` | Early live-smoke request failure; exact status not recorded. | Retry under current legacy-ZIA config with improved smoke summary; record status and endpoint. |
+| `zia/network-applications` | Early live-smoke request failure while `zia/network-application-groups` passed; exact status not recorded. | Retry as a paired probe with `zia/network-application-groups` so endpoint behavior can be compared. |
+| `zia/departments` | Legacy-ZIA list request failed; exact status not recorded. | Retry as identity-like metadata only; record status before deciding whether this is endpoint/auth failure or privacy hold. |
+| `zia/users` | Legacy-ZIA list request failed; exact status not recorded. | Retry only as a privacy-scoped probe; even if reachable, user output still needs PII review before cataloging. |
+| `zia/devices` | Legacy-ZIA list request failed; exact status not recorded. | Retry only as a privacy-scoped probe; even if reachable, device output still needs PII/device review before cataloging. |
+| `zia/email-profiles` | Legacy-ZIA list request failed; exact status not recorded. | Retry under current legacy-ZIA config; likely ordinary config if reachable, but record status and shape first. |
+| `zia/dlp-engines` | Legacy-ZIA list request failed; exact status not recorded. | Retry DLP endpoints as a small family, not mixed with unrelated policy resources. |
+| `zia/dlp-dictionaries` | Legacy-ZIA list request failed; exact status not recorded. | Retry with DLP family; inspect dictionary fields for sensitive sample/content values before cataloging. |
+| `zia/dlp-incident-receiver-servers` | Legacy-ZIA list request failed; exact status not recorded. | Retry with DLP family; keep receiver destination/contact fields standard-only or dropped until reviewed. |
+| `zia/dlp-notification-templates` | Legacy-ZIA list request failed; exact status not recorded. | Retry with DLP family; inspect for free-text notification body fields before cataloging. |
+| `zia/ips-signature-rules` | Legacy-ZIA list request failed; exact status not recorded. | Retry before `ips_policies`; do not use IPS policy adjacency as proof either way. |
+| `zia/c2c-incident-receivers` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry as a single endpoint probe; receiver details may be sensitive destination metadata if reachable. |
+| `zia/dlp-edm-schemas` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; EDM schema names/columns may be sensitive and need conservative projection. |
+| `zia/dlp-idm-profile-lite` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; compare with full IDM profile endpoint before cataloging both. |
+| `zia/dlp-idm-profiles` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; inspect nested matching criteria and identifiers before cataloging. |
+| `zia/dlp-web-rules` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; policy-rule surface likely needs the same conservative nested-reference pattern as other rules. |
+| `zia/traffic-capture-rules` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry as a sensitive diagnostic/capture policy probe, not an ordinary policy batch. |
+| `zia/extranets` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry as a network-identifier-heavy probe; endpoints and IP/range fields should remain local-only if reachable. |
+| `zpa/private-cloud-groups` | Production OneAPI/ZPA list failed with status 403. | Treat as permission/role or product-feature availability; retry only if RO client scopes/roles change. |
+| `zpa/private-cloud-controllers` | Production OneAPI/ZPA list failed with status 401. | Treat as auth/config or endpoint-specific authorization; retry only with captured endpoint path and confirmed ZPA customer ID. |
+| `zcc/trusted-networks` | Production OneAPI/ZCC list failed with status 404. | Probe the ZCC endpoint boundary before catalog work: compare OneAPI `/zcc/papi/public/v2/trusted-networks` routing against documented/product-local ZCC PAPI behavior and confirm whether 404 is path, cloud, entitlement, or SDK mismatch. |
+| `zcc/notification-templates` | Production OneAPI/ZCC list failed with status 404. | Include in the same ZCC endpoint-boundary probe; do not interpret three 404s as three independent resource failures until the product route is proven. |
+| `zcc/zia-postures` | Production OneAPI/ZCC list failed with status 404. | Include in the same ZCC endpoint-boundary probe; if the product route is corrected, re-evaluate posture criteria fields before cataloging. |
 
 ## Return-To-Work Checklist
 
-When production OneAPI smoke is available:
+When revisiting deferred resources or applying a new batch:
 
-1. Pull the base product stack first (`#41` for ZPA or `#53` for ZTW).
+1. Start from a current `main` branch and one focused product/resource family.
 2. Run `make live-smoke` against the branch manifest or an explicit
    `LIVE_SMOKE_RESOURCES` list. For ZPA, include
    `ZSCALERCTL_ZPA_CUSTOMER_ID`.
-3. Record pass/fail outcomes for every manifest resource.
+3. Record pass/fail outcomes for every manifest resource with exact status
+   code, auth mode, product cloud, endpoint path, source commit, and
+   source-vs-release-binary context.
 4. Trim failed resources from the branch or move them to the deferred table
    with the observed failure mode.
-5. Merge the passing base PR before smoking its stacked child (`#50` or `#54`).
-6. Re-fetch and reset the child branch after the base merge, then repeat the
-   focused smoke/trim/merge process.
+5. Merge only passing resources. If a stacked child exists, re-fetch and reset
+   the child branch after the base merge, then repeat focused smoke/trim/merge.
