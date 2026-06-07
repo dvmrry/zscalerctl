@@ -2590,6 +2590,7 @@ func Catalog() ResourceCatalog {
 			Name:       "url-allow-list",
 			Operations: ShowOperation(),
 			Fields: fieldList(
+				// The SDK shape carries both URL lists; each resource renders only its own list.
 				sensitiveIdentifierFields("whitelistUrls"),
 				secretFields("blacklistUrls"),
 			),
@@ -2599,6 +2600,7 @@ func Catalog() ResourceCatalog {
 			Name:       "url-deny-list",
 			Operations: ShowOperation(),
 			Fields: fieldList(
+				// The SDK shape carries both URL lists; each resource renders only its own list.
 				sensitiveIdentifierFields("blacklistUrls"),
 				secretFields("whitelistUrls"),
 			),

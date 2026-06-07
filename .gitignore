@@ -13,3 +13,4 @@ coverage.out
 /scratch-live-dump/
 /scratch-live-dump-*/
 /scratch/resource-drafts/
+.playwright-mcp/

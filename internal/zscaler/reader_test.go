@@ -2,6 +2,7 @@ package zscaler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -50,6 +51,105 @@ import (
 	"github.com/dvmrry/zscalerctl/internal/resources"
 	"github.com/dvmrry/zscalerctl/internal/secret"
 )
+
+type singletonTestRecord struct {
+	ID   int
+	Name string
+}
+
+func TestSingletonHandlerShowMapsResponse(t *testing.T) {
+	t.Parallel()
+
+	handler := newSingletonHandler(
+		"test-settings",
+		func(context.Context) (*singletonTestRecord, error) {
+			return &singletonTestRecord{ID: 42, Name: "mapped"}, nil
+		},
+		func(record singletonTestRecord) resources.SourceRecord {
+			return resources.NewSourceRecord(map[string]any{
+				"id":   record.ID,
+				"name": record.Name,
+			})
+		},
+	)
+
+	record, err := handler.Show(context.Background())
+	if err != nil {
+		t.Fatalf("singletonHandler.Show() error = %v, want nil", err)
+	}
+	spec := resources.ResourceSpec{
+		Product:    resources.ProductZIA,
+		Name:       "test-settings",
+		Operations: resources.ShowOperation(),
+		Fields: []resources.FieldSpec{
+			{
+				Name:           "id",
+				Classification: resources.ClassOperational,
+				AllowedModes:   []redact.Mode{redact.ModeStandard},
+			},
+			{
+				Name:           "name",
+				Classification: resources.ClassTenantConfig,
+				AllowedModes:   []redact.Mode{redact.ModeStandard},
+			},
+		},
+	}
+	projected, _, err := resources.ProjectRecordAndVerify(spec, redact.ModeStandard, record)
+	if err != nil {
+		t.Fatalf("ProjectRecordAndVerify() error = %v, want nil", err)
+	}
+	body, err := json.Marshal(projected)
+	if err != nil {
+		t.Fatalf("json.Marshal(projected) error = %v, want nil", err)
+	}
+	if got, want := string(body), `{"id":42,"name":"mapped"}`; got != want {
+		t.Errorf("singletonHandler.Show() projected JSON = %s, want %s", got, want)
+	}
+}
+
+func TestSingletonHandlerRejectsUnsupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	handler := newSingletonHandler(
+		"test-settings",
+		func(context.Context) (*singletonTestRecord, error) {
+			t.Fatal("singletonHandler unsupported operations called show")
+			return nil, nil
+		},
+		func(singletonTestRecord) resources.SourceRecord {
+			t.Fatal("singletonHandler unsupported operations called mapper")
+			return resources.SourceRecord{}
+		},
+	)
+
+	if _, err := handler.List(context.Background()); !errors.Is(err, ErrUnsupportedResource) {
+		t.Fatalf("singletonHandler.List() error = %v, want ErrUnsupportedResource", err)
+	}
+	if _, err := handler.Get(context.Background(), "1"); !errors.Is(err, ErrUnsupportedResource) {
+		t.Fatalf("singletonHandler.Get() error = %v, want ErrUnsupportedResource", err)
+	}
+}
+
+func TestSingletonHandlerShowRejectsNilResponse(t *testing.T) {
+	t.Parallel()
+
+	handler := newSingletonHandler(
+		"test-settings",
+		func(context.Context) (*singletonTestRecord, error) {
+			return nil, nil
+		},
+		func(singletonTestRecord) resources.SourceRecord {
+			t.Fatal("singletonHandler.Show(nil) called mapper")
+			return resources.SourceRecord{}
+		},
+	)
+
+	if _, err := handler.Show(context.Background()); err == nil {
+		t.Fatal("singletonHandler.Show(nil) error = nil, want error")
+	} else if !strings.Contains(err.Error(), "empty sdk test-settings response") {
+		t.Fatalf("singletonHandler.Show(nil) error = %v, want empty sdk response error", err)
+	}
+}
 
 func TestNewReaderRequiresExplicitZscalerctlCredentials(t *testing.T) {
 	t.Parallel()
