@@ -20,9 +20,10 @@ var (
 type Product string
 
 const (
-	ProductZIA Product = "zia"
-	ProductZPA Product = "zpa"
-	ProductZTW Product = "ztw"
+	ProductZIA       Product = "zia"
+	ProductZPA       Product = "zpa"
+	ProductZTW       Product = "ztw"
+	ProductZidentity Product = "zidentity"
 )
 
 type Capability string
@@ -3318,6 +3319,45 @@ func Catalog() ResourceCatalog {
 				tenantConfigField("logsLimit", standardOnlyMode()),
 				tenantConfigField("roleType", standardShareModes()),
 				secretField("featurePermissions"),
+			},
+		},
+		{
+			Product:    ProductZidentity,
+			Name:       "resource-servers",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				tenantConfigField("displayName", standardShareModes()),
+				freeTextField("description", "Zidentity resource server description"),
+				sensitiveIdentifierField("primaryAud"),
+				operationalField("defaultApi", allModes()),
+				{
+					Name:           "serviceScopes",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						{
+							Name:           "service",
+							Classification: ClassTenantConfig,
+							AllowedModes:   standardOnlyMode(),
+							Fields: []FieldSpec{
+								operationalField("id", allModes()),
+								tenantConfigField("name", standardShareModes()),
+								tenantConfigField("displayName", standardShareModes()),
+							},
+						},
+						{
+							Name:           "scopes",
+							Classification: ClassTenantConfig,
+							AllowedModes:   standardOnlyMode(),
+							Fields: []FieldSpec{
+								operationalField("id", allModes()),
+								tenantConfigField("name", standardShareModes()),
+							},
+						},
+					},
+				},
 			},
 		},
 	}

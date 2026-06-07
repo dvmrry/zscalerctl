@@ -1694,6 +1694,26 @@ Fields:
 | `rank`, `policyAccess`, `alertingAccess`, `dashboardAccess`, `reportAccess`, `analysisAccess`, `usernameAccess`, `adminAcctAccess`, `deviceInfoAccess`, `permissions`, `logsLimit` | Tenant configuration | `standard` | Authorization details are visible to the local administrator and dropped from `share` and `paranoid`. |
 | `featurePermissions` | Secret or unmodeled nested structure | never | Arbitrary feature-permission map is dropped until its shape is reviewed. |
 
+## ZIDENTITY Resource Servers
+
+Commands:
+
+```sh
+zscalerctl zidentity resource-servers list
+zscalerctl zidentity resource-servers get <id>
+zscalerctl dump --products zidentity --resources zidentity/resource-servers --out ./scratch-live-smoke
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `defaultApi` | Operational metadata | `standard`, `share`, `paranoid` | Resource server identifier and default API flag. |
+| `name`, `displayName` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `primaryAud` | Sensitive identifier | `standard` | OAuth audience value; dropped from `share` and `paranoid`. |
+| `serviceScopes` | Tenant configuration | `standard` | Rendered as service and scope id/name references only. Service `cloudName` and `orgName` are dropped pending product-specific review. |
+
 ## Deferred Resource Follow-Ups
 
 - `zia/network-service-groups`: generated and locally validated, but removed
@@ -1748,7 +1768,7 @@ Fields:
 
 Before enabling another resource:
 
-- Start with `scripts/scaffold-resource.sh --product <zia|zpa|ztw> --resource
+- Start with `scripts/scaffold-resource.sh --product <zia|zpa|ztw|zidentity> --resource
   <name> --package <sdk-package> --type <sdk-type>` to create a review bundle
   under `scratch/resource-drafts/`. The bundle wraps `catalog-draft.go`, adds
   reader/docs/validation notes, and does not mutate production files.

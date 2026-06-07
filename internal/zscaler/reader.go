@@ -70,6 +70,7 @@ import (
 	vzenclusters "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_clusters"
 	vzennodes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_nodes"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
+	zidresourceservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zid/services/resource_servers"
 	zpaappconnectorcontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorcontroller"
 	zpaappconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup"
 	zpaapplicationsegment "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegment"
@@ -199,6 +200,7 @@ const (
 	resourceZPACBIZPAProfs             = "cbi-zpa-profiles"
 	resourceZPAC2CIPRanges             = "c2c-ip-ranges"
 	resourceZPAConfigOvrds             = "config-overrides"
+	resourceZidentityResourceServers   = "resource-servers"
 )
 
 type AuthMode string
@@ -295,7 +297,7 @@ func (r *SDKReader) Session(ctx context.Context, product resources.Product) (Res
 		return nil, fmt.Errorf("%w: %s/session", ErrUnsupportedResource, product)
 	}
 	switch product {
-	case resources.ProductZIA, resources.ProductZPA, resources.ProductZTW:
+	case resources.ProductZIA, resources.ProductZPA, resources.ProductZTW, resources.ProductZidentity:
 	default:
 		return nil, fmt.Errorf("%w: %s/session", ErrUnsupportedResource, product)
 	}
@@ -1264,6 +1266,16 @@ func newResourceHandlers(client sdkClient) map[resourceKey]resourceHandler {
 			}),
 			jsonSourceRecord[zpaconfigoverride.ConfigOverrides],
 		),
+		{product: resources.ProductZidentity, name: resourceZidentityResourceServers}: newListGetHandler(
+			resourceZidentityResourceServers,
+			sdkProductList(resources.ProductZidentity, client, func(ctx context.Context, service *zsdk.Service) ([]zidresourceservers.ResourceServers, error) {
+				return zidresourceservers.GetAll(ctx, service, nil)
+			}),
+			sdkProductStringGet(resources.ProductZidentity, client, func(ctx context.Context, service *zsdk.Service, id string) (*zidresourceservers.ResourceServers, error) {
+				return zidresourceservers.Get(ctx, service, id)
+			}),
+			zidentityResourceServerSourceRecord,
+		),
 	}
 }
 
@@ -1550,6 +1562,25 @@ func sdkProductGet[T any](
 		defer cleanup()
 		return call(ctx, service, id)
 	})
+}
+
+func sdkProductStringGet[T any](
+	product resources.Product,
+	client sdkClient,
+	call func(context.Context, *zsdk.Service, string) (*T, error),
+) func(context.Context, string) (*T, error) {
+	return func(ctx context.Context, id string) (*T, error) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil, fmt.Errorf("%w: empty", ErrInvalidResourceID)
+		}
+		service, cleanup, err := client.productService(ctx, product)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		return call(ctx, service, id)
+	}
 }
 
 func zpaSDKList[T any](
@@ -2934,6 +2965,21 @@ func ztwAdminRoleSourceRecord(role ztwadminroles.AdminRoles) resources.SourceRec
 	return resources.NewSourceRecord(fields)
 }
 
+func zidentityResourceServerSourceRecord(server zidresourceservers.ResourceServers) resources.SourceRecord {
+	fields := map[string]any{
+		"id":          server.ID,
+		"name":        server.Name,
+		"displayName": server.DisplayName,
+		"description": server.Description,
+		"primaryAud":  server.PrimaryAud,
+		"defaultApi":  server.DefaultApi,
+	}
+	if len(server.ServiceScopes) > 0 {
+		fields["serviceScopes"] = zidentityServiceScopesSource(server.ServiceScopes)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
 func alertSubscriptionSourceRecord(subscription alerts.AlertSubscriptions) resources.SourceRecord {
 	fields := map[string]any{
 		"id":          subscription.ID,
@@ -3893,6 +3939,36 @@ func ztwExecMobileAppTokensSource(values []ztwadminusers.ExecMobileAppTokens) []
 			"createTime":  value.CreateTime,
 			"deviceId":    value.DeviceId,
 			"deviceName":  value.DeviceName,
+		})
+	}
+	return out
+}
+
+func zidentityServiceScopesSource(values []zidresourceservers.ServiceScopes) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"service": zidentityServiceRefSource(value.Service),
+			"scopes":  zidentityScopesSource(value.Scopes),
+		})
+	}
+	return out
+}
+
+func zidentityServiceRefSource(value zidresourceservers.Service) map[string]any {
+	return map[string]any{
+		"id":          value.ID,
+		"name":        value.Name,
+		"displayName": value.DisplayName,
+	}
+}
+
+func zidentityScopesSource(values []zidresourceservers.Scopes) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":   value.ID,
+			"name": value.Name,
 		})
 	}
 	return out

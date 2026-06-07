@@ -28,7 +28,7 @@ cat >"$fake_bin" <<'SH'
 set -euo pipefail
 
 mode="${ZSCALERCTL_FAKE_MODE:-good}"
-resources=(zia/advanced-settings zia/atp-malware-policy zia/gre-tunnels zia/location-groups zia/locations zia/mobile-threat-settings zia/org-information zia/rule-labels zia/static-ips zia/url-filtering-rules zpa/server-groups zpa/application-segments zpa/app-connectors zpa/service-edge-groups zpa/service-edges zpa/cloud-connector-groups zpa/cloud-connectors zpa/posture-profiles zpa/cbi-zpa-profiles zpa/c2c-ip-ranges zpa/config-overrides ztw/workload-groups ztw/admin-users ztw/admin-roles)
+resources=(zia/advanced-settings zia/atp-malware-policy zia/gre-tunnels zia/location-groups zia/locations zia/mobile-threat-settings zia/org-information zia/rule-labels zia/static-ips zia/url-filtering-rules zpa/server-groups zpa/application-segments zpa/app-connectors zpa/service-edge-groups zpa/service-edges zpa/cloud-connector-groups zpa/cloud-connectors zpa/posture-profiles zpa/cbi-zpa-profiles zpa/c2c-ip-ranges zpa/config-overrides ztw/workload-groups ztw/admin-users ztw/admin-roles zidentity/resource-servers)
 
 schema_fields() {
   case "$1" in
@@ -103,6 +103,9 @@ schema_fields() {
       ;;
     admin-roles)
       printf '[{"name":"id","allowed_modes":["standard"]},{"name":"rank","allowed_modes":["standard"]},{"name":"name","allowed_modes":["standard"]},{"name":"policyAccess","allowed_modes":["standard"]},{"name":"isAuditor","allowed_modes":["standard"]},{"name":"permissions","allowed_modes":["standard"]},{"name":"isNonEditable","allowed_modes":["standard"]},{"name":"roleType","allowed_modes":["standard"]},{"name":"featurePermissions","allowed_modes":[]}]'
+      ;;
+    resource-servers)
+      printf '[{"name":"id","allowed_modes":["standard"]},{"name":"name","allowed_modes":["standard"]},{"name":"displayName","allowed_modes":["standard"]},{"name":"description","allowed_modes":["standard"]},{"name":"primaryAud","allowed_modes":["standard"]},{"name":"defaultApi","allowed_modes":["standard"]},{"name":"serviceScopes","allowed_modes":["standard"]}]'
       ;;
     *)
       echo "unexpected resource: $1" >&2
@@ -249,6 +252,9 @@ JSON
       ;;
     *:ztw:admin-roles)
       printf '[{"id":9,"rank":2,"name":"Cloud Security Admin","policyAccess":"READ_ONLY","isAuditor":false,"permissions":["POLICY_READ"],"isNonEditable":false,"roleType":"ADMIN"}]\n'
+      ;;
+    *:zidentity:resource-servers)
+      printf '[{"id":"resource-server-1","name":"Resource server","displayName":"Resource server display","description":"","primaryAud":"api://resource-server","defaultApi":false,"serviceScopes":[{"service":{"id":"service-1","name":"Service","displayName":"Service display"},"scopes":[{"id":"scope-1","name":"read"}]}]}]\n'
       ;;
     *)
       echo "unexpected resource: $resource" >&2
@@ -734,6 +740,36 @@ fi
 if ! grep -q '\[PASS\] manifest count matches resources/ztw/workload-groups.json (1 records)' "$tmp_dir/stdout-ztw-manifest"; then
   echo "live-smoke ZTW manifest fixture did not validate ZTW manifest counts" >&2
   cat "$tmp_dir/stdout-ztw-manifest" >&2
+  exit 1
+fi
+
+zidentity_manifest="$tmp_dir/zidentity-live-smoke.manifest"
+cat >"$zidentity_manifest" <<'EOF'
+zidentity/resource-servers
+EOF
+
+if ! ZSCALERCTL_BIN="$fake_bin" "$repo_root/scripts/live-smoke.sh" --skip-credential-check --manifest "$zidentity_manifest" --out "$tmp_dir/out-zidentity-manifest" >"$tmp_dir/stdout-zidentity-manifest" 2>"$tmp_dir/stderr-zidentity-manifest"; then
+  echo "live-smoke rejected a valid Zidentity manifest resource subset" >&2
+  cat "$tmp_dir/stdout-zidentity-manifest" >&2
+  cat "$tmp_dir/stderr-zidentity-manifest" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] live smoke selected 1 resource(s): zidentity/resource-servers' "$tmp_dir/stdout-zidentity-manifest"; then
+  echo "live-smoke Zidentity manifest fixture did not report selected resources" >&2
+  cat "$tmp_dir/stdout-zidentity-manifest" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] zidentity resource-servers list command completed' "$tmp_dir/stdout-zidentity-manifest"; then
+  echo "live-smoke Zidentity manifest fixture did not run the Zidentity list command" >&2
+  cat "$tmp_dir/stdout-zidentity-manifest" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] manifest count matches resources/zidentity/resource-servers.json (1 records)' "$tmp_dir/stdout-zidentity-manifest"; then
+  echo "live-smoke Zidentity manifest fixture did not validate Zidentity manifest counts" >&2
+  cat "$tmp_dir/stdout-zidentity-manifest" >&2
   exit 1
 fi
 
