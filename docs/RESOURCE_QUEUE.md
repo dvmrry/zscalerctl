@@ -84,15 +84,20 @@ control, not as repository content.
 
 ## Current Gate
 
-Open draft PR:
+The legacy-ZIA smoke gate is closed for the current queued work: PRs `#39` and
+`#58` were live-smoked from the work machine and merged after trimming or
+allowing the observed tenant-specific failures.
+
+Open draft PRs now require product-specific OneAPI smoke before merge:
 
 | PR | Resources | Status | Smoke command |
 | --- | --- | --- | --- |
-| `#39` | `zia/file-type-rules`, `zia/sandbox-rules`, `zia/firewall-dns-rules`, `zia/risk-profiles`, `zia/nss-servers`, `zia/nss-feeds`, `zia/custom-file-types`, `zia/zpa-gateways`, `zia/auth-settings` | Legacy-ZIA live smoke passed after trimming failed endpoints; release-track candidate pending CI/merge approval | `make live-smoke` |
+| `#41` -> `#50` | ZPA Tier-1 resources plus `zpa/application-segments` | Draft stack; gates green, waiting on focused production OneAPI/ZPA smoke | `make live-smoke` with the branch manifest or explicit `LIVE_SMOKE_RESOURCES` |
+| `#53` -> `#54` | Initial ZTW reference batch plus initial ZCC reference batch | Draft stack; gates green, waiting on focused production OneAPI product smoke | `make live-smoke` with the branch manifest or explicit `LIVE_SMOKE_RESOURCES` |
 
-This branch started as a broad smoke-lab surface. The retained resources above
-passed focused work-machine live smoke under legacy ZIA credentials after
-`live_access_failed` endpoints were moved to the deferred table.
+Do not merge product stacks on green CI alone. Promote only the resources that
+pass focused live smoke, and trim or defer any endpoints that fail with
+tenant/auth availability errors.
 
 ## No-Live Work Mode
 
@@ -381,12 +386,14 @@ endpoint behavior and auth-mode support first.
 
 ## Return-To-Work Checklist
 
-When live smoke is available again:
+When production OneAPI smoke is available:
 
-1. Pull PR `#39` and run `make live-smoke`.
-2. Record pass/fail outcomes for every manifest resource.
-3. Trim failed resources from the smoke-lab branch or move them to the
-   deferred table with the observed failure mode.
-4. Promote only passing resources into release-track work.
-5. Close or supersede older draft resource PRs that are now represented in the
-   smoke-lab branch.
+1. Pull the base product stack first (`#41` for ZPA or `#53` for ZTW).
+2. Run `make live-smoke` against the branch manifest or an explicit
+   `LIVE_SMOKE_RESOURCES` list.
+3. Record pass/fail outcomes for every manifest resource.
+4. Trim failed resources from the branch or move them to the deferred table
+   with the observed failure mode.
+5. Merge the passing base PR before smoking its stacked child (`#50` or `#54`).
+6. Re-fetch and reset the child branch after the base merge, then repeat the
+   focused smoke/trim/merge process.
