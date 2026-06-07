@@ -93,11 +93,11 @@ Product-track status:
 
 | Product | Resources | Status | Next action |
 | --- | --- | --- | --- |
-| ZIA | Current queued legacy-ZIA resources, singleton settings, focused ordinary-recheck batch, and identity/device recheck for `zia/departments`, `zia/users`, and `zia/devices` | Earlier catalog and ordinary-recheck batch passed work-machine live smoke before merge. Identity/device recheck passed work-machine live smoke; `zia/users` returned 35,721 records and `zia/departments` returned 2,624 records. | Continue only through the remaining shape-decision tracks below. |
+| ZIA | Current queued legacy-ZIA resources, singleton settings, focused ordinary-recheck batch, and identity/device recheck for `zia/departments`, `zia/users`, and `zia/devices` | Earlier catalog, ordinary-recheck batch, and identity/device recheck passed work-machine live smoke before merge. | Continue only through the remaining shape-decision tracks below. |
 | ZPA | Tier-1 resources plus `zpa/application-segments` | Production OneAPI smoke passed after trimming unavailable private-cloud endpoints. | Continue later from the remaining ZPA SDK surface; keep focused smoke/trim discipline. |
 | ZTW | Initial reference batch plus admin-governance resources (`admin-users`, `admin-roles`) | Production OneAPI smoke passed for both the initial reference batch and admin-governance batch. | Continue policy/control surfaces only after explicit review. |
 | ZCC | `trusted-networks`, `notification-templates`, `zia-postures` | Production OneAPI smoke returned 404 for all three list endpoints. | Deferred; investigate endpoint/auth/entitlement behavior before retrying ZCC. |
-| Zidentity | `groups`, `users`, `resource-servers` | Production OneAPI smoke passed for the focused workforce identity/reference batch; `zidentity/users` returned 31,205 records and completed dump/manifest validation after guarded pagination was added. | Keep membership expansion as a separate child-query design. |
+| Zidentity | `groups`, `users`, `resource-servers` | Production OneAPI smoke passed for the focused workforce identity/reference batch; `zidentity/users` completed dump/manifest validation after guarded pagination was added. | Keep membership expansion as a separate child-query design. |
 
 Do not merge product stacks on green CI alone. Promote only the resources that
 pass focused live smoke, and trim or defer any endpoints that fail with
