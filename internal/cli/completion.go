@@ -11,12 +11,10 @@ import (
 )
 
 var (
-	completionCommands  = []string{"doctor", "auth", "config", "schema", "dump", "completion", "version", "zia", "zpa", "help"}
 	completionFlags     = []string{"--profile", "--format", "--output", "--timeout", "--redaction", "--color", "--no-color", "--no-cache"}
-	completionFormats   = []string{"table", "json", "yaml", "ndjson"}
+	completionFormats   = []string{"table", "json"}
 	completionRedaction = []string{"standard", "share", "paranoid"}
 	completionColors    = []string{"auto", "always", "never"}
-	completionProducts  = []string{"zia", "zpa", "zia,zpa"}
 	completionShells    = []string{"bash", "zsh", "fish"}
 )
 
@@ -65,8 +63,7 @@ _zscalerctl()
     config) COMPREPLY=( $(compgen -W "show" -- "$cur") ); return ;;
     schema) COMPREPLY=( $(compgen -W "list" -- "$cur") ); return ;;
     dump) COMPREPLY=( $(compgen -W "--out --products --resources --continue-on-error" -- "$cur") ); return ;;
-    zia) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
-    zpa) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
+%s
     %s) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
   esac
 
@@ -77,15 +74,14 @@ complete -F _zscalerctl zscalerctl
 		words(completionFormats),
 		words(completionRedaction),
 		words(completionColors),
-		words(completionProducts),
+		words(completionProductValues()),
 		words(dumpResourceNames()),
 		words(completionShells),
-		words(resourceNames(resources.ProductZIA)),
-		words(resourceNames(resources.ProductZPA)),
+		bashProductResourceCases(),
 		bashCasePatterns(allResourceNames()),
 		words(operationNames()),
 		words(completionFlags),
-		words(completionCommands),
+		words(completionCommandNames()),
 	)
 }
 
@@ -93,7 +89,7 @@ func zshCompletion() string {
 	return fmt.Sprintf(`#compdef zscalerctl
 
 _zscalerctl() {
-  local -a commands flags formats redactions colors products dump_resources shells zia_resources zpa_resources operations dump_flags
+  local -a commands flags formats redactions colors products dump_resources shells operations dump_flags
   commands=(%s)
   flags=(%s)
   formats=(%s)
@@ -102,8 +98,6 @@ _zscalerctl() {
   products=(%s)
   dump_resources=(%s)
   shells=(%s)
-  zia_resources=(%s)
-  zpa_resources=(%s)
   operations=(%s)
   dump_flags=(--out --products --resources --continue-on-error)
 
@@ -118,8 +112,7 @@ _zscalerctl() {
     config) compadd -- show; return ;;
     schema) compadd -- list; return ;;
     dump) compadd -- "${dump_flags[@]}"; return ;;
-    zia) compadd -- "${zia_resources[@]}"; return ;;
-    zpa) compadd -- "${zpa_resources[@]}"; return ;;
+%s
     %s) compadd -- "${operations[@]}"; return ;;
   esac
 
@@ -128,17 +121,16 @@ _zscalerctl() {
 
 _zscalerctl "$@"
 `,
-		words(completionCommands),
+		words(completionCommandNames()),
 		words(completionFlags),
 		words(completionFormats),
 		words(completionRedaction),
 		words(completionColors),
-		words(completionProducts),
+		words(completionProductValues()),
 		words(dumpResourceNames()),
 		words(completionShells),
-		words(resourceNames(resources.ProductZIA)),
-		words(resourceNames(resources.ProductZPA)),
 		words(operationNames()),
+		zshProductResourceCases(),
 		zshCasePatterns(allResourceNames()),
 	)
 }
@@ -162,22 +154,60 @@ complete -c zscalerctl -n '__fish_seen_subcommand_from schema' -a 'list'
 complete -c zscalerctl -n '__fish_seen_subcommand_from dump' -a '--out --products --resources --continue-on-error'
 complete -c zscalerctl -n '__fish_seen_subcommand_from dump' -l products -x -a '%s'
 complete -c zscalerctl -n '__fish_seen_subcommand_from dump' -l resources -x -a '%s'
-complete -c zscalerctl -n '__fish_seen_subcommand_from zia' -a '%s'
-complete -c zscalerctl -n '__fish_seen_subcommand_from zpa' -a '%s'
+%s
 complete -c zscalerctl -n '__fish_seen_subcommand_from %s' -a '%s'
 `,
 		words(completionFormats),
 		words(completionRedaction),
 		words(completionColors),
-		words(completionCommands),
+		words(completionCommandNames()),
 		words(completionShells),
-		words(completionProducts),
+		words(completionProductValues()),
 		words(dumpResourceNames()),
-		words(resourceNames(resources.ProductZIA)),
-		words(resourceNames(resources.ProductZPA)),
+		fishProductResourceCompletions(),
 		words(allResourceNames()),
 		words(operationNames()),
 	)
+}
+
+func completionCommandNames() []string {
+	commands := []string{"doctor", "auth", "config", "schema", "dump", "completion", "version", "help"}
+	commands = append(commands, productNames(knownProducts())...)
+	sort.Strings(commands)
+	return commands
+}
+
+func completionProductValues() []string {
+	products := productNames(knownProducts())
+	values := append([]string(nil), products...)
+	if len(products) > 1 {
+		values = append(values, strings.Join(products, ","))
+	}
+	return values
+}
+
+func bashProductResourceCases() string {
+	var lines []string
+	for _, product := range knownProducts() {
+		lines = append(lines, fmt.Sprintf("    %s) COMPREPLY=( $(compgen -W \"%s\" -- \"$cur\") ); return ;;", product, words(resourceNames(product))))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func zshProductResourceCases() string {
+	var lines []string
+	for _, product := range knownProducts() {
+		lines = append(lines, fmt.Sprintf("    %s) compadd -- %s; return ;;", product, words(resourceNames(product))))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func fishProductResourceCompletions() string {
+	var lines []string
+	for _, product := range knownProducts() {
+		lines = append(lines, fmt.Sprintf("complete -c zscalerctl -n '__fish_seen_subcommand_from %s' -a '%s'", product, words(resourceNames(product))))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func resourceNames(product resources.Product) []string {

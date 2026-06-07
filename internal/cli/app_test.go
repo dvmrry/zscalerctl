@@ -70,6 +70,55 @@ func TestDoctorDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	}
 }
 
+func TestDoctorSupportsJSONOutput(t *testing.T) {
+	t.Parallel()
+
+	const (
+		clientID     = "client-id-value"
+		clientSecret = "client-secret-value"
+		proxyURL     = "http://proxy-user:proxy-secret@proxy.example.invalid:8080"
+	)
+	var out, errOut bytes.Buffer
+	app := cli.New(&out, &errOut, []string{
+		config.EnvClientID + "=" + clientID,
+		config.EnvClientSecret + "=" + clientSecret,
+		config.EnvVanityDomain + "=example",
+		config.EnvProxyURL + "=" + proxyURL,
+	})
+
+	err := app.Run(context.Background(), []string{"doctor", "--format", "json"})
+	if err != nil {
+		t.Fatalf("App.Run(doctor --format json) error = %v, want nil", err)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(doctor --format json) stderr = %q, want empty", errOut.String())
+	}
+	var got struct {
+		Status      string `json:"status"`
+		Mode        string `json:"mode"`
+		AuthMode    string `json:"auth_mode"`
+		Credentials string `json:"credentials"`
+		LiveAPI     string `json:"live_api"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(App.Run(doctor --format json) stdout) error = %v; body = %q", err, out.String())
+	}
+	if got.Status != "OK" || got.Mode != "read-only" || got.AuthMode == "" {
+		t.Errorf("App.Run(doctor --format json) decoded = %#v, want status/mode/auth mode", got)
+	}
+	if got.Credentials != "configured" {
+		t.Errorf("App.Run(doctor --format json) credentials = %q, want configured", got.Credentials)
+	}
+	if !strings.Contains(got.LiveAPI, "available") {
+		t.Errorf("App.Run(doctor --format json) live_api = %q, want available status", got.LiveAPI)
+	}
+	for _, forbidden := range []string{clientID, clientSecret, "proxy-user", "proxy-secret", "proxy.example.invalid"} {
+		if strings.Contains(out.String(), forbidden) {
+			t.Errorf("App.Run(doctor --format json) stdout = %q, want no %q", out.String(), forbidden)
+		}
+	}
+}
+
 func TestAuthStatusDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	t.Parallel()
 
@@ -88,6 +137,51 @@ func TestAuthStatusDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	for _, forbidden := range []string{clientID, clientSecret} {
 		if strings.Contains(out.String(), forbidden) {
 			t.Errorf("App.Run(auth status) output = %q, want no %q", out.String(), forbidden)
+		}
+	}
+}
+
+func TestAuthStatusSupportsJSONOutput(t *testing.T) {
+	t.Parallel()
+
+	const (
+		clientID     = "client-id-value"
+		clientSecret = "client-secret-value"
+	)
+	var out, errOut bytes.Buffer
+	app := cli.New(&out, &errOut, []string{
+		config.EnvClientID + "=" + clientID,
+		config.EnvClientSecret + "=" + clientSecret,
+		config.EnvVanityDomain + "=example",
+	})
+
+	err := app.Run(context.Background(), []string{"auth", "status", "--format", "json"})
+	if err != nil {
+		t.Fatalf("App.Run(auth status --format json) error = %v, want nil", err)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(auth status --format json) stderr = %q, want empty", errOut.String())
+	}
+	var got struct {
+		Credentials        string `json:"credentials"`
+		CredentialExchange string `json:"credential_exchange"`
+		LiveAPI            string `json:"live_api"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(App.Run(auth status --format json) stdout) error = %v; body = %q", err, out.String())
+	}
+	if got.Credentials != "configured" {
+		t.Errorf("App.Run(auth status --format json) credentials = %q, want configured", got.Credentials)
+	}
+	if got.CredentialExchange != "not requested" {
+		t.Errorf("App.Run(auth status --format json) credential_exchange = %q, want not requested", got.CredentialExchange)
+	}
+	if !strings.Contains(got.LiveAPI, "available") {
+		t.Errorf("App.Run(auth status --format json) live_api = %q, want available status", got.LiveAPI)
+	}
+	for _, forbidden := range []string{clientID, clientSecret} {
+		if strings.Contains(out.String(), forbidden) {
+			t.Errorf("App.Run(auth status --format json) stdout = %q, want no %q", out.String(), forbidden)
 		}
 	}
 }
@@ -262,13 +356,115 @@ func TestUsageListsKnownProducts(t *testing.T) {
 		t.Fatalf("App.Run(help) error = %v, want nil", err)
 	}
 	for _, want := range []string{
-		"products: zia, zpa",
-		"zia <resource> list|get",
-		"zpa <resource> list|get",
+		"products: zia",
+		"zia <resource> list|get|show",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("App.Run(help) stdout = %q, want %q", out.String(), want)
 		}
+	}
+}
+
+func TestGlobalOutputWritesSuccessfulCommandToOwnerOnlyFile(t *testing.T) {
+	t.Parallel()
+
+	const clientSecret = "client-secret-value"
+	var out, errOut bytes.Buffer
+	outPath := filepath.Join(t.TempDir(), "config.json")
+	app := cli.New(&out, &errOut, []string{
+		config.EnvClientID + "=client-id-value",
+		config.EnvClientSecret + "=" + clientSecret,
+	})
+
+	err := app.Run(context.Background(), []string{"config", "show", "--format", "json", "--output", outPath})
+	if err != nil {
+		t.Fatalf("App.Run(config show --output) error = %v, want nil", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(config show --output) stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(config show --output) stderr = %q, want empty", errOut.String())
+	}
+	assertFileMode(t, outPath, 0o600)
+	body := readFile(t, outPath)
+	if !json.Valid([]byte(body)) {
+		t.Fatalf("output file body = %q, want valid JSON", body)
+	}
+	if strings.Contains(body, clientSecret) {
+		t.Errorf("output file body = %q, want no raw client secret", body)
+	}
+}
+
+func TestGlobalOutputTreatsDestinationAsNonTTYForColorAuto(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	outPath := filepath.Join(t.TempDir(), "doctor.txt")
+	app := cli.NewWithOptions(&out, &errOut, []string{"TERM=xterm-256color"}, cli.Options{StdoutTTY: true})
+
+	err := app.Run(context.Background(), []string{"doctor", "--output", outPath})
+	if err != nil {
+		t.Fatalf("App.Run(doctor --output) error = %v, want nil", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(doctor --output) stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(doctor --output) stderr = %q, want empty", errOut.String())
+	}
+	body := readFile(t, outPath)
+	if strings.Contains(body, "\x1b[") {
+		t.Errorf("output file body = %q, want no ANSI escapes", body)
+	}
+}
+
+func TestGlobalOutputDoesNotCreateFileOnError(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	outPath := filepath.Join(t.TempDir(), "doctor.txt")
+	app := cli.New(&out, &errOut, nil)
+
+	err := app.Run(context.Background(), []string{"doctor", "--timeout", "0s", "--output", outPath})
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(doctor --output with usage error) error = %v, want ErrUsage", err)
+	}
+	if _, statErr := os.Stat(outPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", outPath, statErr)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(doctor --output with usage error) stdout = %q, want empty", out.String())
+	}
+}
+
+func TestGlobalOutputRejectsDump(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	tempDir := t.TempDir()
+	outPath := filepath.Join(tempDir, "dump-status.txt")
+	dumpDir := filepath.Join(tempDir, "dump")
+	app := cli.New(&out, &errOut, nil)
+
+	err := app.Run(context.Background(), []string{"dump", "--output", outPath, "--out", dumpDir})
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(dump --output --out) error = %v, want ErrUsage", err)
+	}
+	if !strings.Contains(err.Error(), "--output cannot be used with dump") {
+		t.Errorf("App.Run(dump --output --out) error = %q, want --output dump guidance", err.Error())
+	}
+	if _, statErr := os.Stat(outPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", outPath, statErr)
+	}
+	if _, statErr := os.Stat(dumpDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", dumpDir, statErr)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(dump --output --out) stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(dump --output --out) stderr = %q, want empty", errOut.String())
 	}
 }
 
@@ -325,7 +521,7 @@ func TestCompletionScriptsDoNotReadCredentialFilesOrUseReader(t *testing.T) {
 			if err != nil {
 				t.Fatalf("App.Run(completion %s) error = %v, want nil", shell, err)
 			}
-			for _, want := range []string{"zscalerctl", "locations", "location-groups", "rule-labels", "static-ips", "gre-tunnels", "--resources", "--continue-on-error", "list get"} {
+			for _, want := range []string{"zscalerctl", "locations", "location-groups", "rule-labels", "static-ips", "gre-tunnels", "--resources", "--continue-on-error", "list get", "show"} {
 				if !strings.Contains(out.String(), want) {
 					t.Errorf("App.Run(completion %s) stdout = %q, want %q", shell, out.String(), want)
 				}
@@ -337,6 +533,98 @@ func TestCompletionScriptsDoNotReadCredentialFilesOrUseReader(t *testing.T) {
 			}
 			if errOut.Len() != 0 {
 				t.Errorf("App.Run(completion %s) stderr = %q, want empty", shell, errOut.String())
+			}
+		})
+	}
+}
+
+func TestCompletionScriptsReflectCatalogProducts(t *testing.T) {
+	t.Parallel()
+
+	products := catalogProductsForTest()
+	cases := []struct {
+		shell   string
+		snippet func(string) string
+	}{
+		{
+			shell: "bash",
+			snippet: func(product string) string {
+				return "    " + product + ") COMPREPLY="
+			},
+		},
+		{
+			shell: "zsh",
+			snippet: func(product string) string {
+				return "    " + product + ") compadd --"
+			},
+		},
+		{
+			shell: "fish",
+			snippet: func(product string) string {
+				return "__fish_seen_subcommand_from " + product + "'"
+			},
+		},
+	}
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.shell, func(t *testing.T) {
+			t.Parallel()
+
+			var out, errOut bytes.Buffer
+			app := cli.New(&out, &errOut, nil)
+
+			err := app.Run(context.Background(), []string{"completion", tt.shell})
+			if err != nil {
+				t.Fatalf("App.Run(completion %s) error = %v, want nil", tt.shell, err)
+			}
+			for _, product := range []string{"zia", "zpa", "ztw", "zcc"} {
+				snippet := tt.snippet(product)
+				if products[product] && !strings.Contains(out.String(), snippet) {
+					t.Errorf("App.Run(completion %s) stdout = %q, want product branch %q", tt.shell, out.String(), snippet)
+				}
+				if !products[product] && strings.Contains(out.String(), snippet) {
+					t.Errorf("App.Run(completion %s) stdout = %q, want no product branch %q", tt.shell, out.String(), snippet)
+				}
+			}
+			if errOut.Len() != 0 {
+				t.Errorf("App.Run(completion %s) stderr = %q, want empty", tt.shell, errOut.String())
+			}
+		})
+	}
+}
+
+func TestCompletionScriptsUseAuthStatus(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		shell     string
+		want      string
+		forbidden string
+	}{
+		{shell: "bash", want: `auth) COMPREPLY=( $(compgen -W "status"`, forbidden: `auth) COMPREPLY=( $(compgen -W "show"`},
+		{shell: "zsh", want: "auth) compadd -- status", forbidden: "auth) compadd -- show"},
+		{shell: "fish", want: "__fish_seen_subcommand_from auth' -a 'status'", forbidden: "__fish_seen_subcommand_from auth' -a 'show'"},
+	}
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.shell, func(t *testing.T) {
+			t.Parallel()
+
+			var out, errOut bytes.Buffer
+			app := cli.New(&out, &errOut, nil)
+
+			err := app.Run(context.Background(), []string{"completion", tt.shell})
+			if err != nil {
+				t.Fatalf("App.Run(completion %s) error = %v, want nil", tt.shell, err)
+			}
+			if !strings.Contains(out.String(), tt.want) {
+				t.Errorf("App.Run(completion %s) stdout = %q, want %q", tt.shell, out.String(), tt.want)
+			}
+			if strings.Contains(out.String(), tt.forbidden) {
+				t.Errorf("App.Run(completion %s) stdout = %q, want no %q", tt.shell, out.String(), tt.forbidden)
+			}
+			if errOut.Len() != 0 {
+				t.Errorf("App.Run(completion %s) stderr = %q, want empty", tt.shell, errOut.String())
 			}
 		})
 	}
@@ -541,19 +829,9 @@ func TestResourceListProjectsAndRedactsFixture(t *testing.T) {
 	}
 }
 
-func TestResourceCommandsRejectAdvertisedButUnsupportedFormats(t *testing.T) {
+func TestUnsupportedFormatsFailBeforeReader(t *testing.T) {
 	t.Parallel()
 
-	reader := fakeResourceReader{
-		list: []resources.SourceRecord{resources.NewSourceRecord(map[string]any{
-			"id":   "123",
-			"name": "HQ",
-		})},
-		get: resources.NewSourceRecord(map[string]any{
-			"id":   "123",
-			"name": "HQ",
-		}),
-	}
 	tests := []struct {
 		name string
 		args []string
@@ -562,12 +840,12 @@ func TestResourceCommandsRejectAdvertisedButUnsupportedFormats(t *testing.T) {
 		{
 			name: "list yaml",
 			args: []string{"--format", "yaml", "zia", "locations", "list"},
-			want: "yaml output is not supported for resource list yet",
+			want: `unsupported output format "yaml"; supported: table, json`,
 		},
 		{
 			name: "get ndjson",
 			args: []string{"--format", "ndjson", "zia", "locations", "get", "123"},
-			want: "ndjson output is not supported for resource get yet",
+			want: `unsupported output format "ndjson"; supported: table, json`,
 		},
 	}
 	for _, tt := range tests {
@@ -575,11 +853,14 @@ func TestResourceCommandsRejectAdvertisedButUnsupportedFormats(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var out, errOut bytes.Buffer
-			app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+			app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
 
 			err := app.Run(context.Background(), tt.args)
 			if err == nil {
-				t.Fatalf("App.Run(%v) error = nil, want unsupported format error", tt.args)
+				t.Fatalf("App.Run(%v) error = nil, want usage error", tt.args)
+			}
+			if !errors.Is(err, cli.ErrUsage) {
+				t.Fatalf("App.Run(%v) error = %v, want ErrUsage", tt.args, err)
 			}
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("App.Run(%v) error = %q, want %q", tt.args, err.Error(), tt.want)
@@ -1254,22 +1535,19 @@ func TestDumpRejectsNilReaderSession(t *testing.T) {
 	}
 }
 
-func TestDumpWithNoSelectedResourcesDoesNotOpenReader(t *testing.T) {
+func TestDumpWithUnsupportedProductDoesNotOpenReader(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
 
+	// zpa has no enabled resources on this build, so it is not a known product.
+	// Selecting it must fail fast WITHOUT opening the reader (failingResourceReader
+	// would error if it were ever opened).
 	err := app.Run(context.Background(), []string{"dump", "--products", "zpa", "--out", outDir})
-	if err != nil {
-		t.Fatalf("App.Run(dump --products zpa --out) error = %v, want nil", err)
-	}
-	if !strings.Contains(out.String(), "dump written: "+outDir) {
-		t.Errorf("App.Run(dump --products zpa --out) stdout = %q, want dump written line", out.String())
-	}
-	if errOut.Len() != 0 {
-		t.Errorf("App.Run(dump --products zpa --out) stderr = %q, want empty", errOut.String())
+	if err == nil || !strings.Contains(err.Error(), "unsupported product") {
+		t.Fatalf("App.Run(dump --products zpa --out) error = %v, want unsupported product error", err)
 	}
 }
 
@@ -1507,4 +1785,12 @@ func hasReadListOperation(spec resources.ResourceSpec) bool {
 		}
 	}
 	return false
+}
+
+func catalogProductsForTest() map[string]bool {
+	products := map[string]bool{}
+	for _, spec := range resources.Catalog() {
+		products[string(spec.Product)] = true
+	}
+	return products
 }

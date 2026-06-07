@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,7 +13,56 @@ import (
 	"testing"
 
 	"github.com/dvmrry/zscalerctl/internal/cli"
+	"github.com/dvmrry/zscalerctl/internal/output"
+	"github.com/dvmrry/zscalerctl/internal/resources"
+	"github.com/dvmrry/zscalerctl/internal/zscaler"
 )
+
+func TestExitCodeForError(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"usage", cli.ErrUsage, exitUsageError},
+		{"partial_dump", cli.ErrPartialDump, exitPartialDump},
+		{"wrapped_partial_dump", fmt.Errorf("dump zia: %w", cli.ErrPartialDump), exitPartialDump},
+		{"not_found", cli.ErrNotFound, exitNotFound},
+		{"missing_credentials", zscaler.ErrMissingCredentials, exitCredentialError},
+		{"invalid_resource_id", zscaler.ErrInvalidResourceID, exitUsageError},
+		{"live_access_failed", zscaler.ErrLiveAccessFailed, exitLiveAccessFailure},
+		{"unknown", errors.New("boom"), exitInternalError},
+	}
+	for _, tc := range cases {
+		if got := exitCodeForError(tc.err); got != tc.want {
+			t.Errorf("exitCodeForError(%s) = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestErrorEnvelopeJSONIncludesResourceContext(t *testing.T) {
+	t.Parallel()
+
+	err := cli.ResourceNotFoundError{Product: resources.ProductZIA, Resource: "locations"}
+	var buf bytes.Buffer
+	writeError(&buf, output.FormatJSON, err)
+
+	var env errorEnvelope
+	if e := json.Unmarshal(buf.Bytes(), &env); e != nil {
+		t.Fatalf("json.Unmarshal(%q) error = %v, want nil", buf.String(), e)
+	}
+	if env.Error.Kind != "not_found" {
+		t.Errorf("error.kind = %q, want not_found", env.Error.Kind)
+	}
+	if env.Error.Product != "zia" {
+		t.Errorf("error.product = %q, want zia", env.Error.Product)
+	}
+	if env.Error.Resource != "locations" {
+		t.Errorf("error.resource = %q, want locations", env.Error.Resource)
+	}
+}
 
 func TestRunHelpReturnsSuccess(t *testing.T) {
 	t.Parallel()
