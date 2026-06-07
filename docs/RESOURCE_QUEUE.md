@@ -85,13 +85,9 @@ control, not as repository content.
 
 ## Current Gates
 
-The legacy-ZIA smoke gate is closed for the current queued work: PRs `#39` and
-`#58` were live-smoked from the work machine and merged after trimming or
-allowing the observed tenant-specific failures.
-
-The ZPA and ZTW OneAPI smoke gates are closed for the staged product work:
-PRs `#41`, `#50`, and `#53` were live-smoked from the work machine and merged
-after trimming the observed tenant-specific failures.
+The legacy-ZIA, ZPA, and ZTW smoke gates are closed for the current catalog.
+Those product surfaces were promoted only after focused work-machine live smoke
+and after trimming or deferring observed tenant-specific failures.
 
 Product-track status:
 
@@ -161,43 +157,8 @@ resource handler.
 ## Remaining SDK Package Review
 
 The current enabled catalog contains 58 ZIA resources, 16 ZPA resources, and 10
-ZTW resources. The table below tracks SDK package surfaces that remain outside
-the catalog and still need a shape, endpoint, auth-mode, or policy decision.
-The deferred table later in this document tracks generated resources that were
-removed after live smoke reported request failures. These are package-level
-scouting notes, not a promise that every row should become a resource.
-
-| SDK package | Review posture |
-| --- | --- |
-| `adminauditlogs` | Admin/audit export surface with download helpers and adjacent export/delete operations; keep as a privacy/audit design item, not ordinary inventory. |
-| `adminuserrolemgmt/admins` | Identity/admin plane with adjacent mutation; requires stricter privacy and role review before any catalog work. |
-| `adminuserrolemgmt/roles` | Admin role plane with adjacent mutation; identity/admin design item. |
-| `apptotal` | Application-view helper surface, not a stable list/get config object yet; needs output semantics before queueing. |
-| `browser_isolation` | List/name-get only; decide list-only resources before enabling. |
-| `dlp/dlp_engines` | Deferred after legacy live-smoke failure; investigate endpoint/auth behavior before retrying. |
-| `dlp/dlp_exact_data_match_lite` | Potential lite companion to EDM schemas, but list/name-get semantics overlap existing EDM schema coverage; decide whether it adds useful output. |
-| `dlp/dlp_incident_receiver_servers` | Deferred after legacy live-smoke failure. |
-| `dlp/dlp_notification_templates` | Deferred after legacy live-smoke failure. |
-| `dlp/dlpdictionaries` | Deferred after legacy live-smoke failure. |
-| `email_profiles` | Deferred after legacy live-smoke failure. |
-| `firewallpolicies/networkapplications` | Deferred after network-applications live-smoke failure while groups succeeded. |
-| `firewallpolicies/networkservicegroups` | Deferred after network-service-groups live-smoke failure. |
-| `intermediatecacertificates` | Certificate/CSR/download material surface; needs public-metadata versus material/export decision. |
-| `ips_control_policies/ips_policies` | Adjacent to failed IPS signature-rule endpoint; verify endpoint and entitlement behavior separately. |
-| `ips_control_policies/ips_signature_rules` | Deferred after legacy live-smoke failure. |
-| `location/locationlite` | Slim location view overlaps `locations`/`sublocations`; only queue if it resolves a concrete pagination or performance gap. |
-| `saas_security_api` | Parameterized CASB/SaaS helper surface; needs stable defaults and shape semantics. |
-| `saas_security_api/casb_dlp_rules` | CASB rule surface with rule-type get semantics; requires resource/get design before enabling. |
-| `saas_security_api/casb_malware_rules` | CASB rule surface with rule-type get semantics; requires resource/get design before enabling. |
-| `scim_api` | Identity-plane SCIM users/groups with adjacent mutation; stricter privacy/auth design item. |
-| `trafficforwarding/dc_exclusions` | List/name-get plus datacenter helper semantics; shape decision before queueing. |
-| `trafficforwarding/sub_clouds` | `GetAll` and integer `Get` return different shapes; decide resource split or list-only semantics. |
-| `trafficforwarding/virtualipaddress` | Read-only VIP recommendation/source-IP helper surface, not ordinary config inventory; decide output model before queueing. |
-| `trafficforwarding/vpncredentials` | Credential-bearing by name; requires a public-metadata-only decision before any catalog entry. |
-| `usermanagement/departments` | Deferred after legacy live-smoke failure; identity-like data also needs privacy review. |
-| `usermanagement/users` | Deferred after legacy live-smoke failure; identity-like data also needs privacy review. |
-
-### Review Outcome For Remaining Shape-Decision Items
+ZTW resources. The rows below are package-level scouting notes, not a promise
+that every surface should become a resource.
 
 The pinned Go SDK (`github.com/zscaler/zscaler-sdk-go/v3` v3.8.37) remains the
 implementation authority. The Python SDK is useful only as scout evidence for
@@ -215,16 +176,17 @@ Python SDK spot-checks confirmed four important shape notes:
 - Intermediate CA certificates mix ordinary certificate metadata with
   certificate, CSR, attestation, and public-key material/download endpoints.
 
-The remaining non-deferred items split into these work tracks:
+Remaining work is grouped by the decision that blocks catalog work:
 
-| Track | Surfaces | Next action |
+| Track | Surfaces | Decision before catalog work |
 | --- | --- | --- |
-| List-only or name-get candidates | `browser_isolation`, `dlp/dlp_exact_data_match_lite`, `location/locationlite`, `trafficforwarding/dc_exclusions`, `trafficforwarding/sub_clouds` | Add explicit list-only/dump-only reader semantics before queueing. `locationlite` should wait for a concrete performance or pagination reason because it overlaps `locations` and `sublocations`. |
+| List-only or name-get candidates | `browser_isolation`, `dlp/dlp_exact_data_match_lite`, `location/locationlite`, `trafficforwarding/dc_exclusions`, `trafficforwarding/sub_clouds`, PAC files, cloud application policy lists | Add explicit list-only/dump-only or name-get semantics before queueing. `locationlite` should wait for a concrete performance or pagination reason because it overlaps `locations` and `sublocations`. |
 | SaaS/CASB split candidates | `saas_security_api`, `saas_security_api/casb_dlp_rules`, `saas_security_api/casb_malware_rules` | Split `saas_security_api` into separate resources such as domain profiles, quarantine tombstone templates, CASB email labels, CASB tenants, and SaaS scan info. CASB DLP/malware rules can use list/dump via `/all`, but `get` needs a rule-type decision. |
-| Deferred live/auth failures | `dlp/dlp_engines`, `dlp/dlp_incident_receiver_servers`, `dlp/dlp_notification_templates`, `dlp/dlpdictionaries`, `email_profiles`, `firewallpolicies/networkapplications`, `firewallpolicies/networkservicegroups`, `ips_control_policies/ips_signature_rules`, `usermanagement/departments`, `usermanagement/users`, `zcc/trusted-networks`, `zcc/notification-templates`, `zcc/zia-postures` | Retry only as focused endpoint/auth probes that record exact status code, auth mode, product cloud, endpoint path, and source commit. |
+| Deferred live/auth failures | See [Deferred Resource SDK Recheck](DEFERRED_RESOURCE_RECHECK.md). | Retry only as focused endpoint/auth probes that record exact status code, auth mode, product cloud, endpoint path, SDK version, and source commit. |
 | Adjacent-to-failure scout | `ips_control_policies/ips_policies` | Ordinary list/get shape, but adjacent to the failed IPS signature-rule endpoint. Probe separately before queueing. |
 | Privacy, identity, export, or material surfaces | `adminauditlogs`, `adminuserrolemgmt/admins`, `adminuserrolemgmt/roles`, `intermediatecacertificates`, `scim_api`, `trafficforwarding/vpncredentials` | Hold for explicit privacy/material policy. These are not ordinary inventory resources. |
 | Helper/catalog/diagnostic surfaces | `apptotal`, `trafficforwarding/virtualipaddress` | Do not force into config dump semantics. Treat as future lookup/report/diagnostic commands if needed. |
+| Product-family tracks | ZPA, ZTW, ZCC, Zidentity, ZDX, ZWA | Keep product-specific posture in [Zscaler Product Scope Plan](ZSCALER_PRODUCT_SCOPE_PLAN.md). The queue should not duplicate that product map. |
 
 No remaining row should be wired as a normal list/get resource before one of
 those track-level decisions is made. The core list-only and singleton
@@ -237,47 +199,6 @@ seams now exist:
 - Singleton specs are explicitly marked as `shape: singleton`, use the `list`
   operation contract, dump as one projected record, and record that shape in the
   dump manifest.
-
-The next resource unlock is applying one list-only or singleton candidate with
-focused docs/completion review and later live smoke.
-
-### Future Non-ZIA Tracks
-
-These tracks should not be mixed into ZIA or ZPA batch work. Each needs
-product/auth design and a controlled OneAPI smoke path before any production
-resource PR.
-
-See [Zscaler Product Scope Plan](ZSCALER_PRODUCT_SCOPE_PLAN.md) for the full
-SDK scout across ZCC, ZDX, ZTW, Zidentity, and ZWA. The short version:
-
-| Product | Candidate surface | Scout result | Queue posture |
-| --- | --- | --- | --- |
-| ZPA | `servergroup`, `segmentgroup`, `appservercontroller`, `appconnectorgroup`, `cloud_connector`, `cloud_connector_group`, `branch_connector`, `machinegroup`, `postureprofile`, `trustednetwork`, `idpcontroller` | Many ordinary or list/get-with-mutating-neighbor SDK packages exist in the full SDK. | OneAPI-only future track; start with one low-risk reference after production OneAPI smoke is available. |
-| ZTW | Workload groups, public cloud accounts, gateways, DNS gateways, EC groups, policy resources | Full SDK exposes many list/get-like config surfaces. | Best first separate product track. Start with a focused reference batch; defer provisioning API keys/URLs and policy rules. |
-| ZCC | Trusted networks, notification templates, ZIA posture, IP/process app references | Closest Client Connector fit for configuration inventory, but the first three PAPI v2 list endpoints returned 404 under production OneAPI. | Deferred pending endpoint/auth/entitlement investigation. Defer devices and secret packages. |
-| ZDX | Application, user, device, alert, and software reports | SDK exposes report/read surfaces rather than config inventory resources. | Explicitly out of pre-`v1.0.0` scope unless Zscaler exposes deterministic configuration APIs; see [ZDX Scope Plan](ZDX_SCOPE_PLAN.md). |
-| Zidentity | Resource servers, entitlements, users, groups | SDK exposes a thin read-only config slice next to sensitive identity-management APIs. | Partial track only. `resource_servers` is the clean pre-`v1.0.0` candidate; `user_entitlement` is sensitive later work; users/groups are hard-deferred. |
-| ZWA | Customer audit and DLP incidents | SDK exposes audit/incident surfaces rather than config inventory resources. | Explicitly out of pre-`v1.0.0` scope unless Zscaler exposes deterministic configuration APIs. |
-
-## Needs A Shape Decision Before Applying
-
-These SDK surfaces are potentially valuable, but they do not fit the current
-list/get resource model cleanly. Do not rush them into the catalog until the
-reader shape is explicit.
-
-| Candidate | Reason to pause |
-| --- | --- |
-| Browser isolation profiles | SDK exposes `GetAll` and name lookup, but no integer `Get`; decide whether list-only resources are allowed before enabling. |
-| PAC files | SDK exposes versioned/list functions that do not match the current `list`/`get <id>` model directly. |
-| Cloud application policy lists | SDK functions take parameter maps; decide stable defaults before exposing. |
-| CASB SaaS Security API rules | `GetAll` exists, but `GetByRuleID` requires a rule-type parameter in addition to ID. Decide stable get semantics before exposing. |
-| DC exclusions | SDK exposes `GetAll` and name lookup only. Decide whether list-only/name-get resources are allowed before enabling. |
-| Intermediate CA certificates | Certificate and CSR/download fields need a public-metadata versus material/export decision before cataloging. |
-| IPS policies | Adjacent to the deferred `zia/ips-signature-rules` endpoint; confirm the endpoint and entitlement behavior is genuinely distinct before applying. |
-| Sub-clouds | `GetAll` returns `SubClouds`, but integer `Get` returns `SubCloudCountryDCExclusionInfo`; decide whether this is one resource, two resources, or list-only metadata. |
-| ZIA VPN credentials | SDK exposes read-like functions, but the package and fields are credential-bearing by name. Decide whether any public metadata can render before cataloging. |
-| ZCC product resources | First ZCC PAPI v2 OneAPI smoke returned 404 for all three conservative endpoints. Revisit as an endpoint-boundary probe before catalog work; see the deferred table below. |
-| ZDX/Zidentity/ZWA products | Full SDK evidence exists, but output semantics and safety posture are product-specific. Keep product tracks separate from ZIA, ZPA, and ZTW breadth work; see `docs/ZSCALER_PRODUCT_SCOPE_PLAN.md`. |
 
 ## Deferred Retest / Investigation Backlog
 
