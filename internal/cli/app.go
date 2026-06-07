@@ -807,7 +807,10 @@ func requireNoArgs(command string, args []string) error {
 }
 
 func dumpUsage() string {
-	return "usage: zscalerctl dump --out <dir> [--products zia,zpa] [--resources names] [--continue-on-error]"
+	return fmt.Sprintf(
+		"usage: zscalerctl dump --out <dir> [--products %s] [--resources names] [--continue-on-error]",
+		strings.Join(productNames(knownProducts()), ","),
+	)
 }
 
 func knownProducts() []resources.Product {
@@ -976,7 +979,7 @@ func matchDumpResources(
 			return nil, UsageError{Message: fmt.Sprintf("invalid resource %q", item)}
 		}
 		product := resources.Product(parts[0])
-		if product != resources.ProductZIA && product != resources.ProductZPA {
+		if !catalogHasProduct(catalog, product) {
 			return nil, UsageError{Message: fmt.Sprintf("unsupported product %q", parts[0])}
 		}
 		if !products[product] {
@@ -1016,6 +1019,15 @@ func matchDumpResources(
 func catalogHasDumpResource(catalog resources.ResourceCatalog, key dumpResourceKey) bool {
 	for _, spec := range catalog {
 		if spec.Product == key.product && spec.Name == key.name && resourceSupportsDump(spec) {
+			return true
+		}
+	}
+	return false
+}
+
+func catalogHasProduct(catalog resources.ResourceCatalog, product resources.Product) bool {
+	for _, spec := range catalog {
+		if spec.Product == product {
 			return true
 		}
 	}
