@@ -6,6 +6,7 @@ cd "$repo_root"
 
 denied_exact_keys_json='["preSharedKey","vpnCredentials","createdBy","lastModifiedBy","managedBy","city","primaryDestVip","secondaryDestVip"]'
 denied_resource_exact_keys_json='{"location-groups":["lastModUser","dynamicLocationGroupCriteria","locations"]}'
+allowed_resource_denied_keys_json='{"atp-malware-policy":["blockPasswordProtectedArchiveFiles"],"mobile-threat-settings":["blockAppsSendingUnencryptedUserCredentials"],"org-information":["city"]}'
 denied_key_pattern='(?i)(password|secret|token|api[_-]?key|preSharedKey|credential)'
 manifest_warning='sanitized dumps remain confidential operational data'
 
@@ -32,7 +33,7 @@ usage: scripts/live-smoke.sh [--out DIR] [--bin PATH] [--resources LIST] [--mani
 
 Runs a read-only live smoke against the currently configured zscalerctl
 credentials and prints PASS/FAIL markers for pre-PR validation.
-By default, all current ZIA read/list resources are validated.
+By default, all current ZIA read resources are validated.
 
 Options:
   --out DIR            Write validation artifacts under DIR. Defaults to a
@@ -514,10 +515,11 @@ find_denied_keys() {
   local resource="$1"
   local file="$2"
 
-  jq -r --argjson global_exact "$denied_exact_keys_json" --argjson resource_exact "$denied_resource_exact_keys_json" --arg resource "$resource" --arg pattern "$denied_key_pattern" '
+  jq -r --argjson global_exact "$denied_exact_keys_json" --argjson resource_exact "$denied_resource_exact_keys_json" --argjson resource_allowed "$allowed_resource_denied_keys_json" --arg resource "$resource" --arg pattern "$denied_key_pattern" '
     ($global_exact + ($resource_exact[$resource] // [])) as $exact
+    | ($resource_allowed[$resource] // []) as $allowed
     |
-    [.. | objects | keys[] | select((. as $k | $exact | index($k)) or test($pattern))] | unique | .[]
+    [.. | objects | keys[] | select(. as $k | (($allowed | index($k)) | not) and (($exact | index($k)) or ($k | test($pattern))))] | unique | .[]
   ' "$file"
 }
 
@@ -543,6 +545,23 @@ validate_json_array() {
   else
     pass "$label returned $count records"
   fi
+  return 0
+}
+
+validate_json_object() {
+  local label="$1"
+  local file="$2"
+
+  if ! jq -e 'type == "object"' "$file" >/dev/null 2>&1; then
+    fail "$label is not a JSON object: $file"
+    return 1
+  fi
+  pass "$label returned a JSON object"
+  if ! jq -e 'keys | length > 0' "$file" >/dev/null 2>&1; then
+    fail "$label returned an empty JSON object"
+    return 1
+  fi
+  pass "$label returned 1 record"
   return 0
 }
 
@@ -576,7 +595,7 @@ find_non_catalog_keys() {
           | (.json_name // .name)
         ]) as $allowed
         | [
-          .[]?
+          (if type == "array" then .[]? elif type == "object" then . else empty end)
           | objects
           | keys[] as $key
           | select(($allowed | index($key)) | not)
@@ -669,7 +688,7 @@ load_zia_resources() {
     [
       .[]
       | select(.product == "zia")
-      | select(any(.operations[]?; .name == "list" and .capability == "read"))
+      | select(any(.operations[]?; (.name == "list" or .name == "show") and .capability == "read"))
       | .name
     ]
     | sort
@@ -677,7 +696,7 @@ load_zia_resources() {
   ' "$schema_file")
 
   if ((${#all_resources[@]} == 0)); then
-    fail "schema list contains no ZIA read/list resources"
+    fail "schema list contains no ZIA read resources"
     return 1
   fi
 
@@ -686,7 +705,7 @@ load_zia_resources() {
   else
     for requested in "${requested_resources[@]}"; do
       if ! resource_in_list "$requested" "${all_resources[@]}"; then
-        fail "requested resource is not a ZIA read/list resource: zia/$requested"
+        fail "requested resource is not a ZIA read resource: zia/$requested"
         return 1
       fi
       if ((${#resources[@]} == 0)) || ! resource_in_list "$requested" "${resources[@]}"; then
@@ -695,10 +714,27 @@ load_zia_resources() {
     done
   fi
 
-  pass "schema list found ${#all_resources[@]} ZIA read/list resource(s)"
+  pass "schema list found ${#all_resources[@]} ZIA read resource(s)"
   pass "live smoke selected ${#resources[@]} ZIA resource(s): ${resources[*]}"
   record_result "schema" "list" "PASS" "${#all_resources[@]}" "selected ${#resources[@]} ZIA resources"
   return 0
+}
+
+resource_operation() {
+  local resource="$1"
+  local schema="$2"
+
+  jq -r --arg resource "$resource" '
+    .[]
+    | select(.product == "zia" and .name == $resource)
+    | if any(.operations[]?; .name == "list" and .capability == "read") then
+        "list"
+      elif any(.operations[]?; .name == "show" and .capability == "read") then
+        "show"
+      else
+        empty
+      end
+  ' "$schema" | head -n 1
 }
 
 resource_in_list() {
@@ -730,17 +766,18 @@ join_csv() {
 
 compare_counts() {
   local resource="$1"
-  local list_count="$2"
-  local dump_count="$3"
+  local operation="$2"
+  local list_count="$3"
+  local dump_count="$4"
 
   if [[ "$list_count" == "$dump_count" ]]; then
-    pass "zia $resource list and dump counts match ($list_count records)"
+    pass "zia $resource $operation and dump counts match ($list_count records)"
     return
   fi
   if ((strict_counts)); then
-    fail "zia $resource list count = $list_count, dump count = $dump_count"
+    fail "zia $resource $operation count = $list_count, dump count = $dump_count"
   else
-    info "zia $resource list count = $list_count, dump count = $dump_count; live data may have changed between reads"
+    info "zia $resource $operation count = $list_count, dump count = $dump_count; live data may have changed between reads"
   fi
 }
 
@@ -904,16 +941,31 @@ for resource in "${resources[@]}"; do
   stderr_file="$lists_dir/zia-${resource}.stderr"
   list_start_failures="$failures"
   list_records="-"
+  operation="$(resource_operation "$resource" "$schema_file")"
 
-  if "${cli[@]}" --format json zia "$resource" list >"$stdout_file" 2>"$stderr_file"; then
-    pass "zia $resource list command completed"
-  else
-    fail "zia $resource list command failed; stderr captured at $stderr_file"
-    record_result "zia/$resource" "list" "FAIL" "-" "command failed; see $(artifact_note "$stderr_file")"
+  if [[ -z "$operation" ]]; then
+    fail "schema list does not expose a supported read operation for zia/$resource"
+    record_result "zia/$resource" "schema" "FAIL" "-" "no supported read operation"
     continue
   fi
 
-  if validate_json_array "zia $resource list" "$stdout_file"; then
+  if "${cli[@]}" --format json zia "$resource" "$operation" >"$stdout_file" 2>"$stderr_file"; then
+    pass "zia $resource $operation command completed"
+  else
+    fail "zia $resource $operation command failed; stderr captured at $stderr_file"
+    record_result "zia/$resource" "$operation" "FAIL" "-" "command failed; see $(artifact_note "$stderr_file")"
+    continue
+  fi
+
+  if [[ "$operation" == "show" ]]; then
+    if validate_json_object "zia $resource show" "$stdout_file"; then
+      list_records="1"
+      printf '1\n' >"$lists_dir/zia-${resource}.count"
+      validate_no_denied_keys "zia $resource show" "$resource" "$stdout_file"
+      validate_catalog_subset "zia $resource show" "$resource" "$stdout_file" "$schema_file"
+      summarize_redaction_markers "zia $resource show" "$stdout_file"
+    fi
+  elif validate_json_array "zia $resource list" "$stdout_file"; then
     list_records="$(jq 'length' "$stdout_file")"
     printf '%s\n' "$list_records" >"$lists_dir/zia-${resource}.count"
     validate_no_denied_keys "zia $resource list" "$resource" "$stdout_file"
@@ -922,7 +974,7 @@ for resource in "${resources[@]}"; do
   fi
   record_result_from_failures \
     "zia/$resource" \
-    "list" \
+    "$operation" \
     "$list_start_failures" \
     "$list_records" \
     "" \
@@ -1031,20 +1083,32 @@ if [[ -d "$dump_dir" ]]; then
     file="$dump_dir/resources/zia/${resource}.json"
     dump_resource_start_failures="$failures"
     dump_records="-"
+    operation="$(resource_operation "$resource" "$schema_file")"
     if [[ ! -f "$file" ]]; then
       fail "dump resource file missing: $file"
       record_result "zia/$resource" "dump" "FAIL" "-" "missing $(artifact_note "$file")"
       continue
     fi
     validate_file_mode "dump zia $resource file" "$file" "600"
-    if validate_json_array "dump zia $resource" "$file"; then
+    if [[ "$operation" == "show" ]]; then
+      if validate_json_object "dump zia $resource" "$file"; then
+        dump_records="1"
+        printf '1\n' >"$lists_dir/dump-zia-${resource}.count"
+        validate_no_denied_keys "dump zia $resource" "$resource" "$file"
+        validate_catalog_subset "dump zia $resource" "$resource" "$file" "$schema_file"
+        summarize_redaction_markers "dump zia $resource" "$file"
+        if [[ -f "$lists_dir/zia-${resource}.count" ]]; then
+          compare_counts "$resource" "$operation" "$(cat "$lists_dir/zia-${resource}.count")" "$(cat "$lists_dir/dump-zia-${resource}.count")"
+        fi
+      fi
+    elif validate_json_array "dump zia $resource" "$file"; then
       dump_records="$(jq 'length' "$file")"
       printf '%s\n' "$dump_records" >"$lists_dir/dump-zia-${resource}.count"
       validate_no_denied_keys "dump zia $resource" "$resource" "$file"
       validate_catalog_subset "dump zia $resource" "$resource" "$file" "$schema_file"
       summarize_redaction_markers "dump zia $resource" "$file"
       if [[ -f "$lists_dir/zia-${resource}.count" ]]; then
-        compare_counts "$resource" "$(cat "$lists_dir/zia-${resource}.count")" "$(cat "$lists_dir/dump-zia-${resource}.count")"
+        compare_counts "$resource" "$operation" "$(cat "$lists_dir/zia-${resource}.count")" "$(cat "$lists_dir/dump-zia-${resource}.count")"
       fi
     fi
     record_result_from_failures \
@@ -1063,7 +1127,7 @@ if [[ -d "$dump_dir" ]]; then
         fail "manifest references missing resource file: $rel_path"
         continue
       fi
-      got_records="$(jq 'length' "$file")"
+      got_records="$(jq 'if type == "array" then length elif type == "object" then 1 else -1 end' "$file")"
       if [[ "$got_records" == "$want_records" ]]; then
         pass "manifest count matches $rel_path ($got_records records)"
       else

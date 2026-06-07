@@ -26,10 +26,16 @@ cat >"$fake_bin" <<'SH'
 set -euo pipefail
 
 mode="${ZSCALERCTL_FAKE_MODE:-good}"
-resources=(gre-tunnels location-groups locations rule-labels static-ips url-filtering-rules)
+resources=(advanced-settings atp-malware-policy gre-tunnels location-groups locations mobile-threat-settings org-information rule-labels static-ips url-filtering-rules)
 
 schema_fields() {
   case "$1" in
+    advanced-settings)
+      printf '[{"name":"apiSessionTimeout","allowed_modes":["standard"]},{"name":"authBypassUrls","allowed_modes":["standard"]}]'
+      ;;
+    atp-malware-policy)
+      printf '[{"name":"blockPasswordProtectedArchiveFiles","allowed_modes":["standard"]},{"name":"blockUnscannableFiles","allowed_modes":["standard"]}]'
+      ;;
     gre-tunnels)
       printf '[{"name":"id","allowed_modes":["standard"]},{"name":"sourceIp","allowed_modes":["standard"]},{"name":"internalIpRange","allowed_modes":["standard"]},{"name":"comment","allowed_modes":["standard"]},{"name":"withinCountry","allowed_modes":["standard"]}]'
       ;;
@@ -38,6 +44,12 @@ schema_fields() {
       ;;
     locations)
       printf '[{"name":"id","allowed_modes":["standard"]},{"name":"name","allowed_modes":["standard"]},{"name":"description","allowed_modes":["standard"]},{"name":"ipAddresses","allowed_modes":["standard"]}]'
+      ;;
+    mobile-threat-settings)
+      printf '[{"name":"blockAppsSendingUnencryptedUserCredentials","allowed_modes":["standard"]},{"name":"blockAppsSendingDeviceIdentifier","allowed_modes":["standard"]}]'
+      ;;
+    org-information)
+      printf '[{"name":"name","allowed_modes":["standard"]},{"name":"city","allowed_modes":["standard"]}]'
       ;;
     rule-labels)
       printf '[{"name":"id","allowed_modes":["standard"]},{"name":"name","allowed_modes":["standard"]},{"name":"description","allowed_modes":["standard"]},{"name":"lastModifiedTime","allowed_modes":["standard"]},{"name":"referencedRuleCount","allowed_modes":["standard"]}]'
@@ -63,7 +75,11 @@ write_schema() {
     if [[ "$resource" != "${resources[0]}" ]]; then
       printf ',\n'
     fi
-    printf '  {"product":"zia","name":"%s","operations":[{"name":"list","capability":"read"},{"name":"get","capability":"read"}],"fields":%s}' "$resource" "$(schema_fields "$resource")"
+    if [[ "$resource" == "advanced-settings" || "$resource" == "atp-malware-policy" || "$resource" == "mobile-threat-settings" || "$resource" == "org-information" ]]; then
+      printf '  {"product":"zia","name":"%s","operations":[{"name":"show","capability":"read"}],"fields":%s}' "$resource" "$(schema_fields "$resource")"
+    else
+      printf '  {"product":"zia","name":"%s","operations":[{"name":"list","capability":"read"},{"name":"get","capability":"read"}],"fields":%s}' "$resource" "$(schema_fields "$resource")"
+    fi
   done
   printf '\n]\n'
 }
@@ -71,6 +87,24 @@ write_schema() {
 write_resource() {
   local resource="$1"
   case "$mode:$resource" in
+    empty-object:advanced-settings)
+      printf '{}\n'
+      ;;
+    *:advanced-settings)
+      printf '{"apiSessionTimeout":30,"authBypassUrls":["admin.internal.example"]}\n'
+      ;;
+    leaky-settings:mobile-threat-settings)
+      printf '{"blockAppsSendingUnencryptedUserCredentials":true,"clientCredential":"should-fail"}\n'
+      ;;
+    *:atp-malware-policy)
+      printf '{"blockPasswordProtectedArchiveFiles":true,"blockUnscannableFiles":false}\n'
+      ;;
+    *:mobile-threat-settings)
+      printf '{"blockAppsSendingUnencryptedUserCredentials":true,"blockAppsSendingDeviceIdentifier":false}\n'
+      ;;
+    *:org-information)
+      printf '{"name":"Example tenant","city":"New York"}\n'
+      ;;
     leaky:locations)
       printf '[{"id":1,"name":"HQ","preSharedKey":"plain-secret"}]\n'
       ;;
@@ -230,8 +264,8 @@ if [[ "${1:-}" == "--format" && "${2:-}" == "json" && "${3:-}" == "schema" && "$
 fi
 
 if [[ "${1:-}" == "--format" ]]; then
-  if [[ "${2:-}" != "json" || "${3:-}" != "zia" || "${5:-}" != "list" ]]; then
-    echo "unexpected list args: $*" >&2
+  if [[ "${2:-}" != "json" || "${3:-}" != "zia" || ("${5:-}" != "list" && "${5:-}" != "show") ]]; then
+    echo "unexpected resource args: $*" >&2
     exit 2
   fi
   write_resource "$4"
@@ -373,6 +407,12 @@ if ! grep -q '\[PASS\] zia locations list and dump counts match (1 records)' "$t
   exit 1
 fi
 
+if ! grep -q '\[PASS\] zia advanced-settings show and dump counts match (1 records)' "$tmp_dir/stdout-good"; then
+  echo "live-smoke good fixture did not compare show and dump counts" >&2
+  cat "$tmp_dir/stdout-good" >&2
+  exit 1
+fi
+
 if ! grep -q '\[PASS\] zia location-groups list contains only catalog-allowed top-level fields' "$tmp_dir/stdout-good"; then
   echo "live-smoke good fixture did not validate list catalog subset" >&2
   cat "$tmp_dir/stdout-good" >&2
@@ -387,6 +427,24 @@ fi
 
 if ! grep -q '\[PASS\] zia url-filtering-rules list contains no denied field keys' "$tmp_dir/stdout-good"; then
   echo "live-smoke good fixture did not allow policy-rule locations field" >&2
+  cat "$tmp_dir/stdout-good" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] zia mobile-threat-settings show contains no denied field keys' "$tmp_dir/stdout-good"; then
+  echo "live-smoke good fixture did not allow reviewed mobile threat credential-control field" >&2
+  cat "$tmp_dir/stdout-good" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] zia org-information show contains no denied field keys' "$tmp_dir/stdout-good"; then
+  echo "live-smoke good fixture did not allow reviewed org-information city field" >&2
+  cat "$tmp_dir/stdout-good" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] zia atp-malware-policy show contains no denied field keys' "$tmp_dir/stdout-good"; then
+  echo "live-smoke good fixture did not allow reviewed ATP password-control field" >&2
   cat "$tmp_dir/stdout-good" >&2
   exit 1
 fi
@@ -486,7 +544,7 @@ if ZSCALERCTL_BIN="$fake_bin" "$repo_root/scripts/live-smoke.sh" --skip-credenti
   exit 1
 fi
 
-if ! grep -q 'requested resource is not a ZIA read/list resource: zia/not-real' "$tmp_dir/stderr-unknown-resource"; then
+if ! grep -q 'requested resource is not a ZIA read resource: zia/not-real' "$tmp_dir/stderr-unknown-resource"; then
   echo "live-smoke unknown-resource failure did not mention the requested resource" >&2
   cat "$tmp_dir/stderr-unknown-resource" >&2
   exit 1
@@ -514,6 +572,19 @@ fi
 if ! grep -q 'failure markers:' "$tmp_dir/stderr-leaky"; then
   echo "live-smoke denied-key failure summary did not include failure markers" >&2
   cat "$tmp_dir/stderr-leaky" >&2
+  exit 1
+fi
+
+if run_smoke leaky-settings; then
+  echo "live-smoke accepted an unreviewed credential-shaped settings key" >&2
+  cat "$tmp_dir/stdout-leaky-settings" >&2
+  cat "$tmp_dir/stderr-leaky-settings" >&2
+  exit 1
+fi
+
+if ! grep -q 'clientCredential' "$tmp_dir/stderr-leaky-settings"; then
+  echo "live-smoke settings denied-key failure did not mention clientCredential" >&2
+  cat "$tmp_dir/stderr-leaky-settings" >&2
   exit 1
 fi
 
@@ -603,6 +674,19 @@ fi
 if grep -q '"error"' "$tmp_dir/stderr-json-list-fails"; then
   echo "live-smoke structured command failure printed raw JSON in the stderr snippet" >&2
   cat "$tmp_dir/stderr-json-list-fails" >&2
+  exit 1
+fi
+
+if run_smoke empty-object; then
+  echo "live-smoke accepted an empty singleton object" >&2
+  cat "$tmp_dir/stdout-empty-object" >&2
+  cat "$tmp_dir/stderr-empty-object" >&2
+  exit 1
+fi
+
+if ! grep -q 'returned an empty JSON object' "$tmp_dir/stderr-empty-object"; then
+  echo "live-smoke empty-object failure did not mention empty JSON object validation" >&2
+  cat "$tmp_dir/stderr-empty-object" >&2
   exit 1
 fi
 

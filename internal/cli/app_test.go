@@ -664,6 +664,26 @@ func TestCompletionRejectsUnknownShell(t *testing.T) {
 	}
 }
 
+func TestSchemaListTableIncludesReadOperations(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	app := cli.New(&out, &errOut, nil)
+
+	err := app.Run(context.Background(), []string{"schema", "list"})
+	if err != nil {
+		t.Fatalf("App.Run(schema list) error = %v, want nil", err)
+	}
+	for _, want := range []string{"zia\tlocations\tlist,get", "zia\tadvanced-settings\tshow"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("App.Run(schema list) stdout = %q, want %q", out.String(), want)
+		}
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(schema list) stderr = %q, want empty", errOut.String())
+	}
+}
+
 func TestHelpDoesNotReadCredentialFile(t *testing.T) {
 	t.Parallel()
 
@@ -848,6 +868,11 @@ func TestUnsupportedFormatsFailBeforeReader(t *testing.T) {
 			args: []string{"--format", "ndjson", "zia", "locations", "get", "123"},
 			want: `unsupported output format "ndjson"; supported: table, json`,
 		},
+		{
+			name: "show yaml",
+			args: []string{"--format", "yaml", "zia", "advanced-settings", "show"},
+			want: `unsupported output format "yaml"; supported: table, json`,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -865,6 +890,124 @@ func TestUnsupportedFormatsFailBeforeReader(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("App.Run(%v) error = %q, want %q", tt.args, err.Error(), tt.want)
+			}
+			if out.Len() != 0 {
+				t.Errorf("App.Run(%v) stdout = %q, want empty", tt.args, out.String())
+			}
+			if errOut.Len() != 0 {
+				t.Errorf("App.Run(%v) stderr = %q, want empty", tt.args, errOut.String())
+			}
+		})
+	}
+}
+
+func TestResourceShowProjectsAndRedactsFixture(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeResourceReader{
+		show: resources.NewSourceRecord(map[string]any{
+			"apiSessionTimeout": 30,
+			"authBypassUrls":    []any{"admin.internal.example"},
+			"ecsObject": map[string]any{
+				"token": "raw-token-value",
+			},
+			"newSdkField": "surprise",
+		}),
+	}
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+
+	err := app.Run(context.Background(), []string{"--format", "json", "zia", "advanced-settings", "show"})
+	if err != nil {
+		t.Fatalf("App.Run(zia advanced-settings show) error = %v, want nil", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("json.Unmarshal(resource show output) error = %v, want nil; output=%q", err, out.String())
+	}
+	if _, ok := decoded["apiSessionTimeout"]; !ok {
+		t.Errorf("decoded resource show = %#v, want apiSessionTimeout", decoded)
+	}
+	for _, forbidden := range []string{"ecsObject", "newSdkField"} {
+		if _, ok := decoded[forbidden]; ok {
+			t.Errorf("decoded resource show = %#v, want no %s", decoded, forbidden)
+		}
+	}
+	spec, ok := resources.FindSpec(resources.ProductZIA, "advanced-settings")
+	if !ok {
+		t.Fatal("FindSpec(zia, advanced-settings) ok = false, want true")
+	}
+	if err := resources.AssertRenderedSubset(spec, "", decoded); err != nil {
+		t.Errorf("AssertRenderedSubset(projected show output) error = %v, want nil", err)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(zia advanced-settings show) stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestResourceShowTableRendersVerticalKeyValues(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeResourceReader{
+		show: resources.NewSourceRecord(map[string]any{
+			"apiSessionTimeout": 30,
+			"authBypassUrls":    []any{"admin.internal.example"},
+			"ecsObject": map[string]any{
+				"token": "raw-token-value",
+			},
+			"newSdkField": "surprise",
+		}),
+	}
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+
+	err := app.Run(context.Background(), []string{"zia", "advanced-settings", "show"})
+	if err != nil {
+		t.Fatalf("App.Run(zia advanced-settings show) error = %v, want nil", err)
+	}
+	got := out.String()
+	for _, want := range []string{"apiSessionTimeout", "30", "authBypassUrls", "admin.internal.example"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("App.Run(zia advanced-settings show) stdout = %q, want %q", got, want)
+		}
+	}
+	for _, forbidden := range []string{"\t", "ecsObject", "newSdkField"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("App.Run(zia advanced-settings show) stdout = %q, want no %q", got, forbidden)
+		}
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(zia advanced-settings show) stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestProductCommandsRejectUnsupportedOperationBeforeReader(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "list singleton",
+			args: []string{"zia", "advanced-settings", "list"},
+		},
+		{
+			name: "show list resource",
+			args: []string{"zia", "locations", "show"},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out, errOut bytes.Buffer
+			app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
+
+			err := app.Run(context.Background(), tt.args)
+			if !errors.Is(err, cli.ErrUsage) {
+				t.Fatalf("App.Run(%v) error = %v, want ErrUsage", tt.args, err)
 			}
 			if out.Len() != 0 {
 				t.Errorf("App.Run(%v) stdout = %q, want empty", tt.args, out.String())
@@ -1062,6 +1205,9 @@ func TestDumpUsesSingleReaderSessionForAllZIAResources(t *testing.T) {
 	if got, want := session.listCalls, len(ziaListResourceSpecs(t)); got != want {
 		t.Errorf("countingResourceSession.List calls = %d, want %d", got, want)
 	}
+	if got, want := session.showCalls, len(ziaShowResourceSpecs(t)); got != want {
+		t.Errorf("countingResourceSession.Show calls = %d, want %d", got, want)
+	}
 	if session.closeCalls != 1 {
 		t.Errorf("countingResourceSession.Close calls = %d, want 1", session.closeCalls)
 	}
@@ -1170,6 +1316,61 @@ func TestDumpResourceFilterSupportsQualifiedResourceName(t *testing.T) {
 	}
 	if errOut.Len() != 0 {
 		t.Errorf("App.Run(dump --resources zia/locations) stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestDumpResourceFilterWritesSingletonAsObject(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeResourceReader{
+		show: resources.NewSourceRecord(map[string]any{
+			"apiSessionTimeout": 30,
+			"ecsObject": map[string]any{
+				"token": "raw-token-value",
+			},
+		}),
+	}
+	var out, errOut bytes.Buffer
+	outDir := filepath.Join(t.TempDir(), "dump")
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+
+	err := app.Run(context.Background(), []string{"dump", "--resources", "zia/advanced-settings", "--out", outDir})
+	if err != nil {
+		t.Fatalf("App.Run(dump --resources zia/advanced-settings) error = %v, want nil", err)
+	}
+	resourcePath := filepath.Join(outDir, "resources", "zia", "advanced-settings.json")
+	var resourceBody map[string]any
+	if err := json.Unmarshal([]byte(readFile(t, resourcePath)), &resourceBody); err != nil {
+		t.Fatalf("json.Unmarshal(singleton dump resource) error = %v, want nil", err)
+	}
+	if _, ok := resourceBody["apiSessionTimeout"]; !ok {
+		t.Errorf("singleton dump resource = %#v, want apiSessionTimeout", resourceBody)
+	}
+	if _, ok := resourceBody["ecsObject"]; ok {
+		t.Errorf("singleton dump resource = %#v, want no ecsObject", resourceBody)
+	}
+	var manifest struct {
+		Resources []struct {
+			Product string `json:"product"`
+			Name    string `json:"name"`
+			Records int    `json:"records"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(outDir, "manifest.json"))), &manifest); err != nil {
+		t.Fatalf("json.Unmarshal(singleton dump manifest) error = %v, want nil", err)
+	}
+	if len(manifest.Resources) != 1 {
+		t.Fatalf("singleton dump manifest resources length = %d, want 1", len(manifest.Resources))
+	}
+	got := manifest.Resources[0]
+	if got.Product != "zia" || got.Name != "advanced-settings" || got.Records != 1 {
+		t.Errorf("singleton dump manifest resource = %#v, want zia/advanced-settings records=1", got)
+	}
+	if !strings.Contains(out.String(), "dump written: "+outDir) {
+		t.Errorf("App.Run(dump singleton) stdout = %q, want dump written line", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(dump singleton) stderr = %q, want empty", errOut.String())
 	}
 }
 
@@ -1589,6 +1790,9 @@ func TestDumpFallsBackWhenReaderDoesNotSupportProductSession(t *testing.T) {
 	if got, want := reader.directListCalls, len(ziaListResourceSpecs(t)); got != want {
 		t.Errorf("unsupportedSessionResourceReader.List calls = %d, want %d", got, want)
 	}
+	if got, want := reader.directShowCalls, len(ziaShowResourceSpecs(t)); got != want {
+		t.Errorf("unsupportedSessionResourceReader.Show calls = %d, want %d", got, want)
+	}
 	if !strings.Contains(out.String(), "dump written: "+outDir) {
 		t.Errorf("App.Run(dump with unsupported session --out) stdout = %q, want dump written line", out.String())
 	}
@@ -1699,6 +1903,7 @@ func TestDumpRefusesOverwriteBeforeWritingNewFiles(t *testing.T) {
 type fakeResourceReader struct {
 	list []resources.SourceRecord
 	get  resources.SourceRecord
+	show resources.SourceRecord
 }
 
 func (f fakeResourceReader) List(context.Context, resources.Product, string) ([]resources.SourceRecord, error) {
@@ -1707,6 +1912,10 @@ func (f fakeResourceReader) List(context.Context, resources.Product, string) ([]
 
 func (f fakeResourceReader) Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error) {
 	return f.get, nil
+}
+
+func (f fakeResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
+	return f.show, nil
 }
 
 type selectiveErrorResourceReader struct {
@@ -1725,6 +1934,10 @@ func (f selectiveErrorResourceReader) Get(context.Context, resources.Product, st
 	return resources.SourceRecord{}, errors.New("get must not be called")
 }
 
+func (f selectiveErrorResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, errors.New("show must not be called")
+}
+
 type cancelingResourceReader struct {
 	cancel context.CancelFunc
 }
@@ -1736,6 +1949,10 @@ func (f cancelingResourceReader) List(context.Context, resources.Product, string
 
 func (f cancelingResourceReader) Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error) {
 	return resources.SourceRecord{}, errors.New("get must not be called")
+}
+
+func (f cancelingResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, errors.New("show must not be called")
 }
 
 type sessionProviderResourceReader struct {
@@ -1758,6 +1975,10 @@ func (f *sessionProviderResourceReader) Get(context.Context, resources.Product, 
 	return resources.SourceRecord{}, errors.New("direct get must not be called")
 }
 
+func (f *sessionProviderResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, errors.New("direct show must not be called")
+}
+
 type sessionErrorResourceReader struct {
 	err             error
 	sessionCalls    int
@@ -1778,10 +1999,16 @@ func (f *sessionErrorResourceReader) Get(context.Context, resources.Product, str
 	return resources.SourceRecord{}, errors.New("direct get must not be called")
 }
 
+func (f *sessionErrorResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, errors.New("direct show must not be called")
+}
+
 type unsupportedSessionResourceReader struct {
 	list            []resources.SourceRecord
+	show            resources.SourceRecord
 	sessionCalls    int
 	directListCalls int
+	directShowCalls int
 }
 
 func (f *unsupportedSessionResourceReader) Session(_ context.Context, product resources.Product) (zscaler.ResourceSession, error) {
@@ -1798,10 +2025,17 @@ func (f *unsupportedSessionResourceReader) Get(context.Context, resources.Produc
 	return resources.SourceRecord{}, errors.New("direct get must not be called")
 }
 
+func (f *unsupportedSessionResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
+	f.directShowCalls++
+	return f.show, nil
+}
+
 type countingResourceSession struct {
 	list       []resources.SourceRecord
+	show       resources.SourceRecord
 	err        error
 	listCalls  int
+	showCalls  int
 	closeCalls int
 }
 
@@ -1815,6 +2049,32 @@ func (s *countingResourceSession) List(context.Context, resources.Product, strin
 
 func (s *countingResourceSession) Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error) {
 	return resources.SourceRecord{}, errors.New("session get must not be called")
+}
+
+func (s *countingResourceSession) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
+	s.showCalls++
+	if s.err != nil {
+		return resources.SourceRecord{}, s.err
+	}
+	return s.show, nil
+}
+
+func ziaShowResourceSpecs(t *testing.T) []resources.ResourceSpec {
+	t.Helper()
+
+	var specs []resources.ResourceSpec
+	for _, spec := range resources.Catalog() {
+		if spec.Product != resources.ProductZIA {
+			continue
+		}
+		if spec.SupportsReadOperation("show") {
+			specs = append(specs, spec)
+		}
+	}
+	if len(specs) == 0 {
+		t.Fatal("resources.Catalog() ZIA show resources = 0, want at least 1")
+	}
+	return specs
 }
 
 func (s *countingResourceSession) Close() {
@@ -1835,6 +2095,10 @@ func (nilSessionResourceReader) Get(context.Context, resources.Product, string, 
 	return resources.SourceRecord{}, errors.New("direct get must not be called")
 }
 
+func (nilSessionResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, errors.New("direct show must not be called")
+}
+
 type failingResourceReader struct{}
 
 func (failingResourceReader) List(context.Context, resources.Product, string) ([]resources.SourceRecord, error) {
@@ -1842,6 +2106,10 @@ func (failingResourceReader) List(context.Context, resources.Product, string) ([
 }
 
 func (failingResourceReader) Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, errors.New("reader must not be called")
+}
+
+func (failingResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
 	return resources.SourceRecord{}, errors.New("reader must not be called")
 }
 

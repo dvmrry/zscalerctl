@@ -2,6 +2,7 @@ package zscaler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -50,6 +51,102 @@ import (
 	"github.com/dvmrry/zscalerctl/internal/resources"
 	"github.com/dvmrry/zscalerctl/internal/secret"
 )
+
+type singletonTestRecord struct {
+	ID   int
+	Name string
+}
+
+func TestSingletonHandlerShowMapsResponse(t *testing.T) {
+	t.Parallel()
+
+	handler := newSingletonHandler(
+		"test-settings",
+		func(context.Context) (*singletonTestRecord, error) {
+			return &singletonTestRecord{ID: 42, Name: "mapped"}, nil
+		},
+		func(record singletonTestRecord) resources.SourceRecord {
+			return resources.NewSourceRecord(map[string]any{
+				"id":   record.ID,
+				"name": record.Name,
+			})
+		},
+	)
+
+	record, err := handler.Show(context.Background())
+	if err != nil {
+		t.Fatalf("singletonHandler.Show() error = %v, want nil", err)
+	}
+	spec := resources.ResourceSpec{
+		Product:    resources.ProductZIA,
+		Name:       "test-settings",
+		Operations: resources.ShowOperation(),
+		Fields: []resources.FieldSpec{
+			{
+				Name:           "id",
+				Classification: resources.ClassOperational,
+				AllowedModes:   []redact.Mode{redact.ModeStandard},
+			},
+			{
+				Name:           "name",
+				Classification: resources.ClassTenantConfig,
+				AllowedModes:   []redact.Mode{redact.ModeStandard},
+			},
+		},
+	}
+	projected, _, err := resources.ProjectRecordAndVerify(spec, redact.ModeStandard, record)
+	if err != nil {
+		t.Fatalf("ProjectRecordAndVerify() error = %v, want nil", err)
+	}
+	body, err := json.Marshal(projected)
+	if err != nil {
+		t.Fatalf("json.Marshal(projected) error = %v, want nil", err)
+	}
+	if got, want := string(body), `{"id":42,"name":"mapped"}`; got != want {
+		t.Errorf("singletonHandler.Show() projected JSON = %s, want %s", got, want)
+	}
+}
+
+func TestSingletonHandlerRejectsGet(t *testing.T) {
+	t.Parallel()
+
+	handler := newSingletonHandler(
+		"test-settings",
+		func(context.Context) (*singletonTestRecord, error) {
+			t.Fatal("singletonHandler.Get() called show")
+			return nil, nil
+		},
+		func(singletonTestRecord) resources.SourceRecord {
+			t.Fatal("singletonHandler.Get() called mapper")
+			return resources.SourceRecord{}
+		},
+	)
+
+	if _, err := handler.Get(context.Background(), "1"); !errors.Is(err, ErrUnsupportedResource) {
+		t.Fatalf("singletonHandler.Get() error = %v, want ErrUnsupportedResource", err)
+	}
+}
+
+func TestSingletonHandlerShowRejectsNilResponse(t *testing.T) {
+	t.Parallel()
+
+	handler := newSingletonHandler(
+		"test-settings",
+		func(context.Context) (*singletonTestRecord, error) {
+			return nil, nil
+		},
+		func(singletonTestRecord) resources.SourceRecord {
+			t.Fatal("singletonHandler.Show(nil) called mapper")
+			return resources.SourceRecord{}
+		},
+	)
+
+	if _, err := handler.Show(context.Background()); err == nil {
+		t.Fatal("singletonHandler.Show(nil) error = nil, want error")
+	} else if !strings.Contains(err.Error(), "empty sdk test-settings response") {
+		t.Fatalf("singletonHandler.Show(nil) error = %v, want empty sdk response error", err)
+	}
+}
 
 func TestNewReaderRequiresExplicitZscalerctlCredentials(t *testing.T) {
 	t.Parallel()
@@ -662,6 +759,44 @@ func TestReaderListAuthSettingsProjectsSingletonThroughAllowList(t *testing.T) {
 	}
 	if got["autoProvision"] != true {
 		t.Errorf("projected auth-settings autoProvision = %v, want true", got["autoProvision"])
+	}
+}
+
+func TestSourceRecordFromStructDropsUnsupportedKinds(t *testing.T) {
+	t.Parallel()
+
+	type unsupportedKinds struct {
+		Name     string    `json:"name"`
+		Callback func()    `json:"callback"`
+		Complex  complex64 `json:"complex"`
+	}
+
+	record := sourceRecordFromStruct(unsupportedKinds{
+		Name:     "settings",
+		Callback: func() {},
+		Complex:  1 + 2i,
+	})
+	projected, _, err := resources.ProjectRecord(resources.ResourceSpec{
+		Product:    resources.ProductZIA,
+		Name:       "unsupported-kinds",
+		Operations: resources.ShowOperation(),
+		Fields: []resources.FieldSpec{
+			{Name: "name", Classification: resources.ClassTenantConfig, AllowedModes: []redact.Mode{redact.ModeStandard}},
+			{Name: "callback", Classification: resources.ClassOperational, AllowedModes: []redact.Mode{redact.ModeStandard}},
+			{Name: "complex", Classification: resources.ClassOperational, AllowedModes: []redact.Mode{redact.ModeStandard}},
+		},
+	}, redact.ModeStandard, record)
+	if err != nil {
+		t.Fatalf("ProjectRecord(unsupported kind record) error = %v, want nil", err)
+	}
+	if got, _ := projected.Value("name"); got != "settings" {
+		t.Fatalf("projected name = %#v, want settings", got)
+	}
+	if got, _ := projected.Value("callback"); got != nil {
+		t.Errorf("projected callback = %#v, want nil", got)
+	}
+	if got, _ := projected.Value("complex"); got != nil {
+		t.Errorf("projected complex = %#v, want nil", got)
 	}
 }
 

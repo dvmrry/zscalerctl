@@ -38,6 +38,7 @@ type Result struct {
 type ResourceDump struct {
 	Spec    resources.ResourceSpec
 	Records resources.ProjectedRecords
+	Record  *resources.ProjectedRecord
 	Reports []resources.ProjectionReport
 }
 
@@ -153,10 +154,10 @@ func Write(dir string, mode redact.Mode, result Result) error {
 		if err := ensureDirChain(dir, filepath.Dir(target.relPath)); err != nil {
 			return err
 		}
-		if err := writeJSONFile(target.path, mode, target.entry.Records); err != nil {
+		payload, recordCount := target.entry.payload()
+		if err := writeJSONFile(target.path, mode, payload); err != nil {
 			return err
 		}
-		recordCount := len(target.entry.Records.Records())
 		manifest.Resources = append(manifest.Resources, ManifestResource{
 			Product: target.product,
 			Name:    target.name,
@@ -220,6 +221,13 @@ func buildResourceTargets(dir string, entries []ResourceDump) ([]resourceTarget,
 		})
 	}
 	return targets, nil
+}
+
+func (d ResourceDump) payload() (safeJSON, int) {
+	if d.Record != nil {
+		return *d.Record, 1
+	}
+	return d.Records, len(d.Records.Records())
 }
 
 func buildResourceReport(

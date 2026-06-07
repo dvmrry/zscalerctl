@@ -989,6 +989,165 @@ Fields:
 | `zpaTenantId`, `zpaServerGroup`, `zpaAppSegments` | Sensitive identifier / tenant configuration | `standard` | Local-only ZPA tenant and reference metadata render reviewed `id`/`name` fields only. |
 | `lastModifiedBy` | Secret | never | Admin reference is mapped into source records but dropped by projection. |
 
+## ZIA Advanced Settings
+
+Commands:
+
+```sh
+zscalerctl zia advanced-settings show
+```
+
+This singleton settings page renders reviewed global ZIA advanced-setting
+toggles and keeps bypass app, URL, category, and ECS object details local-only
+or dropped.
+
+## ZIA Advanced Threat Settings
+
+Commands:
+
+```sh
+zscalerctl zia advanced-threat-settings show
+```
+
+This singleton settings page renders reviewed advanced-threat policy toggles.
+Country blocks render only in `standard`; secret-looking boolean control names
+carry explicit catalog reasons.
+
+## ZIA Mobile Threat Settings
+
+Commands:
+
+```sh
+zscalerctl zia mobile-threat-settings show
+```
+
+This singleton settings page renders reviewed mobile-threat protection toggles,
+including a credential-exfiltration control modeled as boolean metadata rather
+than credential material.
+
+## ZIA Sandbox Settings
+
+Commands:
+
+```sh
+zscalerctl zia sandbox-settings show
+```
+
+This singleton settings page renders reviewed sandbox settings. File hashes to
+block are sensitive identifiers and render only in `standard`.
+
+## ZIA End User Notification Settings
+
+Commands:
+
+```sh
+zscalerctl zia end-user-notification-settings show
+```
+
+This singleton settings page renders reviewed notification toggles and public
+display metadata. Custom message bodies and policy-review text are dropped as
+free-form tenant content.
+
+## ZIA Org Information
+
+Commands:
+
+```sh
+zscalerctl zia org-information show
+```
+
+This singleton settings page renders narrow organization metadata. Addresses,
+domains, and tenant identifiers render only in `standard`; contact details and
+logo payloads are dropped.
+
+## ZIA Atp Malware Policy
+
+Commands:
+
+```sh
+zscalerctl zia atp-malware-policy show
+```
+
+This singleton settings page renders reviewed ATP malware policy toggles. The
+password-protected archive control is modeled as boolean metadata, not password
+material.
+
+## ZIA Atp Malware Settings
+
+Commands:
+
+```sh
+zscalerctl zia atp-malware-settings show
+```
+
+This singleton settings page renders reviewed ATP malware family block/capture
+toggles.
+
+## ZIA Atp Malware Inspection
+
+Commands:
+
+```sh
+zscalerctl zia atp-malware-inspection show
+```
+
+This singleton settings page renders reviewed inbound and outbound malware
+inspection toggles.
+
+## ZIA Atp Malware Protocols
+
+Commands:
+
+```sh
+zscalerctl zia atp-malware-protocols show
+```
+
+This singleton settings page renders reviewed protocol inspection toggles.
+
+## ZIA Malicious Urls
+
+Commands:
+
+```sh
+zscalerctl zia malicious-urls show
+```
+
+This singleton settings page renders the tenant malicious-URL list only in
+`standard`.
+
+## ZIA Security Exceptions
+
+Commands:
+
+```sh
+zscalerctl zia security-exceptions show
+```
+
+This singleton settings page renders the tenant security-exception URL list
+only in `standard`.
+
+## ZIA Url Allow List
+
+Commands:
+
+```sh
+zscalerctl zia url-allow-list show
+```
+
+This singleton settings page renders the global URL allow list only in
+`standard`. The deny-list field is explicitly modeled and dropped.
+
+## ZIA Url Deny List
+
+Commands:
+
+```sh
+zscalerctl zia url-deny-list show
+```
+
+This singleton settings page renders the global URL deny list only in
+`standard`. The allow-list field is explicitly modeled and dropped.
+
 ## Deferred Resource Follow-Ups
 
 - `zia/network-service-groups`: generated and locally validated, but removed

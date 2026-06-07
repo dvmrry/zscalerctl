@@ -1,12 +1,20 @@
-# Smoke-lab resources for broad work-machine validation.
-# This branch is not release-track until live smoke trims or promotes it.
+# zscalerctl live smoke manifest
+#
+# scripts/live-smoke.sh auto-uses this file on feature branches when it differs
+# from origin/main and no explicit --resources or LIVE_SMOKE_RESOURCES was set.
+# Keep this focused on the resources changed by the current branch.
 
-zia/file-type-rules
-zia/sandbox-rules
-zia/firewall-dns-rules
-zia/risk-profiles
-zia/nss-servers
-zia/nss-feeds
-zia/custom-file-types
-zia/zpa-gateways
-zia/auth-settings
+zia/advanced-settings
+zia/advanced-threat-settings
+zia/mobile-threat-settings
+zia/sandbox-settings
+zia/end-user-notification-settings
+zia/org-information
+zia/atp-malware-policy
+zia/atp-malware-settings
+zia/atp-malware-inspection
+zia/atp-malware-protocols
+zia/malicious-urls
+zia/security-exceptions
+zia/url-allow-list
+zia/url-deny-list

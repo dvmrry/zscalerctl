@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +17,8 @@ import (
 	sdklogger "github.com/zscaler/zscaler-sdk-go/v3/logger"
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
 	sdkzia "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia"
+	advancedsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/advanced_settings"
+	advancedthreatsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/advancedthreatsettings"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts"
 	authsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/auth_settings"
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
@@ -27,6 +30,7 @@ import (
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
+	endusernotification "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/end_user_notification"
 	filetypecontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol"
 	customfiletypes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol/custom_file_types"
 	firewalldnscontrolpolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewalldnscontrolpolicies"
@@ -45,9 +49,14 @@ import (
 	zpagateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/zpa_gateways"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
+	malwareprotection "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/malware_protection"
+	mobilethreatsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/mobile_threat_settings"
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
+	organizationdetails "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/organization_details"
 	rulelabels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels"
 	sandboxrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sandbox/sandbox_rules"
+	sandboxsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sandbox/sandbox_settings"
+	securitypolicysettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/security_policy_settings"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
 	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
@@ -119,6 +128,21 @@ const (
 	resourceFirewallDNSRules = "firewall-dns-rules"
 	resourceCustomFileTypes  = "custom-file-types"
 	resourceZPAGateways      = "zpa-gateways"
+
+	resourceAdvancedSettings           = "advanced-settings"
+	resourceAdvancedThreatSettings     = "advanced-threat-settings"
+	resourceMobileThreatSettings       = "mobile-threat-settings"
+	resourceSandboxSettings            = "sandbox-settings"
+	resourceEndUserNotification        = "end-user-notification-settings"
+	resourceOrgInformation             = "org-information"
+	resourceATPMalwarePolicy           = "atp-malware-policy"
+	resourceATPMalwareSettings         = "atp-malware-settings"
+	resourceATPMalwareInspection       = "atp-malware-inspection"
+	resourceATPMalwareProtocols        = "atp-malware-protocols"
+	resourceMaliciousURLs              = "malicious-urls"
+	resourceSecurityExceptions         = "security-exceptions"
+	resourceSecurityPolicyURLAllowlist = "url-allow-list"
+	resourceSecurityPolicyURLDenylist  = "url-deny-list"
 )
 
 type AuthMode string
@@ -160,6 +184,7 @@ type SDKReader struct {
 type ResourceSession interface {
 	List(context.Context, resources.Product, string) ([]resources.SourceRecord, error)
 	Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error)
+	Show(context.Context, resources.Product, string) (resources.SourceRecord, error)
 	Close()
 }
 
@@ -177,6 +202,7 @@ type resourceKey struct {
 type resourceHandler interface {
 	List(context.Context) ([]resources.SourceRecord, error)
 	Get(context.Context, string) (resources.SourceRecord, error)
+	Show(context.Context) (resources.SourceRecord, error)
 }
 
 type ziaServiceProvider interface {
@@ -249,6 +275,13 @@ func (r *SDKReader) Get(ctx context.Context, product resources.Product, name str
 	return getResource(ctx, r.handlers, product, name, id)
 }
 
+func (r *SDKReader) Show(ctx context.Context, product resources.Product, name string) (resources.SourceRecord, error) {
+	if r == nil {
+		return showResource(ctx, nil, product, name)
+	}
+	return showResource(ctx, r.handlers, product, name)
+}
+
 func (s *SDKSession) List(ctx context.Context, product resources.Product, name string) ([]resources.SourceRecord, error) {
 	if s == nil {
 		return listResource(ctx, nil, product, name)
@@ -261,6 +294,13 @@ func (s *SDKSession) Get(ctx context.Context, product resources.Product, name st
 		return getResource(ctx, nil, product, name, id)
 	}
 	return getResource(ctx, s.handlers, product, name, id)
+}
+
+func (s *SDKSession) Show(ctx context.Context, product resources.Product, name string) (resources.SourceRecord, error) {
+	if s == nil {
+		return showResource(ctx, nil, product, name)
+	}
+	return showResource(ctx, s.handlers, product, name)
 }
 
 func listResource(
@@ -297,6 +337,23 @@ func getResource(
 			return resources.SourceRecord{}, err
 		}
 		return resources.SourceRecord{}, normalizeLiveError(ctx, "get", product, name)
+	}
+	return record, nil
+}
+
+func showResource(
+	ctx context.Context,
+	handlers map[resourceKey]resourceHandler,
+	product resources.Product,
+	name string,
+) (resources.SourceRecord, error) {
+	handler, err := handlerFrom(handlers, product, name)
+	if err != nil {
+		return resources.SourceRecord{}, err
+	}
+	record, err := handler.Show(ctx)
+	if err != nil {
+		return resources.SourceRecord{}, normalizeLiveError(ctx, "show", product, name)
 	}
 	return record, nil
 }
@@ -778,6 +835,76 @@ func newResourceHandlers(ziaClient sdkZIAClient) map[resourceKey]resourceHandler
 			}),
 			zpaGatewaySourceRecord,
 		),
+		{product: resources.ProductZIA, name: resourceAdvancedSettings}: newSingletonHandler(
+			resourceAdvancedSettings,
+			ziaSDKShow(ziaClient, advancedsettings.GetAdvancedSettings),
+			structSourceRecord[advancedsettings.AdvancedSettings],
+		),
+		{product: resources.ProductZIA, name: resourceAdvancedThreatSettings}: newSingletonHandler(
+			resourceAdvancedThreatSettings,
+			ziaSDKShow(ziaClient, advancedthreatsettings.GetAdvancedThreatSettings),
+			structSourceRecord[advancedthreatsettings.AdvancedThreatSettings],
+		),
+		{product: resources.ProductZIA, name: resourceMobileThreatSettings}: newSingletonHandler(
+			resourceMobileThreatSettings,
+			ziaSDKShow(ziaClient, mobilethreatsettings.GetMobileThreatSettings),
+			structSourceRecord[mobilethreatsettings.MobileAdvanceThreatSettings],
+		),
+		{product: resources.ProductZIA, name: resourceSandboxSettings}: newSingletonHandler(
+			resourceSandboxSettings,
+			ziaSDKShow(ziaClient, sandboxsettings.Get),
+			structSourceRecord[sandboxsettings.BaAdvancedSettings],
+		),
+		{product: resources.ProductZIA, name: resourceEndUserNotification}: newSingletonHandler(
+			resourceEndUserNotification,
+			ziaSDKShow(ziaClient, endusernotification.GetUserNotificationSettings),
+			structSourceRecord[endusernotification.UserNotificationSettings],
+		),
+		{product: resources.ProductZIA, name: resourceOrgInformation}: newSingletonHandler(
+			resourceOrgInformation,
+			ziaSDKShow(ziaClient, organizationdetails.GetOrgInformation),
+			structSourceRecord[organizationdetails.Organization],
+		),
+		{product: resources.ProductZIA, name: resourceATPMalwarePolicy}: newSingletonHandler(
+			resourceATPMalwarePolicy,
+			ziaSDKShow(ziaClient, malwareprotection.GetATPMalwarePolicy),
+			structSourceRecord[malwareprotection.MalwarePolicy],
+		),
+		{product: resources.ProductZIA, name: resourceATPMalwareSettings}: newSingletonHandler(
+			resourceATPMalwareSettings,
+			ziaSDKShow(ziaClient, malwareprotection.GetATPMalwareSettings),
+			structSourceRecord[malwareprotection.MalwareSettings],
+		),
+		{product: resources.ProductZIA, name: resourceATPMalwareInspection}: newSingletonHandler(
+			resourceATPMalwareInspection,
+			ziaSDKShow(ziaClient, malwareprotection.GetATPMalwareInspection),
+			structSourceRecord[malwareprotection.ATPMalwareInspection],
+		),
+		{product: resources.ProductZIA, name: resourceATPMalwareProtocols}: newSingletonHandler(
+			resourceATPMalwareProtocols,
+			ziaSDKShow(ziaClient, malwareprotection.GetATPMalwareProtocols),
+			structSourceRecord[malwareprotection.ATPMalwareProtocols],
+		),
+		{product: resources.ProductZIA, name: resourceMaliciousURLs}: newSingletonHandler(
+			resourceMaliciousURLs,
+			ziaSDKShow(ziaClient, advancedthreatsettings.GetMaliciousURLs),
+			structSourceRecord[advancedthreatsettings.MaliciousURLs],
+		),
+		{product: resources.ProductZIA, name: resourceSecurityExceptions}: newSingletonHandler(
+			resourceSecurityExceptions,
+			ziaSDKShow(ziaClient, advancedthreatsettings.GetSecurityExceptions),
+			structSourceRecord[advancedthreatsettings.SecurityExceptions],
+		),
+		{product: resources.ProductZIA, name: resourceSecurityPolicyURLAllowlist}: newSingletonHandler(
+			resourceSecurityPolicyURLAllowlist,
+			ziaSDKShow(ziaClient, securitypolicysettings.GetWhiteListUrls),
+			structSourceRecord[securitypolicysettings.ListUrls],
+		),
+		{product: resources.ProductZIA, name: resourceSecurityPolicyURLDenylist}: newSingletonHandler(
+			resourceSecurityPolicyURLDenylist,
+			ziaSDKShow(ziaClient, securitypolicysettings.GetBlackListUrls),
+			structSourceRecord[securitypolicysettings.ListUrls],
+		),
 	}
 }
 
@@ -791,12 +918,6 @@ type listGetHandler[T any] struct {
 type listOnlyHandler[T any] struct {
 	resourceName string
 	list         func(context.Context) ([]T, error)
-	sourceRecord func(T) resources.SourceRecord
-}
-
-type singletonHandler[T any] struct {
-	resourceName string
-	read         func(context.Context) (*T, error)
 	sourceRecord func(T) resources.SourceRecord
 }
 
@@ -822,18 +943,6 @@ func newListOnlyHandler[T any](
 	return listOnlyHandler[T]{
 		resourceName: resourceName,
 		list:         list,
-		sourceRecord: sourceRecord,
-	}
-}
-
-func newSingletonHandler[T any](
-	resourceName string,
-	read func(context.Context) (*T, error),
-	sourceRecord func(T) resources.SourceRecord,
-) singletonHandler[T] {
-	return singletonHandler[T]{
-		resourceName: resourceName,
-		read:         read,
 		sourceRecord: sourceRecord,
 	}
 }
@@ -877,19 +986,57 @@ func (h listOnlyHandler[T]) Get(context.Context, string) (resources.SourceRecord
 	return resources.SourceRecord{}, fmt.Errorf("%w: %s get", ErrUnsupportedResource, h.resourceName)
 }
 
+func (h listGetHandler[T]) Show(context.Context) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, fmt.Errorf("%w: %s/show", ErrUnsupportedResource, h.resourceName)
+}
+
+func (h listOnlyHandler[T]) Show(context.Context) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, fmt.Errorf("%w: %s/show", ErrUnsupportedResource, h.resourceName)
+}
+
+type singletonHandler[T any] struct {
+	resourceName string
+	show         func(context.Context) (*T, error)
+	sourceRecord func(T) resources.SourceRecord
+}
+
+func newSingletonHandler[T any](
+	resourceName string,
+	show func(context.Context) (*T, error),
+	sourceRecord func(T) resources.SourceRecord,
+) singletonHandler[T] {
+	return singletonHandler[T]{
+		resourceName: resourceName,
+		show:         show,
+		sourceRecord: sourceRecord,
+	}
+}
+
 func (h singletonHandler[T]) List(ctx context.Context) ([]resources.SourceRecord, error) {
-	item, err := h.read(ctx)
+	record, err := h.Show(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if item == nil {
-		return nil, fmt.Errorf("empty sdk %s response", h.resourceName)
-	}
-	return []resources.SourceRecord{h.sourceRecord(*item)}, nil
+	return []resources.SourceRecord{record}, nil
 }
 
 func (h singletonHandler[T]) Get(context.Context, string) (resources.SourceRecord, error) {
-	return resources.SourceRecord{}, fmt.Errorf("%w: %s get", ErrUnsupportedResource, h.resourceName)
+	return resources.SourceRecord{}, fmt.Errorf("%w: %s/get", ErrUnsupportedResource, h.resourceName)
+}
+
+func (h singletonHandler[T]) Show(ctx context.Context) (resources.SourceRecord, error) {
+	item, err := h.show(ctx)
+	if err != nil {
+		return resources.SourceRecord{}, err
+	}
+	if item == nil {
+		return resources.SourceRecord{}, fmt.Errorf("empty sdk %s response", h.resourceName)
+	}
+	return h.sourceRecord(*item), nil
+}
+
+func structSourceRecord[T any](value T) resources.SourceRecord {
+	return sourceRecordFromStruct(value)
 }
 
 func parsePositiveIntID(id string) (int, error) {
@@ -926,6 +1073,20 @@ func ziaSDKList[T any](
 }
 
 func ziaSDKSingleton[T any](
+	client sdkZIAClient,
+	call func(context.Context, *zsdk.Service) (*T, error),
+) func(context.Context) (*T, error) {
+	return func(ctx context.Context) (*T, error) {
+		service, cleanup, err := client.service(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		return call(ctx, service)
+	}
+}
+
+func ziaSDKShow[T any](
 	client sdkZIAClient,
 	call func(context.Context, *zsdk.Service) (*T, error),
 ) func(context.Context) (*T, error) {
@@ -1003,6 +1164,92 @@ func intIDGetter[T any](get func(context.Context, int) (*T, error)) func(context
 		}
 		return get(ctx, parsed)
 	}
+}
+
+func sourceRecordFromStruct(value any) resources.SourceRecord {
+	return resources.NewSourceRecord(structMap(reflect.ValueOf(value)))
+}
+
+func structMap(value reflect.Value) map[string]any {
+	value = dereferenceValue(value)
+	if !value.IsValid() || value.Kind() != reflect.Struct {
+		return nil
+	}
+	typ := value.Type()
+	fields := make(map[string]any, value.NumField())
+	for i := 0; i < value.NumField(); i++ {
+		field := typ.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		name := sdkJSONFieldName(field)
+		if name == "" || name == "-" {
+			continue
+		}
+		fields[name] = sourceValue(value.Field(i))
+	}
+	return fields
+}
+
+func sourceValue(value reflect.Value) any {
+	value = dereferenceValue(value)
+	if !value.IsValid() {
+		return nil
+	}
+	switch value.Kind() {
+	case reflect.Struct:
+		return structMap(value)
+	case reflect.Slice, reflect.Array:
+		out := make([]any, 0, value.Len())
+		for i := 0; i < value.Len(); i++ {
+			out = append(out, sourceValue(value.Index(i)))
+		}
+		return out
+	case reflect.Map:
+		out := make(map[string]any, value.Len())
+		iter := value.MapRange()
+		for iter.Next() {
+			key := fmt.Sprint(sourceValue(iter.Key()))
+			out[key] = sourceValue(iter.Value())
+		}
+		return out
+	case reflect.Bool:
+		return value.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return value.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return value.Uint()
+	case reflect.Float32, reflect.Float64:
+		return value.Float()
+	case reflect.String:
+		return value.String()
+	default:
+		return nil
+	}
+}
+
+func dereferenceValue(value reflect.Value) reflect.Value {
+	for value.IsValid() && (value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface) {
+		if value.IsNil() {
+			return reflect.Value{}
+		}
+		value = value.Elem()
+	}
+	return value
+}
+
+func sdkJSONFieldName(field reflect.StructField) string {
+	tag := field.Tag.Get("json")
+	if tag == "-" {
+		return "-"
+	}
+	if index := strings.IndexByte(tag, ','); index >= 0 {
+		tag = tag[:index]
+	}
+	if tag != "" {
+		return tag
+	}
+	return field.Name
 }
 
 type perCallZIAService struct {
