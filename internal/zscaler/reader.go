@@ -30,10 +30,10 @@ import (
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
+	endusernotification "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/end_user_notification"
 	filetypecontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol"
 	customfiletypes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol/custom_file_types"
 	firewalldnscontrolpolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewalldnscontrolpolicies"
-	endusernotification "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/end_user_notification"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
@@ -212,7 +212,6 @@ type ziaServiceProvider interface {
 var (
 	_ resourceHandler = listGetHandler[struct{}]{}
 	_ resourceHandler = listOnlyHandler[struct{}]{}
-	_ resourceHandler = singletonHandler[struct{}]{}
 	_ resourceHandler = singletonHandler[struct{}]{}
 	_ ResourceSession = (*SDKSession)(nil)
 )
@@ -922,12 +921,6 @@ type listOnlyHandler[T any] struct {
 	sourceRecord func(T) resources.SourceRecord
 }
 
-type singletonHandler[T any] struct {
-	resourceName string
-	read         func(context.Context) (*T, error)
-	sourceRecord func(T) resources.SourceRecord
-}
-
 func newListGetHandler[T any](
 	resourceName string,
 	list func(context.Context) ([]T, error),
@@ -950,18 +943,6 @@ func newListOnlyHandler[T any](
 	return listOnlyHandler[T]{
 		resourceName: resourceName,
 		list:         list,
-		sourceRecord: sourceRecord,
-	}
-}
-
-func newSingletonHandler[T any](
-	resourceName string,
-	read func(context.Context) (*T, error),
-	sourceRecord func(T) resources.SourceRecord,
-) singletonHandler[T] {
-	return singletonHandler[T]{
-		resourceName: resourceName,
-		read:         read,
 		sourceRecord: sourceRecord,
 	}
 }
@@ -1005,22 +986,11 @@ func (h listOnlyHandler[T]) Get(context.Context, string) (resources.SourceRecord
 	return resources.SourceRecord{}, fmt.Errorf("%w: %s get", ErrUnsupportedResource, h.resourceName)
 }
 
-func (h singletonHandler[T]) List(ctx context.Context) ([]resources.SourceRecord, error) {
-	item, err := h.read(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if item == nil {
-		return nil, fmt.Errorf("empty sdk %s response", h.resourceName)
-	}
-	return []resources.SourceRecord{h.sourceRecord(*item)}, nil
-}
-
-func (h singletonHandler[T]) Get(context.Context, string) (resources.SourceRecord, error) {
-	return resources.SourceRecord{}, fmt.Errorf("%w: %s get", ErrUnsupportedResource, h.resourceName)
-}
-
 func (h listGetHandler[T]) Show(context.Context) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, fmt.Errorf("%w: %s/show", ErrUnsupportedResource, h.resourceName)
+}
+
+func (h listOnlyHandler[T]) Show(context.Context) (resources.SourceRecord, error) {
 	return resources.SourceRecord{}, fmt.Errorf("%w: %s/show", ErrUnsupportedResource, h.resourceName)
 }
 
@@ -1042,8 +1012,12 @@ func newSingletonHandler[T any](
 	}
 }
 
-func (h singletonHandler[T]) List(context.Context) ([]resources.SourceRecord, error) {
-	return nil, fmt.Errorf("%w: %s/list", ErrUnsupportedResource, h.resourceName)
+func (h singletonHandler[T]) List(ctx context.Context) ([]resources.SourceRecord, error) {
+	record, err := h.Show(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return []resources.SourceRecord{record}, nil
 }
 
 func (h singletonHandler[T]) Get(context.Context, string) (resources.SourceRecord, error) {

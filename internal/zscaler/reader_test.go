@@ -107,24 +107,21 @@ func TestSingletonHandlerShowMapsResponse(t *testing.T) {
 	}
 }
 
-func TestSingletonHandlerRejectsUnsupportedOperations(t *testing.T) {
+func TestSingletonHandlerRejectsGet(t *testing.T) {
 	t.Parallel()
 
 	handler := newSingletonHandler(
 		"test-settings",
 		func(context.Context) (*singletonTestRecord, error) {
-			t.Fatal("singletonHandler unsupported operations called show")
+			t.Fatal("singletonHandler.Get() called show")
 			return nil, nil
 		},
 		func(singletonTestRecord) resources.SourceRecord {
-			t.Fatal("singletonHandler unsupported operations called mapper")
+			t.Fatal("singletonHandler.Get() called mapper")
 			return resources.SourceRecord{}
 		},
 	)
 
-	if _, err := handler.List(context.Background()); !errors.Is(err, ErrUnsupportedResource) {
-		t.Fatalf("singletonHandler.List() error = %v, want ErrUnsupportedResource", err)
-	}
 	if _, err := handler.Get(context.Background(), "1"); !errors.Is(err, ErrUnsupportedResource) {
 		t.Fatalf("singletonHandler.Get() error = %v, want ErrUnsupportedResource", err)
 	}
