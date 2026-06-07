@@ -7,7 +7,8 @@ alias, but `zscalerctl` remains the shipped command name for clarity in logs,
 docs, package managers, and support output.
 
 Implementation should continue to follow the M0 safety baseline in this
-document, `THREAT_MODEL.md`, and `DATA_CLASSIFICATION.md`.
+document, [THREAT_MODEL.md](THREAT_MODEL.md), and
+[DATA_CLASSIFICATION.md](DATA_CLASSIFICATION.md).
 
 ## Design Principles
 
@@ -167,7 +168,8 @@ fields are never renderable. The projection harness must be able to prove that
 rendered records are a subset of the declared allow-list before a resource is
 considered ready.
 
-Resource authors must check `ZSCALER_SENSITIVE_DATA.md` before allowing a new
+Resource authors must check
+[ZSCALER_SENSITIVE_DATA.md](ZSCALER_SENSITIVE_DATA.md) before allowing a new
 field. Generic names such as `value` are not automatically safe; their
 classification depends on the resource schema and endpoint context.
 

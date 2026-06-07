@@ -1,8 +1,8 @@
 # zscalerctl
 
 `zscalerctl` is an unofficial, security-first Go CLI for authorized Zscaler
-administrators. The initial release is read-only by design and focuses on safe
-configuration query, inventory, and controlled sanitized exports.
+administrators. It is read-only by design and focuses on safe configuration
+query, inventory, and controlled sanitized exports.
 
 This project is not affiliated with, endorsed by, or sponsored by Zscaler.
 
@@ -13,71 +13,100 @@ use a shell alias:
 alias zctl=zscalerctl
 ```
 
+## What It Is For
+
 The primary use case is CLI and agentic automation: one reviewed command that
 can replace duplicated Python snippets across pipelines and workflows. Human
 tables should be readable, but machine output should stay explicit,
 deterministic, and script-friendly.
 
-Human output should feel polished in modern 256-color terminals, but color must
-be optional and never required to understand results.
-
-Color policy is explicit:
+`zscalerctl` currently exposes reviewed read/list/show coverage across ZIA, ZPA,
+and ZTW. The current catalog is the source of truth:
 
 ```sh
-zscalerctl --color auto doctor
-zscalerctl --color always doctor
-zscalerctl --no-color doctor
+zscalerctl --format json schema list
 ```
 
-`NO_COLOR` and `TERM=dumb` are respected when color mode is `auto`.
+For the human-readable resource reference, see
+[docs/RESOURCES.md](docs/RESOURCES.md). For queued, deferred, and future
+resource work, see [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md).
 
-## Current Status
+ZCC was scouted and smoke-tested, but the first conservative ZCC PAPI v2 batch
+returned 404 for every staged list endpoint under production OneAPI. ZCC remains
+deferred until endpoint, auth, or entitlement behavior is understood.
 
-This project is in early scaffold mode. The code intentionally starts with the
-safety rails before adding Zscaler API resources:
+## Install
 
-- Secret-safe value type.
-- Environment config loading with `ZSCALERCTL_*` names.
-- Read-only operation markers.
-- Output redaction backstop.
-- Type-enforced projected resource output.
-- Restricted dump writer with `manifest.json` and value-free
-  `redaction_report.json`.
-- CLI skeleton for `doctor`, `auth status`, `config show`, `schema list`,
-  `completion bash|zsh|fish`, `zia locations list|get`, and
-  ZIA resource `list|get` commands.
+Release archives are published for macOS, Linux, and Windows. Releases include
+checksums, per-target CycloneDX SBOMs, and GitHub provenance attestations. See
+[docs/INSTALL.md](docs/INSTALL.md) for installation, artifact verification,
+credential, proxy, shell-completion, and platform notes.
 
-The initial live reader supports a small read-only ZIA resource set through the
-official Go SDK. It requires explicit `ZSCALERCTL_*` configuration and does not
-consume the SDK's own environment variable names, local SDK config files, SDK log
-flags, or ambient proxy variables unless `ZSCALERCTL_PROXY_FROM_ENV=true` is set.
-SDK response caching is disabled.
-
-OneAPI credentials are the default:
+From a checkout:
 
 ```sh
-export ZSCALERCTL_CLIENT_ID=...
+go install ./cmd/zscalerctl
+zscalerctl version
+```
+
+## Quick Start
+
+Check local configuration without contacting Zscaler:
+
+```sh
+zscalerctl doctor
+zscalerctl auth status
+zscalerctl config show
+```
+
+Inspect the reviewed resource catalog:
+
+```sh
+zscalerctl schema list
+zscalerctl --format json schema list
+```
+
+Read resources:
+
+```sh
+zscalerctl zia locations list
+zscalerctl zia locations get <id>
+zscalerctl zpa server-groups list
+zscalerctl ztw workload-groups list
+```
+
+Write a sanitized dump:
+
+```sh
+zscalerctl dump --products zia --out ./dump
+zscalerctl dump --resources zia/locations,zpa/server-groups --out ./dump-subset
+zscalerctl dump --continue-on-error --out ./partial-dump
+```
+
+Use `--output <path>` to write command output to a single restricted file. Use
+`dump --out <dir>` for dump directories; `--output` and `dump` are intentionally
+not combined.
+
+## Authentication
+
+The CLI reads only explicit `ZSCALERCTL_*` configuration. It does not read the
+Zscaler SDK's own environment variables or SDK config files. SDK response
+caching is disabled, SDK logging is muted, and ambient proxy variables are
+ignored unless opted in.
+
+OneAPI is the default auth mode:
+
+```sh
+export ZSCALERCTL_CLIENT_ID=<client-id>
 export ZSCALERCTL_CLIENT_SECRET_FILE=/path/to/owner-only/secret-file
-export ZSCALERCTL_VANITY_DOMAIN=...
-export ZSCALERCTL_CLOUD=PRODUCTION # optional
-export ZSCALERCTL_ZPA_CUSTOMER_ID=... # required for ZPA resources
-export ZSCALERCTL_ZPA_MICROTENANT_ID=... # optional
+export ZSCALERCTL_VANITY_DOMAIN=<vanity-domain>
+export ZSCALERCTL_CLOUD=PRODUCTION
+export ZSCALERCTL_ZPA_CUSTOMER_ID=<zpa-customer-id> # required for ZPA resources
 ```
 
-`ZSCALERCTL_ZPA_CUSTOMER_ID` is not needed for ZIA reads, but ZPA SDK
-endpoints are customer-scoped and fail closed without it.
-
-ZIA legacy credentials are supported for read-only ZIA resources through
-explicit `ZSCALERCTL_ZIA_*` variables. Raw SDK names such as `ZIA_USERNAME` are
-intentionally ignored.
-
-```sh
-export ZSCALERCTL_AUTH_MODE=zia-legacy
-export ZSCALERCTL_ZIA_USERNAME=...
-export ZSCALERCTL_ZIA_PASSWORD_FILE=/path/to/owner-only/password-file
-export ZSCALERCTL_ZIA_API_KEY_FILE=/path/to/owner-only/api-key-file
-export ZSCALERCTL_ZIA_CLOUD=zscalerthree
-```
+ZIA legacy credentials are still supported for read-only ZIA resources. Detailed
+legacy, proxy, config-file, Windows, and secret-file behavior lives in
+[docs/INSTALL.md](docs/INSTALL.md).
 
 Corporate proxy settings are opt-in. To use standard `HTTPS_PROXY`,
 `HTTP_PROXY`, and `NO_PROXY` values, set:
@@ -86,52 +115,13 @@ Corporate proxy settings are opt-in. To use standard `HTTPS_PROXY`,
 export ZSCALERCTL_PROXY_FROM_ENV=true
 ```
 
-To avoid ambient proxy discovery while still using a proxy, set an explicit
-proxy URL:
-
-```sh
-export ZSCALERCTL_PROXY_URL=http://proxy.example.invalid:8080
-```
-
-```sh
-zscalerctl zia locations list
-zscalerctl zia location-groups list
-zscalerctl zia rule-labels list
-zscalerctl zia static-ips list
-zscalerctl zia gre-tunnels list
-zscalerctl completion zsh
-zscalerctl version
-zscalerctl dump --products zia --out ./dump
-zscalerctl dump --products zia --resources locations,static-ips --out ./dump-subset
-zscalerctl dump --products zia --continue-on-error --out ./partial-dump
-make live-smoke
-```
-
-`make live-smoke` validates every current ZIA live-smoke resource and writes
-artifacts to a secure temporary directory. Set `LIVE_SMOKE_OUT=./scratch-live-smoke`
-only when you want a predictable artifact path.
-
-Key design docs:
-
-- [THREAT_MODEL.md](THREAT_MODEL.md)
-- [DATA_CLASSIFICATION.md](DATA_CLASSIFICATION.md)
-- [ZSCALER_SENSITIVE_DATA.md](ZSCALER_SENSITIVE_DATA.md)
-- [ARCHITECTURE.md](ARCHITECTURE.md)
-- [docs/INSTALL.md](docs/INSTALL.md)
-- [docs/RESOURCES.md](docs/RESOURCES.md)
-- [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md)
-- [docs/SDK_SURFACE_INVENTORY.md](docs/SDK_SURFACE_INVENTORY.md)
-- [docs/VERSIONING.md](docs/VERSIONING.md)
-- [docs/DEPENDENCY_POLICY.md](docs/DEPENDENCY_POLICY.md)
-- [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
-
 ## Security Posture
 
 This is defensive administration software. It is not an exploitation,
 credential discovery, bypass, traffic interception, or attack-path tool.
 
 The primary leak-prevention model is allow-list projection into safe view
-structs. Output redaction and secret scanning are defense-in-depth, not an
+records. Output redaction and secret scanning are defense-in-depth, not an
 excuse to render raw API responses.
 
 Administrator-controlled free-text fields are standard-only catalog exceptions:
@@ -143,12 +133,19 @@ Version 1 must not include write commands or a generic raw API executor.
 Table output is best-effort for quick human inspection. JSON and dump output are
 the primary automation surfaces.
 
+## Dumps
+
 Dump commands fail closed by default: if a selected resource fails, no dump is
 written. `--continue-on-error` is opt-in and writes a clearly marked partial
 dump with `manifest.json` status `partial` and value-free `errors.ndjson`. A
 partial dump exits with code `6`, not success.
 
-### Automation Contract
+`make live-smoke` validates the current branch's live-smoke resource manifest
+or explicit `LIVE_SMOKE_RESOURCES` selection and writes artifacts to a secure
+temporary directory. Set `LIVE_SMOKE_OUT=./scratch-live-smoke` only when you
+want a predictable artifact path.
+
+## Automation Contract
 
 Exit codes are stable for automation:
 
@@ -174,22 +171,32 @@ as a redacted JSON envelope on stderr:
 }
 ```
 
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
+- [docs/DATA_CLASSIFICATION.md](docs/DATA_CLASSIFICATION.md)
+- [docs/ZSCALER_SENSITIVE_DATA.md](docs/ZSCALER_SENSITIVE_DATA.md)
+- [docs/INSTALL.md](docs/INSTALL.md)
+- [docs/RESOURCES.md](docs/RESOURCES.md)
+- [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md)
+- [docs/SDK_SURFACE_INVENTORY.md](docs/SDK_SURFACE_INVENTORY.md)
+- [docs/ZSCALER_PRODUCT_SCOPE_PLAN.md](docs/ZSCALER_PRODUCT_SCOPE_PLAN.md)
+- [docs/VERSIONING.md](docs/VERSIONING.md)
+- [docs/DEPENDENCY_POLICY.md](docs/DEPENDENCY_POLICY.md)
+- [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
+
 ## Development
 
 ```sh
-make fmt-check
-go test ./...
-go test -race ./...
-go vet ./...
-govulncheck ./...
-bash scripts/verify-sdk-boundary.sh
-bash scripts/test-verify-sdk-boundary.sh
+make check
+make live-smoke
+make sdk-surface-inventory
 ```
 
 Optional local checks once installed:
 
 ```sh
-go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 gitleaks dir .
 gitleaks git .
 ```
