@@ -26,7 +26,7 @@ Reviewed read/list/show coverage spans **ZIA, ZPA, and ZTW**. The catalog is the
 zscalerctl --format json schema list
 ```
 
-See [docs/RESOURCES.md](docs/RESOURCES.md) for the resource reference and [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md) for deferred and queued work. (ZCC is deferred — initial PAPI v2 smoke returned OneAPI 404s; details in the queue.)
+See [docs/RESOURCES.md](docs/RESOURCES.md) for the resource reference and [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md) for deferred and queued work. (ZCC is deferred pending endpoint/auth/entitlement investigation.)
 
 ## Install
 

@@ -2,11 +2,11 @@
 
 This queue is the staging area for future read-only resources. It is not the
 enabled catalog. Entries here do not expose new API surface, do not change
-live-smoke coverage, and do not replace the catalog, SDK shape review, or live
-smoke gates.
+runtime coverage, and do not replace the catalog, SDK shape review, or runtime
+validation gates.
 
 Use this file to avoid branch sprawl while live tenant testing is unavailable:
-record candidates, scaffold intent, and known live-smoke outcomes here; apply
+record candidates, scaffold intent, and endpoint investigation notes here; apply
 only one small batch to production files when a live smoke operator is
 available. Queue entries are not validation evidence.
 
@@ -37,10 +37,9 @@ available. Queue entries are not validation evidence.
 - Treat live-smoke artifacts as confidential operational records. Store,
   retain, or dispose of them only according to the operator's approved records
   and evidence-handling policy.
-- When recording live-smoke results, include the resource, auth mode,
-  tenant/cloud class, date, commit, and whether the run used source or a release
-  binary. Keep authorization or change-record references outside this repo if
-  required by the operator's environment.
+- Keep runtime evidence, tenant-specific result notes, and authorization or
+  change-record references outside this repo when required by the operator's
+  environment.
 
 ## Validation States
 
@@ -53,16 +52,16 @@ what "validated" means:
 | `scaffolded` | Generated locally or in a draft PR; ordinary gates may pass, but no live tenant proof exists. |
 | `gates-passed` | Unit, shape, projection, redaction, and smoke-script self-tests pass without live tenant evidence. |
 | `dev-oneapi-availability:<status>` | Dev OneAPI returned an availability signal such as `200-records`, `200-empty`, `400`, `401`, `403`, or `404`. This is not production shape validation. |
-| `legacy-zia-smoke-pass:<date>` | Focused live smoke passed with explicit ZIA legacy credentials in the current production-like environment. |
-| `prod-oneapi-smoke-pass:<date>` | Focused live smoke passed with a dedicated read-only production OneAPI client. This is the canonical future validation state. |
+| `legacy-zia-runtime-validated` | Focused runtime validation passed with explicit ZIA legacy credentials in an approved operator environment. |
+| `prod-oneapi-runtime-validated` | Focused runtime validation passed with a dedicated read-only production OneAPI client. This is the canonical future validation state. |
 | `deferred:<reason>` | Resource was removed or paused because endpoint behavior, auth support, shape, or entitlement is not understood. |
 | `unsupported:<auth-mode>/<reason>` | Resource is supported in another auth mode, but this auth mode failed or is not expected to work. |
 
 ## Auth And Environment Posture
 
-OneAPI is the expansion target and has been production-smoked for the current
-ZPA and ZTW catalog resources. Legacy ZIA remains supported and proven for ZIA
-resources. Do not remove, downgrade, or mark legacy-proven ZIA resources
+OneAPI is the expansion target and has runtime validation for the current ZPA
+and ZTW catalog resources. Legacy ZIA remains supported and proven for ZIA
+resources. Do not remove, downgrade, or mark legacy-validated ZIA resources
 unsupported based only on dev OneAPI results or on unrelated product-family
 failures.
 
@@ -77,7 +76,7 @@ Dev `zscalertwo` OneAPI is useful for endpoint availability scouting:
 | `403` | Permission or role issue. |
 | `404` | Not entitled, unavailable in that tenant/cloud, wrong path, or SDK mismatch; do not treat as a permanent resource failure without another signal. |
 
-Production OneAPI smoke should be a controlled evidence run: dedicated
+Production OneAPI runtime validation should be a controlled evidence run: dedicated
 read-only client, approved workstation, no CI secrets, no committed artifacts,
 and artifact handling governed by the operator's records policy. Treat any
 required change ticket or authorization record as an external operational
@@ -85,23 +84,23 @@ control, not as repository content.
 
 ## Current Gates
 
-The legacy-ZIA, ZPA, and ZTW smoke gates are closed for the current catalog.
-Those product surfaces were promoted only after focused work-machine live smoke
-and after trimming or deferring observed tenant-specific failures.
+The legacy-ZIA, ZPA, and ZTW runtime gates are closed for the current catalog.
+Those product surfaces were promoted only after focused runtime validation and
+after trimming or deferring observed endpoint failures.
 
 Product-track status:
 
 | Product | Resources | Status | Next action |
 | --- | --- | --- | --- |
-| ZIA | Current queued legacy-ZIA resources, singleton settings, and the focused ordinary-recheck batch for `zia/network-service-groups`, `zia/network-applications`, `zia/email-profiles`, `zia/dlp-incident-receiver-servers`, and `zia/dlp-notification-templates` | Live-smoked and merged for the earlier catalog; focused ordinary-recheck batch passed work-machine live smoke before merge. | Merge the focused ordinary-recheck batch after CI/review, then continue only through the remaining shape-decision tracks below. |
-| ZPA | Tier-1 resources plus `zpa/application-segments` | Production OneAPI smoke passed after trimming unavailable private-cloud endpoints. | Continue later from the remaining ZPA SDK surface; keep focused smoke/trim discipline. |
-| ZTW | Initial reference batch plus admin-governance resources (`admin-users`, `admin-roles`) | Production OneAPI smoke passed for both the initial reference batch and admin-governance batch. | Continue policy/control surfaces only after explicit review. |
-| ZCC | `trusted-networks`, `notification-templates`, `zia-postures` | Production OneAPI smoke returned 404 for all three list endpoints. | Deferred; investigate endpoint/auth/entitlement behavior before retrying ZCC. |
-| Zidentity | `groups`, `users`, `resource-servers` | Production OneAPI smoke passed for the focused workforce identity/reference batch; `zidentity/users` returned 31,205 records and completed dump/manifest validation after guarded pagination was added. | Keep membership expansion as a separate child-query design. |
+| ZIA | Current queued legacy-ZIA resources, singleton settings, focused ordinary-recheck batch, and identity/device recheck for `zia/departments`, `zia/users`, and `zia/devices` | Cataloged after focused runtime validation and review. | Continue only through the remaining shape-decision tracks below. |
+| ZPA | Tier-1 resources plus `zpa/application-segments` | Cataloged after focused runtime validation and trimming unavailable private-cloud endpoints. | Continue later from the remaining ZPA SDK surface; keep focused trim discipline. |
+| ZTW | Initial reference batch plus admin-governance resources (`admin-users`, `admin-roles`) | Cataloged after focused runtime validation and review. | Continue policy/control surfaces only after explicit review. |
+| ZCC | `trusted-networks`, `notification-templates`, `zia-postures` | Deferred after `404` endpoint responses across the first ZCC list batch. | Deferred; investigate endpoint/auth/entitlement behavior before retrying ZCC. |
+| Zidentity | `groups`, `users`, `resource-servers` | Cataloged after focused runtime validation and review. | Keep membership expansion as a separate child-query design. |
 
-Do not merge product stacks on green CI alone. Promote only the resources that
-pass focused live smoke, and trim or defer any endpoints that fail with
-tenant/auth availability errors.
+Do not merge product stacks on green CI alone. Promote only runtime-validated
+resources, and trim or defer any endpoints that fail with tenant/auth
+availability errors.
 
 ## No-Live Work Mode
 
@@ -203,8 +202,8 @@ seams now exist:
 
 ## Deferred Retest / Investigation Backlog
 
-These were generated and locally validated, then removed after live smoke
-reported list/request failures. Do not retry them as an ordinary breadth batch.
+These were generated and locally validated, then removed after endpoint
+failures. Do not retry them as an ordinary breadth batch.
 Each retry must be a focused probe that records the exact status code, auth
 mode, product cloud, endpoint path, SDK version, source commit, and whether the
 run used source or a release binary.
@@ -218,24 +217,21 @@ boundary issue, or a deliberate privacy/material hold.
 
 | Resource | Last evidence | Required next probe |
 | --- | --- | --- |
-| `zia/departments` | Legacy-ZIA list request failed; exact status not recorded. | Retry as identity-like metadata only; record status before deciding whether this is endpoint/auth failure or privacy hold. |
-| `zia/users` | Legacy-ZIA list request failed; exact status not recorded. | Retry only as a privacy-scoped probe; even if reachable, user output still needs PII review before cataloging. |
-| `zia/devices` | Legacy-ZIA list request failed; exact status not recorded. | Retry only as a privacy-scoped probe; even if reachable, device output still needs PII/device review before cataloging. |
 | `zia/dlp-engines` | Legacy-ZIA list request failed; exact status not recorded. | Retry DLP endpoints as a small family, not mixed with unrelated policy resources. |
 | `zia/dlp-dictionaries` | Legacy-ZIA list request failed; exact status not recorded. | Retry with DLP family; inspect dictionary fields for sensitive sample/content values before cataloging. |
 | `zia/ips-signature-rules` | Legacy-ZIA list request failed; exact status not recorded. | Retry before `ips_policies`; do not use IPS policy adjacency as proof either way. |
-| `zia/c2c-incident-receivers` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry as a single endpoint probe; receiver details may be sensitive destination metadata if reachable. |
-| `zia/dlp-edm-schemas` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; EDM schema names/columns may be sensitive and need conservative projection. |
-| `zia/dlp-idm-profile-lite` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; compare with full IDM profile endpoint before cataloging both. |
-| `zia/dlp-idm-profiles` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; inspect nested matching criteria and identifiers before cataloging. |
-| `zia/dlp-web-rules` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; policy-rule surface likely needs the same conservative nested-reference pattern as other rules. |
-| `zia/traffic-capture-rules` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry as a sensitive diagnostic/capture policy probe, not an ordinary policy batch. |
-| `zia/extranets` | Legacy-ZIA live smoke failed with `live_access_failed`; exact status not recorded. | Retry as a network-identifier-heavy probe; endpoints and IP/range fields should remain local-only if reachable. |
-| `zpa/private-cloud-groups` | Production OneAPI/ZPA list failed with status 403. | Treat as permission/role or product-feature availability; retry only if RO client scopes/roles change. |
-| `zpa/private-cloud-controllers` | Production OneAPI/ZPA list failed with status 401. | Treat as auth/config or endpoint-specific authorization; retry only with captured endpoint path and confirmed ZPA customer ID. |
-| `zcc/trusted-networks` | Production OneAPI/ZCC list failed with status 404. | Probe the ZCC endpoint boundary before catalog work: compare OneAPI `/zcc/papi/public/v2/trusted-networks` routing against documented/product-local ZCC PAPI behavior and confirm whether 404 is path, cloud, entitlement, or SDK mismatch. |
-| `zcc/notification-templates` | Production OneAPI/ZCC list failed with status 404. | Include in the same ZCC endpoint-boundary probe; do not interpret three 404s as three independent resource failures until the product route is proven. |
-| `zcc/zia-postures` | Production OneAPI/ZCC list failed with status 404. | Include in the same ZCC endpoint-boundary probe; if the product route is corrected, re-evaluate posture criteria fields before cataloging. |
+| `zia/c2c-incident-receivers` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry as a single endpoint probe; receiver details may be sensitive destination metadata if reachable. |
+| `zia/dlp-edm-schemas` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; EDM schema names/columns may be sensitive and need conservative projection. |
+| `zia/dlp-idm-profile-lite` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; compare with full IDM profile endpoint before cataloging both. |
+| `zia/dlp-idm-profiles` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; inspect nested matching criteria and identifiers before cataloging. |
+| `zia/dlp-web-rules` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; policy-rule surface likely needs the same conservative nested-reference pattern as other rules. |
+| `zia/traffic-capture-rules` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry as a sensitive diagnostic/capture policy probe, not an ordinary policy batch. |
+| `zia/extranets` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry as a network-identifier-heavy probe; endpoints and IP/range fields should remain local-only if reachable. |
+| `zpa/private-cloud-groups` | ZPA endpoint probe failed with status 403. | Treat as permission/role or product-feature availability; retry only if RO client scopes/roles change. |
+| `zpa/private-cloud-controllers` | ZPA endpoint probe failed with status 401. | Treat as auth/config or endpoint-specific authorization; retry only with captured endpoint path and confirmed ZPA customer ID. |
+| `zcc/trusted-networks` | ZCC endpoint probe failed with status 404. | Probe the ZCC endpoint boundary before catalog work: compare OneAPI `/zcc/papi/public/v2/trusted-networks` routing against documented/product-local ZCC PAPI behavior and confirm whether 404 is path, cloud, entitlement, or SDK mismatch. |
+| `zcc/notification-templates` | ZCC endpoint probe failed with status 404. | Include in the same ZCC endpoint-boundary probe; do not interpret three 404s as three independent resource failures until the product route is proven. |
+| `zcc/zia-postures` | ZCC endpoint probe failed with status 404. | Include in the same ZCC endpoint-boundary probe; if the product route is corrected, re-evaluate posture criteria fields before cataloging. |
 
 ## Return-To-Work Checklist
 

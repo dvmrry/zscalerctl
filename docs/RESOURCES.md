@@ -726,6 +726,45 @@ Fields:
 | `comments` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
 | `isSystemDefined` | Operational metadata | `standard`, `share`, `paranoid` | Whether the group is system-defined. |
 
+## ZIA Departments
+
+Commands:
+
+```sh
+zscalerctl zia departments list
+zscalerctl zia departments get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `deleted` | Operational metadata | `standard`, `share`, `paranoid` | Department identifier and deleted flag. |
+| `name`, `idpId` | Tenant configuration | `standard`, `share` | Identity-provider department metadata. |
+| `comments` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+
+## ZIA Users
+
+Commands:
+
+```sh
+zscalerctl zia users list
+zscalerctl zia users get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `deleted` | Operational metadata | `standard`, `share`, `paranoid` | User identifier and deleted flag. |
+| `adminUser` | Operational metadata | `standard`, `share` | Administrator flag. |
+| `type` | Tenant configuration | `standard`, `share` | User type/classification returned by ZIA. |
+| `name`, `email`, `tempAuthEmail` | Sensitive identifier | `standard` | Employee identity/contact fields; visible to the local administrator, dropped from `share` and `paranoid`. |
+| `groups`, `department` | Tenant configuration | `standard` | Rendered as id/name references only. Query `zia/groups` or `zia/departments` for authoritative metadata. |
+| `comments` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `authMethods` | Tenant configuration | `standard` | Authentication methods are local-only because they describe employee auth posture. |
+| `password` | Secret | none | Dropped in all modes. |
+
 ## ZIA Device Groups
 
 Commands:
@@ -746,6 +785,24 @@ Fields:
 | `deviceNames` | Sensitive identifier | `standard` | Local-only device-name list when returned by the SDK. |
 
 Device groups use a list-derived `get`.
+
+## ZIA Devices
+
+Commands:
+
+```sh
+zscalerctl zia devices list
+zscalerctl zia devices get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Device identifier. |
+| `deviceGroupType`, `osType`, `osVersion` | Tenant configuration | `standard`, `share` | Device classification and OS metadata. |
+| `name`, `deviceModel`, `ownerUserId`, `ownerName`, `hostName` | Sensitive identifier | `standard` | Employee/device locating fields; visible to the local administrator, dropped from `share` and `paranoid`. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
 
 ## ZIA Workload Groups
 
@@ -1842,30 +1899,18 @@ Fields:
 
 ## Deferred Resource Follow-Ups
 
-- `zia/departments`: generated and locally validated, but removed from the
-  identity-reference batch after live smoke reported a list request failure under
-  ZIA legacy credentials. Investigate the live endpoint behavior separately
-  before enabling it in the catalog.
-- `zia/users`: generated and locally validated, but removed from the
-  identity-reference batch after live smoke reported a list request failure under
-  ZIA legacy credentials. Investigate the live endpoint behavior separately
-  before enabling it in the catalog.
-- `zia/devices`: generated and locally validated, but removed from the
-  identity-reference batch after live smoke reported a list request failure under
-  ZIA legacy credentials. Investigate the live endpoint behavior separately
-  before enabling it in the catalog.
 - `zia/dlp-engines`: generated and locally validated, but removed from the
-  DLP-reference batch after live smoke reported a list request failure under
-  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  DLP-reference batch after endpoint validation reported a list request failure
+  under ZIA legacy credentials. Investigate the endpoint behavior separately
   before enabling it in the catalog.
 - `zia/dlp-dictionaries`: generated and locally validated, but removed from the
-  DLP-reference batch after live smoke reported a list request failure under
-  ZIA legacy credentials. Investigate the live endpoint behavior separately
+  DLP-reference batch after endpoint validation reported a list request failure
+  under ZIA legacy credentials. Investigate the endpoint behavior separately
   before enabling it in the catalog.
 - `zia/c2c-incident-receivers`, `zia/dlp-edm-schemas`,
   `zia/dlp-idm-profile-lite`, `zia/dlp-idm-profiles`, `zia/dlp-web-rules`,
   `zia/traffic-capture-rules`, and `zia/extranets`: generated and locally
-  validated in the smoke-lab branch, but removed after work-machine live smoke
+  validated in a disposable branch, but removed after endpoint validation
   reported `live_access_failed` list request failures under ZIA legacy
   credentials. Investigate endpoint behavior and auth-mode support separately
   before enabling them in the catalog.

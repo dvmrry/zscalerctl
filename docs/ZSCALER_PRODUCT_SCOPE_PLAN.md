@@ -35,7 +35,7 @@ Preproduction OneAPI access can prove that an endpoint is reachable for that
 deployment. It cannot prove production entitlement, production response shape,
 or field-level safety for a financial-production tenant. Any product family that
 is used only in production remains `scaffolded` or `gates-passed` until a
-read-only production OneAPI smoke can run.
+read-only production OneAPI runtime validation can run.
 
 ## Product Auth Posture
 
@@ -73,18 +73,18 @@ safe when zscalerctl wires only read functions, but it requires explicit review.
 
 ## Recommended Sequence
 
-1. Keep product-family batches focused and promote only after production
-   OneAPI smoke. ZPA, ZTW, and Zidentity have each proven at least one focused
-   production OneAPI path.
+1. Keep product-family batches focused and promote only after approved runtime
+   validation. ZPA, ZTW, and Zidentity have each established at least one
+   focused OneAPI path.
 2. Continue ZTW only through reviewed governance or configuration inventory
-   slices. Initial reference resources and admin governance have passed
-   production OneAPI smoke; policy/control surfaces still need explicit review.
+   slices. Initial reference resources and admin governance are cataloged;
+   policy/control surfaces still need explicit review.
 3. Keep Zidentity to top-level read-only inventory unless a child-query command
-   shape is designed. Resource servers, groups, and users have passed production
-   OneAPI smoke; group membership remains a separate follow-up.
+   shape is designed. Resource servers, groups, and users are cataloged; group
+   membership remains a separate follow-up.
 4. Defer ZCC until endpoint/auth/entitlement behavior is understood. The first
-   production OneAPI smoke for ZCC PAPI v2 list endpoints returned 404 across
-   the initial reference batch.
+   ZCC PAPI v2 list endpoint probe returned 404 across the initial reference
+   batch.
 5. Do not implement ZDX before `v1.0.0` unless Zscaler exposes deterministic
    ZDX configuration APIs. The current SDK surfaces are report/telemetry.
 6. Do not implement ZWA before `v1.0.0` unless Zscaler exposes deterministic
@@ -96,17 +96,17 @@ safe when zscalerctl wires only read functions, but it requires explicit review.
 
 ZCC has configuration-shaped resources, but several SDK packages sit next to
 mutating helpers, device data, or secret-like read functions. The first
-production OneAPI smoke pass against the conservative ZCC PAPI v2 batch
-(`trusted_network_v2`, `notification_template`, and `zia_posture`) returned
-status 404 for every list endpoint. Treat ZCC as deferred until a focused
+conservative ZCC PAPI v2 endpoint probe (`trusted_network_v2`,
+`notification_template`, and `zia_posture`) returned status 404 for every list
+endpoint. Treat ZCC as deferred until a focused
 endpoint/auth/entitlement scout proves which ZCC API path is reachable from the
 shared OneAPI boundary.
 
 | Candidate | SDK package | Scout category | Queue posture |
 | --- | --- | --- | --- |
-| `zcc/trusted-networks` | `zscaler/zcc/services/trusted_network_v2` | `list-get-with-mutating-neighbors` | Deferred: production OneAPI smoke returned 404 for list. Network identifiers likely standard-only if retried later. |
-| `zcc/notification-templates` | `zscaler/zcc/services/notification_template` | `list-get-with-mutating-neighbors` | Deferred: production OneAPI smoke returned 404 for list. Revisit only after ZCC endpoint/auth behavior is proven. |
-| `zcc/zia-postures` | `zscaler/zcc/services/zia_posture` | `list-get-with-mutating-neighbors` | Deferred: production OneAPI smoke returned 404 for list. Revisit only after ZCC endpoint/auth behavior is proven. |
+| `zcc/trusted-networks` | `zscaler/zcc/services/trusted_network_v2` | `list-get-with-mutating-neighbors` | Deferred: endpoint probe returned 404 for list. Network identifiers likely standard-only if retried later. |
+| `zcc/notification-templates` | `zscaler/zcc/services/notification_template` | `list-get-with-mutating-neighbors` | Deferred: endpoint probe returned 404 for list. Revisit only after ZCC endpoint/auth behavior is proven. |
+| `zcc/zia-postures` | `zscaler/zcc/services/zia_posture` | `list-get-with-mutating-neighbors` | Deferred: endpoint probe returned 404 for list. Revisit only after ZCC endpoint/auth behavior is proven. |
 | `zcc/custom-ip-apps` | `zscaler/zcc/services/custom_ip_apps` | `read-only-nonstandard` | Useful, but list semantics are package-specific (`GetCustomIPApps`, `GetByAppID`, `GetByName`). Design as list-only/name-get if needed. |
 | `zcc/predefined-ip-apps` | `zscaler/zcc/services/predefined_ip_apps` | `read-only-nonstandard` | Similar to custom IP apps; likely lower sensitivity because predefined. |
 | `zcc/process-based-apps` | `zscaler/zcc/services/process_based_apps` | `read-only-nonstandard` | Useful but process/app identifiers may be endpoint-sensitive. |
@@ -225,13 +225,13 @@ Apply these before any resource PR from this plan:
 2. Do not add product-local legacy clients without a boundary review for
    credential discovery, logging, proxy use, cache behavior, and stdout/stderr
    writes.
-3. Add product-specific live-smoke manifest support before the first resource in
+3. Add product-specific runtime-validation manifest support before the first resource in
    a new product family is promoted.
 4. Keep resource PRs small: one product family and one coherent API section.
 5. Keep reference-only expansion: when a nested object has its own resource or
    could reasonably have one, render only id/name-style references in the parent.
 6. For production-only entitlements, accept `gates-passed` without promotion and
-   record the missing smoke explicitly.
+   record the missing runtime validation explicitly.
 7. Do not use dev/preprod 404s as proof that a resource is invalid in
    production; record them as entitlement or deployment-shape unknowns.
 
@@ -242,10 +242,10 @@ as open recommendations:
 
 | Branch | Scope | Expected outcome |
 | --- | --- | --- |
-| `feature/zpa-safe-surface-batch` | Verified the shared OneAPI service path for ZPA and promoted the Tier-1 ZPA reference surface after production smoke. | Established the `ZSCALERCTL_ZPA_CUSTOMER_ID` requirement and trimmed unavailable private-cloud endpoints. |
-| `feature/ztw-workload-groups` | Verified the OneAPI SDK call path for ZTW and promoted the first ZTW reference batch after production smoke. | Cloud/Workload product semantics established without touching provisioning credentials. |
-| `feature/zcc-scope-plan` | Probed conservative ZCC PAPI v2 references. | Production OneAPI returned 404 for the initial batch; ZCC remains an endpoint/auth/entitlement investigation. |
-| `feature/zidentity-reference-batch` | Scoped resource servers, groups, and users. | Top-level Zidentity read-only inventory passed production smoke; membership expansion remains a follow-up child-query design. |
+| `feature/zpa-safe-surface-batch` | Verified the shared OneAPI service path for ZPA and promoted the Tier-1 ZPA reference surface. | Established the `ZSCALERCTL_ZPA_CUSTOMER_ID` requirement and trimmed unavailable private-cloud endpoints. |
+| `feature/ztw-workload-groups` | Verified the OneAPI SDK call path for ZTW and promoted the first ZTW reference batch. | Cloud/Workload product semantics established without touching provisioning credentials. |
+| `feature/zcc-scope-plan` | Probed conservative ZCC PAPI v2 references. | Initial endpoint probe returned 404; ZCC remains an endpoint/auth/entitlement investigation. |
+| `feature/zidentity-reference-batch` | Scoped resource servers, groups, and users. | Top-level Zidentity read-only inventory is cataloged; membership expansion remains a follow-up child-query design. |
 
 ZWA is deliberately not in the first-branch queue. Do not open a ZWA branch
 before `v1.0.0` unless Zscaler exposes deterministic configuration APIs.
