@@ -88,11 +88,11 @@ Open draft PR:
 
 | PR | Resources | Status | Smoke command |
 | --- | --- | --- | --- |
-| `#39` | `zia/file-type-rules`, `zia/sandbox-rules`, `zia/firewall-dns-rules`, `zia/risk-profiles`, `zia/nss-servers`, `zia/nss-feeds`, `zia/custom-file-types`, `zia/zpa-gateways`, `zia/auth-settings` | Smoke-lab draft trimmed after legacy-ZIA live smoke; rerun focused smoke before promoting resources | `make live-smoke` |
+| `#39` | `zia/file-type-rules`, `zia/sandbox-rules`, `zia/firewall-dns-rules`, `zia/risk-profiles`, `zia/nss-servers`, `zia/nss-feeds`, `zia/custom-file-types`, `zia/zpa-gateways`, `zia/auth-settings` | Legacy-ZIA live smoke passed after trimming failed endpoints; release-track candidate pending CI/merge approval | `make live-smoke` |
 
-Do not merge this branch as-is. Use it as a broad smoke-lab surface, record
-outcomes for each resource independently, and promote only resources that pass
-focused live validation into release-track work.
+This branch started as a broad smoke-lab surface. The retained resources above
+passed focused work-machine live smoke under legacy ZIA credentials after
+`live_access_failed` endpoints were moved to the deferred table.
 
 ## No-Live Work Mode
 
