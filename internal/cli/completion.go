@@ -59,7 +59,7 @@ _zscalerctl()
     --products) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     --resources) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     completion) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
-    auth) COMPREPLY=( $(compgen -W "show" -- "$cur") ); return ;;
+    auth) COMPREPLY=( $(compgen -W "status" -- "$cur") ); return ;;
     config) COMPREPLY=( $(compgen -W "show" -- "$cur") ); return ;;
     schema) COMPREPLY=( $(compgen -W "list" -- "$cur") ); return ;;
     dump) COMPREPLY=( $(compgen -W "--out --products --resources --continue-on-error" -- "$cur") ); return ;;
@@ -108,7 +108,7 @@ _zscalerctl() {
     --products) compadd -- "${products[@]}"; return ;;
     --resources) compadd -- "${dump_resources[@]}"; return ;;
     completion) compadd -- "${shells[@]}"; return ;;
-    auth) compadd -- show; return ;;
+    auth) compadd -- status; return ;;
     config) compadd -- show; return ;;
     schema) compadd -- list; return ;;
     dump) compadd -- "${dump_flags[@]}"; return ;;
@@ -148,7 +148,7 @@ complete -c zscalerctl -l no-color -d 'Disable color output'
 complete -c zscalerctl -l no-cache -d 'Bypass API cache where supported'
 complete -c zscalerctl -n '__fish_use_subcommand' -a '%s'
 complete -c zscalerctl -n '__fish_seen_subcommand_from completion' -a '%s'
-complete -c zscalerctl -n '__fish_seen_subcommand_from auth' -a 'show'
+complete -c zscalerctl -n '__fish_seen_subcommand_from auth' -a 'status'
 complete -c zscalerctl -n '__fish_seen_subcommand_from config' -a 'show'
 complete -c zscalerctl -n '__fish_seen_subcommand_from schema' -a 'list'
 complete -c zscalerctl -n '__fish_seen_subcommand_from dump' -a '--out --products --resources --continue-on-error'

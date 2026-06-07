@@ -469,6 +469,43 @@ func TestCompletionScriptsReflectCatalogProducts(t *testing.T) {
 	}
 }
 
+func TestCompletionScriptsUseAuthStatus(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		shell     string
+		want      string
+		forbidden string
+	}{
+		{shell: "bash", want: `auth) COMPREPLY=( $(compgen -W "status"`, forbidden: `auth) COMPREPLY=( $(compgen -W "show"`},
+		{shell: "zsh", want: "auth) compadd -- status", forbidden: "auth) compadd -- show"},
+		{shell: "fish", want: "__fish_seen_subcommand_from auth' -a 'status'", forbidden: "__fish_seen_subcommand_from auth' -a 'show'"},
+	}
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.shell, func(t *testing.T) {
+			t.Parallel()
+
+			var out, errOut bytes.Buffer
+			app := cli.New(&out, &errOut, nil)
+
+			err := app.Run(context.Background(), []string{"completion", tt.shell})
+			if err != nil {
+				t.Fatalf("App.Run(completion %s) error = %v, want nil", tt.shell, err)
+			}
+			if !strings.Contains(out.String(), tt.want) {
+				t.Errorf("App.Run(completion %s) stdout = %q, want %q", tt.shell, out.String(), tt.want)
+			}
+			if strings.Contains(out.String(), tt.forbidden) {
+				t.Errorf("App.Run(completion %s) stdout = %q, want no %q", tt.shell, out.String(), tt.forbidden)
+			}
+			if errOut.Len() != 0 {
+				t.Errorf("App.Run(completion %s) stderr = %q, want empty", tt.shell, errOut.String())
+			}
+		})
+	}
+}
+
 func TestBashCompletionRegistersCommand(t *testing.T) {
 	t.Parallel()
 
