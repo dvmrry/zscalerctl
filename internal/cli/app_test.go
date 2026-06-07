@@ -70,6 +70,55 @@ func TestDoctorDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	}
 }
 
+func TestDoctorSupportsJSONOutput(t *testing.T) {
+	t.Parallel()
+
+	const (
+		clientID     = "client-id-value"
+		clientSecret = "client-secret-value"
+		proxyURL     = "http://proxy-user:proxy-secret@proxy.example.invalid:8080"
+	)
+	var out, errOut bytes.Buffer
+	app := cli.New(&out, &errOut, []string{
+		config.EnvClientID + "=" + clientID,
+		config.EnvClientSecret + "=" + clientSecret,
+		config.EnvVanityDomain + "=example",
+		config.EnvProxyURL + "=" + proxyURL,
+	})
+
+	err := app.Run(context.Background(), []string{"doctor", "--format", "json"})
+	if err != nil {
+		t.Fatalf("App.Run(doctor --format json) error = %v, want nil", err)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(doctor --format json) stderr = %q, want empty", errOut.String())
+	}
+	var got struct {
+		Status      string `json:"status"`
+		Mode        string `json:"mode"`
+		AuthMode    string `json:"auth_mode"`
+		Credentials string `json:"credentials"`
+		LiveAPI     string `json:"live_api"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(App.Run(doctor --format json) stdout) error = %v; body = %q", err, out.String())
+	}
+	if got.Status != "OK" || got.Mode != "read-only" || got.AuthMode == "" {
+		t.Errorf("App.Run(doctor --format json) decoded = %#v, want status/mode/auth mode", got)
+	}
+	if got.Credentials != "configured" {
+		t.Errorf("App.Run(doctor --format json) credentials = %q, want configured", got.Credentials)
+	}
+	if !strings.Contains(got.LiveAPI, "available") {
+		t.Errorf("App.Run(doctor --format json) live_api = %q, want available status", got.LiveAPI)
+	}
+	for _, forbidden := range []string{clientID, clientSecret, "proxy-user", "proxy-secret", "proxy.example.invalid"} {
+		if strings.Contains(out.String(), forbidden) {
+			t.Errorf("App.Run(doctor --format json) stdout = %q, want no %q", out.String(), forbidden)
+		}
+	}
+}
+
 func TestAuthStatusDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	t.Parallel()
 
@@ -88,6 +137,51 @@ func TestAuthStatusDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	for _, forbidden := range []string{clientID, clientSecret} {
 		if strings.Contains(out.String(), forbidden) {
 			t.Errorf("App.Run(auth status) output = %q, want no %q", out.String(), forbidden)
+		}
+	}
+}
+
+func TestAuthStatusSupportsJSONOutput(t *testing.T) {
+	t.Parallel()
+
+	const (
+		clientID     = "client-id-value"
+		clientSecret = "client-secret-value"
+	)
+	var out, errOut bytes.Buffer
+	app := cli.New(&out, &errOut, []string{
+		config.EnvClientID + "=" + clientID,
+		config.EnvClientSecret + "=" + clientSecret,
+		config.EnvVanityDomain + "=example",
+	})
+
+	err := app.Run(context.Background(), []string{"auth", "status", "--format", "json"})
+	if err != nil {
+		t.Fatalf("App.Run(auth status --format json) error = %v, want nil", err)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(auth status --format json) stderr = %q, want empty", errOut.String())
+	}
+	var got struct {
+		Credentials        string `json:"credentials"`
+		CredentialExchange string `json:"credential_exchange"`
+		LiveAPI            string `json:"live_api"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(App.Run(auth status --format json) stdout) error = %v; body = %q", err, out.String())
+	}
+	if got.Credentials != "configured" {
+		t.Errorf("App.Run(auth status --format json) credentials = %q, want configured", got.Credentials)
+	}
+	if got.CredentialExchange != "not requested" {
+		t.Errorf("App.Run(auth status --format json) credential_exchange = %q, want not requested", got.CredentialExchange)
+	}
+	if !strings.Contains(got.LiveAPI, "available") {
+		t.Errorf("App.Run(auth status --format json) live_api = %q, want available status", got.LiveAPI)
+	}
+	for _, forbidden := range []string{clientID, clientSecret} {
+		if strings.Contains(out.String(), forbidden) {
+			t.Errorf("App.Run(auth status --format json) stdout = %q, want no %q", out.String(), forbidden)
 		}
 	}
 }
@@ -341,6 +435,36 @@ func TestGlobalOutputDoesNotCreateFileOnError(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Errorf("App.Run(doctor --output with usage error) stdout = %q, want empty", out.String())
+	}
+}
+
+func TestGlobalOutputRejectsDump(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	tempDir := t.TempDir()
+	outPath := filepath.Join(tempDir, "dump-status.txt")
+	dumpDir := filepath.Join(tempDir, "dump")
+	app := cli.New(&out, &errOut, nil)
+
+	err := app.Run(context.Background(), []string{"dump", "--output", outPath, "--out", dumpDir})
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(dump --output --out) error = %v, want ErrUsage", err)
+	}
+	if !strings.Contains(err.Error(), "--output cannot be used with dump") {
+		t.Errorf("App.Run(dump --output --out) error = %q, want --output dump guidance", err.Error())
+	}
+	if _, statErr := os.Stat(outPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", outPath, statErr)
+	}
+	if _, statErr := os.Stat(dumpDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", dumpDir, statErr)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(dump --output --out) stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(dump --output --out) stderr = %q, want empty", errOut.String())
 	}
 }
 

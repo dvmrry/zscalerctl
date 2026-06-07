@@ -103,6 +103,9 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if opts.output != "" && !opts.help && len(rest) > 0 && rest[0] == "dump" {
+		return UsageError{Message: "usage: zscalerctl dump --out <dir>; --output cannot be used with dump"}
+	}
 	if opts.output != "" {
 		originalOut := a.out
 		var buffered bytes.Buffer
@@ -177,6 +180,29 @@ type globalOptions struct {
 	colorMode    output.ColorMode
 	help         bool
 }
+
+type doctorStatus struct {
+	Status      string `json:"status"`
+	Mode        string `json:"mode"`
+	Profile     string `json:"profile"`
+	AuthMode    string `json:"auth_mode"`
+	Redaction   string `json:"redaction"`
+	Timeout     string `json:"timeout"`
+	Cache       string `json:"cache"`
+	Proxy       string `json:"proxy"`
+	Credentials string `json:"credentials"`
+	LiveAPI     string `json:"live_api"`
+}
+
+func (doctorStatus) OutputSafe() {}
+
+type authStatus struct {
+	Credentials        string `json:"credentials"`
+	CredentialExchange string `json:"credential_exchange"`
+	LiveAPI            string `json:"live_api"`
+}
+
+func (authStatus) OutputSafe() {}
 
 func parseGlobal(args []string) (globalOptions, []string, error) {
 	fs := flag.NewFlagSet("zscalerctl", flag.ContinueOnError)
@@ -369,18 +395,14 @@ func (a *App) runDoctor(ctx context.Context, cfg config.Config, opts globalOptio
 		return fmt.Errorf("doctor cancelled: %w", ctx.Err())
 	default:
 	}
-	body := output.RenderKeyValues([]output.KV{
-		{Key: "Status", Value: "OK", Kind: "ok"},
-		{Key: "Mode", Value: "read-only", Kind: "mode"},
-		{Key: "Profile", Value: cfg.Profile},
-		{Key: "Auth Mode", Value: string(cfg.EffectiveAuthMode())},
-		{Key: "Redaction", Value: string(cfg.Defaults.Redaction)},
-		{Key: "Timeout", Value: opts.timeout.String()},
-		{Key: "Cache", Value: cacheStatus(cfg.Defaults.NoCache)},
-		{Key: "Proxy", Value: proxyStatus(cfg.Proxy)},
-		{Key: "Credentials", Value: credentialStatus(cfg)},
-		{Key: "Live API", Value: liveAPIStatus(cfg)},
-	}, a.style(opts))
+	status := newDoctorStatus(cfg, opts)
+	if opts.format == output.FormatJSON {
+		return a.renderer(cfg, opts).WriteJSON(a.out, status)
+	}
+	if opts.format != output.FormatTable {
+		return fmt.Errorf("doctor does not support %s output yet", opts.format)
+	}
+	body := output.RenderKeyValues(doctorStatusRows(status), a.style(opts))
 	return a.renderer(cfg, opts).WriteText(a.out, body)
 }
 
@@ -388,11 +410,14 @@ func (a *App) runAuth(_ context.Context, cfg config.Config, opts globalOptions, 
 	if len(args) != 1 || args[0] != "status" {
 		return UsageError{Message: "usage: zscalerctl auth status"}
 	}
-	body := output.RenderKeyValues([]output.KV{
-		{Key: "Credentials", Value: credentialStatus(cfg)},
-		{Key: "Token", Value: "not requested"},
-		{Key: "Live API", Value: liveAPIStatus(cfg)},
-	}, a.style(opts))
+	status := newAuthStatus(cfg)
+	if opts.format == output.FormatJSON {
+		return a.renderer(cfg, opts).WriteJSON(a.out, status)
+	}
+	if opts.format != output.FormatTable {
+		return fmt.Errorf("auth status does not support %s output yet", opts.format)
+	}
+	body := output.RenderKeyValues(authStatusRows(status), a.style(opts))
 	return a.renderer(cfg, opts).WriteText(a.out, body)
 }
 
@@ -853,6 +878,52 @@ func productNames(products []resources.Product) []string {
 		names[i] = string(product)
 	}
 	return names
+}
+
+func newDoctorStatus(cfg config.Config, opts globalOptions) doctorStatus {
+	return doctorStatus{
+		Status:      "OK",
+		Mode:        "read-only",
+		Profile:     cfg.Profile,
+		AuthMode:    string(cfg.EffectiveAuthMode()),
+		Redaction:   string(cfg.Defaults.Redaction),
+		Timeout:     opts.timeout.String(),
+		Cache:       cacheStatus(cfg.Defaults.NoCache),
+		Proxy:       proxyStatus(cfg.Proxy),
+		Credentials: credentialStatus(cfg),
+		LiveAPI:     liveAPIStatus(cfg),
+	}
+}
+
+func doctorStatusRows(status doctorStatus) []output.KV {
+	return []output.KV{
+		{Key: "Status", Value: status.Status, Kind: "ok"},
+		{Key: "Mode", Value: status.Mode, Kind: "mode"},
+		{Key: "Profile", Value: status.Profile},
+		{Key: "Auth Mode", Value: status.AuthMode},
+		{Key: "Redaction", Value: status.Redaction},
+		{Key: "Timeout", Value: status.Timeout},
+		{Key: "Cache", Value: status.Cache},
+		{Key: "Proxy", Value: status.Proxy},
+		{Key: "Credentials", Value: status.Credentials},
+		{Key: "Live API", Value: status.LiveAPI},
+	}
+}
+
+func newAuthStatus(cfg config.Config) authStatus {
+	return authStatus{
+		Credentials:        credentialStatus(cfg),
+		CredentialExchange: "not requested",
+		LiveAPI:            liveAPIStatus(cfg),
+	}
+}
+
+func authStatusRows(status authStatus) []output.KV {
+	return []output.KV{
+		{Key: "Credentials", Value: status.Credentials},
+		{Key: "Token", Value: status.CredentialExchange},
+		{Key: "Live API", Value: status.LiveAPI},
+	}
 }
 
 func credentialStatus(cfg config.Config) string {
