@@ -21,7 +21,8 @@ failures=0
 resources=()
 requested_resources=()
 failure_messages=()
-summary_stderr_lines=20
+summary_stderr_lines=4
+summary_stderr_chars=220
 
 usage() {
   cat <<'EOF'
@@ -281,7 +282,7 @@ write_failure_summary() {
       printf -- '- %s\n' "$message"
     done
     printf '\n'
-    printf 'non-empty stderr snippets (first %s lines each):\n' "$summary_stderr_lines"
+    printf 'non-empty stderr snippets (first %s compacted lines each):\n' "$summary_stderr_lines"
     while IFS= read -r file; do
       if [[ ! -s "$file" ]]; then
         continue
@@ -289,7 +290,7 @@ write_failure_summary() {
       found_stderr=1
       printf '\n'
       printf '===== %s =====\n' "$file"
-      sed -n "1,${summary_stderr_lines}p" "$file"
+      write_stderr_summary "$file"
     done < <(find "$out_dir" -type f -name '*.stderr' -print | sort)
     if ((found_stderr == 0)); then
       printf '<none>\n'
@@ -297,6 +298,30 @@ write_failure_summary() {
   } >"$summary_file"
   chmod 600 "$summary_file"
   printf '%s' "$summary_file"
+}
+
+write_stderr_summary() {
+  local file="$1"
+
+  awk -v max_lines="$summary_stderr_lines" -v max_chars="$summary_stderr_chars" '
+    NR > max_lines {
+      omitted = 1
+      next
+    }
+    {
+      line = $0
+      gsub(/[[:space:]]+/, " ", line)
+      if (length(line) > max_chars) {
+        line = substr(line, 1, max_chars) "... <truncated>"
+      }
+      print line
+    }
+    END {
+      if (omitted) {
+        print "... <additional stderr omitted; see full artifact file>"
+      }
+    }
+  ' "$file"
 }
 
 print_failure_summary() {
