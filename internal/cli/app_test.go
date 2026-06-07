@@ -1001,8 +1001,8 @@ func TestDumpContinueOnErrorWritesPartialManifestAndValueFreeErrors(t *testing.T
 		"--continue-on-error",
 		"--out", outDir,
 	})
-	if err != nil {
-		t.Fatalf("App.Run(dump --continue-on-error) error = %v, want nil", err)
+	if !errors.Is(err, cli.ErrPartialDump) {
+		t.Fatalf("App.Run(dump --continue-on-error) error = %v, want ErrPartialDump", err)
 	}
 	if !strings.Contains(out.String(), "partial dump written: "+outDir) {
 		t.Errorf("App.Run(dump --continue-on-error) stdout = %q, want partial dump written line", out.String())
