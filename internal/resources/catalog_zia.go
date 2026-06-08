@@ -615,6 +615,25 @@ func catalogZIA() ResourceCatalog {
 		},
 		{
 			Product:    ProductZIA,
+			Name:       "ips-signature-rules",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				freeTextField("description", "ZIA IPS signature rule description"),
+				operationalField("enabled", allModes()),
+				operationalField("deleted", allModes()),
+				operationalField("promoteTime", standardShareModes()),
+				operationalField("ruleTextModTime", standardShareModes()),
+				operationalField("dynamicValidationSubmitted", allModes()),
+				operationalField("dynamicValidationRejected", allModes()),
+				operationalField("dynamicValidationSucceeded", allModes()),
+				operationalField("disabledFromZSCM", allModes()),
+				operationalField("dynamicValRejectCode", allModes()),
+			},
+		},
+		{
+			Product:    ProductZIA,
 			Name:       "ips-policies",
 			Operations: ReadOperations(),
 			Fields: fieldList(

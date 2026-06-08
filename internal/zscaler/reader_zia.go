@@ -55,6 +55,7 @@ import (
 	ftpcontrolpolicy "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ftp_control_policy"
 	intermediatecacertificates "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/intermediatecacertificates"
 	ipspolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_policies"
+	ipssignaturerules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_signature_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	malwareprotection "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/malware_protection"
@@ -394,6 +395,16 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 				return bandwidthcontrolrules.Get(ctx, service, id)
 			}),
 			bandwidthControlRuleSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceIPSSignatureRules}: newListGetHandler(
+			resourceIPSSignatureRules,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ipssignaturerules.IPSSignatureRules, error) {
+				return ipssignaturerules.GetAll(ctx, service)
+			}),
+			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*ipssignaturerules.IPSSignatureRules, error) {
+				return ipssignaturerules.Get(ctx, service, id)
+			}),
+			ipsSignatureRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceIPSPolicies}: newListGetHandler(
 			resourceIPSPolicies,
@@ -1026,4 +1037,21 @@ func trafficCaptureRuleSourceRecord(rule traffic_capture.TrafficCaptureRules) re
 	addIDNameExtensionsSlice(fields, "devices", rule.Devices)
 	addIDNameSlice(fields, "workloadGroups", rule.WorkloadGroups)
 	return resources.NewSourceRecord(fields)
+}
+
+func ipsSignatureRuleSourceRecord(rule ipssignaturerules.IPSSignatureRules) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"id":                         rule.ID,
+		"name":                       rule.Name,
+		"description":                rule.Description,
+		"enabled":                    rule.Enabled,
+		"deleted":                    rule.Deleted,
+		"promoteTime":                rule.PromoteTime,
+		"ruleTextModTime":            rule.RuleTextModTime,
+		"dynamicValidationSubmitted": rule.DynamicValidationSubmitted,
+		"dynamicValidationRejected":  rule.DynamicValidationRejected,
+		"dynamicValidationSucceeded": rule.DynamicValidationSucceeded,
+		"disabledFromZSCM":           rule.DisabledFromZSCM,
+		"dynamicValRejectCode":       rule.DynamicValRejectCode,
+	})
 }

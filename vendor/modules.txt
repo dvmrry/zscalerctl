@@ -124,6 +124,7 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_pol
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ftp_control_policy
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/intermediatecacertificates
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_policies
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_signature_rules
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/malware_protection

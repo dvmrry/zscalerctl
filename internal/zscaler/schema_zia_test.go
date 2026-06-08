@@ -57,6 +57,7 @@ import (
 	ftpcontrolpolicy "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ftp_control_policy"
 	intermediatecacertificates "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/intermediatecacertificates"
 	ipspolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_policies"
+	ipssignaturerules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_signature_rules"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	malwareprotection "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/malware_protection"
@@ -2349,6 +2350,31 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"users",
 				"zpaIpGroup",
 			},
+		},
+		{
+			name:         "ips_signature_rules.IPSSignatureRules",
+			resource:     resources.ProductZIA,
+			resourceName: resourceIPSSignatureRules,
+			typ:          reflect.TypeOf(ipssignaturerules.IPSSignatureRules{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"enabled",
+				"deleted",
+				"promoteTime",
+				"ruleTextModTime",
+				"dynamicValidationSubmitted",
+				"dynamicValidationRejected",
+				"dynamicValidationSucceeded",
+				"disabledFromZSCM",
+				"dynamicValRejectCode",
+			},
+			ignoredFields: ignoredBecause(
+				"signature detection text and category reference are held until separately modeled",
+				"category",
+				"ruleText",
+			),
 		},
 		{
 			name:         "ipspolicies.FirewallIPSRules",

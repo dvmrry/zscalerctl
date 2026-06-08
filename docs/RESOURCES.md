@@ -386,6 +386,29 @@ The SDK also returns admin, user, group, department, device, and ZPA segment
 objects. The reader maps those structures, but the catalog keeps them out of
 rendered output until they are separately modeled.
 
+## ZIA IPs Signature Rules
+
+Commands:
+
+```sh
+zscalerctl zia ips-signature-rules list
+zscalerctl zia ips-signature-rules get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | IPS signature rule identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `enabled`, `deleted`, `dynamicValidationSubmitted`, `dynamicValidationRejected`, `dynamicValidationSucceeded`, `disabledFromZSCM`, `dynamicValRejectCode` | Operational metadata | `standard`, `share`, `paranoid` | Rule state and dynamic-validation status flags. |
+| `promoteTime`, `ruleTextModTime` | Operational metadata | `standard`, `share` | Non-principal rule timestamps. |
+
+The SDK also returns the signature rule text and category reference. The reader
+keeps the detection text and category out of rendered output until they are
+separately modeled.
+
 ## ZIA IPs Policies
 
 Commands:
