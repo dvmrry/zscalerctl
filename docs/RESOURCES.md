@@ -140,6 +140,27 @@ Fields:
 This is a singleton settings object. The CLI exposes it through `list` so dumps
 and live smoke can treat singleton resources as one-record arrays.
 
+## ZIA Extranet
+
+Commands:
+
+```sh
+zscalerctl zia extranet list
+zscalerctl zia extranet get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Extranet identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `createdAt`, `modifiedAt` | Operational metadata | `standard`, `share` | Non-principal extranet timestamps. |
+
+The SDK also returns nested DNS server and IP pool lists. The reader keeps those
+nested structures out of rendered output until they are separately modeled.
+
 ## ZIA Static IPs
 
 Commands:

@@ -140,6 +140,18 @@ func catalogZIA() ResourceCatalog {
 		},
 		{
 			Product:    ProductZIA,
+			Name:       "extranet",
+			Operations: ReadOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				freeTextField("description", "ZIA extranet description"),
+				operationalField("createdAt", standardShareModes()),
+				operationalField("modifiedAt", standardShareModes()),
+			},
+		},
+		{
+			Product:    ProductZIA,
 			Name:       "static-ips",
 			Operations: ReadOperations(),
 			Fields: []FieldSpec{

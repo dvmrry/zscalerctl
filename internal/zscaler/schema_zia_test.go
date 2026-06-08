@@ -79,6 +79,7 @@ import (
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
 	traffic_capture "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/traffic_capture"
 	dcexclusions "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/dc_exclusions"
+	extranet "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/extranet"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	ipv6config "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/ipv6_config"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
@@ -1714,6 +1715,24 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"description",
 				"dcName",
 			},
+		},
+		{
+			name:         "extranet.Extranet",
+			resource:     resources.ProductZIA,
+			resourceName: resourceExtranet,
+			typ:          reflect.TypeOf(extranet.Extranet{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"createdAt",
+				"modifiedAt",
+			},
+			ignoredFields: ignoredBecause(
+				"nested DNS server and IP pool lists are held until separately modeled",
+				"extranetDNSList",
+				"extranetIpPoolList",
+			),
 		},
 		{
 			name:         "subclouds.SubClouds",

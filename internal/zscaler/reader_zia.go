@@ -77,6 +77,7 @@ import (
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
 	traffic_capture "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/traffic_capture"
 	dcexclusions "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/dc_exclusions"
+	extranet "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/extranet"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	ipv6config "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/ipv6_config"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
@@ -776,6 +777,16 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 			}),
 			dcExclusionSourceRecord,
 		),
+		{product: resources.ProductZIA, name: resourceExtranet}: newListGetHandler(
+			resourceExtranet,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]extranet.Extranet, error) {
+				return extranet.GetAll(ctx, service, nil)
+			}),
+			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*extranet.Extranet, error) {
+				return extranet.Get(ctx, service, id)
+			}),
+			extranetSourceRecord,
+		),
 		{product: resources.ProductZIA, name: resourceSubClouds}: newListOnlyHandler(
 			resourceSubClouds,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]subclouds.SubClouds, error) {
@@ -1053,5 +1064,15 @@ func ipsSignatureRuleSourceRecord(rule ipssignaturerules.IPSSignatureRules) reso
 		"dynamicValidationSucceeded": rule.DynamicValidationSucceeded,
 		"disabledFromZSCM":           rule.DisabledFromZSCM,
 		"dynamicValRejectCode":       rule.DynamicValRejectCode,
+	})
+}
+
+func extranetSourceRecord(item extranet.Extranet) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"id":          item.ID,
+		"name":        item.Name,
+		"description": item.Description,
+		"createdAt":   item.CreatedAt,
+		"modifiedAt":  item.ModifiedAt,
 	})
 }
