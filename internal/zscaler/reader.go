@@ -3679,8 +3679,8 @@ func ztwAdminUserSourceRecord(user ztwadminusers.AdminUsers) resources.SourceRec
 		"isExecMobileAppEnabled":      user.IsExecMobileAppEnabled,
 		"adminScopeType":              user.AdminScopeType,
 	}
-	addZTWIDNameExtensionsSlice(fields, "adminScopeGroupMemberEntities", user.AdminScopeGroupMemberEntities)
-	addZTWIDNameExtensionsSlice(fields, "adminScopeEntities", user.AdminScopeEntities)
+	addZTWIDNameExtensionsSlice(fields, "adminScopescopeGroupMemberEntities", user.AdminScopeGroupMemberEntities)
+	addZTWIDNameExtensionsSlice(fields, "adminScopeScopeEntities", user.AdminScopeEntities)
 	if user.Role != nil {
 		fields["role"] = ztwAdminUserRoleSource(user.Role)
 	}
@@ -5004,8 +5004,8 @@ func ziaAdminUserSourceRecord(user ziaadminusers.AdminUsers) resources.SourceRec
 		"isExecMobileAppEnabled":      user.IsExecMobileAppEnabled,
 		"adminScopeType":              user.AdminScopeType,
 	}
-	addIDNameExtensionsSlice(fields, "adminScopeGroupMemberEntities", user.AdminScopeGroupMemberEntities)
-	addIDNameExtensionsSlice(fields, "adminScopeEntities", user.AdminScopeEntities)
+	addIDNameExtensionsSlice(fields, "adminScopescopeGroupMemberEntities", user.AdminScopeGroupMemberEntities)
+	addIDNameExtensionsSlice(fields, "adminScopeScopeEntities", user.AdminScopeEntities)
 	if user.Role != nil {
 		fields["role"] = ziaAdminUserRoleSource(user.Role)
 	}

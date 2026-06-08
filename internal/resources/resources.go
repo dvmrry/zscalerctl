@@ -3079,8 +3079,8 @@ func Catalog() ResourceCatalog {
 				tenantConfigField("isServiceUpdateCommEnabled", standardShareModes()),
 				tenantConfigField("isProductUpdateCommEnabled", standardShareModes()),
 				tenantConfigField("isExecMobileAppEnabled", standardShareModes()),
-				idNameExtensionsField("adminScopeGroupMemberEntities", standardOnlyMode()),
-				idNameExtensionsField("adminScopeEntities", standardOnlyMode()),
+				idNameExtensionsField("adminScopescopeGroupMemberEntities", standardOnlyMode()),
+				idNameExtensionsField("adminScopeScopeEntities", standardOnlyMode()),
 				tenantConfigField("adminScopeType", standardShareModes()),
 				{
 					Name:           "role",
@@ -4166,8 +4166,8 @@ func Catalog() ResourceCatalog {
 				tenantConfigField("isServiceUpdateCommEnabled", standardShareModes()),
 				tenantConfigField("isProductUpdateCommEnabled", standardShareModes()),
 				tenantConfigField("isExecMobileAppEnabled", standardShareModes()),
-				idNameExtensionsField("adminScopeGroupMemberEntities", standardOnlyMode()),
-				idNameExtensionsField("adminScopeEntities", standardOnlyMode()),
+				idNameExtensionsField("adminScopescopeGroupMemberEntities", standardOnlyMode()),
+				idNameExtensionsField("adminScopeScopeEntities", standardOnlyMode()),
 				tenantConfigField("adminScopeType", standardShareModes()),
 				{
 					Name:           "role",
