@@ -14,6 +14,7 @@ import (
 	authsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/auth_settings"
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
+	browserisolation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/browser_isolation"
 	c2cincidentreceiver "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/c2c_incident_receiver"
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	riskprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles"
@@ -23,6 +24,7 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpengines "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_engines"
 	dlpexactdatamatch "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match"
+	dlpedmlite "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match_lite"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
 	dlpidmprofilelite "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profile_lite"
 	dlpidmprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profiles"
@@ -63,8 +65,11 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
 	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
+	dcexclusions "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/dc_exclusions"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
+	ipv6config "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/ipv6_config"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
+	subclouds "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/sub_clouds"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
 	userdepartments "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments"
@@ -2486,6 +2491,93 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"schedulePresent",
 				"tokenList",
 				"schedule",
+			},
+		},
+		{
+			name:         "browserisolation.CBIProfile",
+			resource:     resources.ProductZIA,
+			resourceName: resourceBrowserIsolation,
+			typ:          reflect.TypeOf(browserisolation.CBIProfile{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"url",
+				"defaultProfile",
+			},
+		},
+		{
+			name:         "dlpedmlite.DLPEDMLite",
+			resource:     resources.ProductZIA,
+			resourceName: resourceDLPEDMLite,
+			typ:          reflect.TypeOf(dlpedmlite.DLPEDMLite{}),
+			catalogFields: []string{
+				"schema",
+				"tokenList",
+			},
+		},
+		{
+			name:         "dcexclusions.DCExclusions",
+			resource:     resources.ProductZIA,
+			resourceName: resourceDCExclusions,
+			typ:          reflect.TypeOf(dcexclusions.DCExclusions{}),
+			catalogFields: []string{
+				"dcid",
+				"expired",
+				"startTime",
+				"endTime",
+				"description",
+				"dcName",
+			},
+		},
+		{
+			name:         "subclouds.SubClouds",
+			resource:     resources.ProductZIA,
+			resourceName: resourceSubClouds,
+			typ:          reflect.TypeOf(subclouds.SubClouds{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"dcs",
+				"exclusions",
+			},
+		},
+		{
+			name:         "ipv6config.IPv6Config",
+			resource:     resources.ProductZIA,
+			resourceName: resourceIPv6Config,
+			typ:          reflect.TypeOf(ipv6config.IPv6Config{}),
+			catalogFields: []string{
+				"ipV6Enabled",
+				"natPrefixes",
+				"dnsPrefix",
+			},
+		},
+		{
+			name:         "ipv6config.IPv6ConfigPrefix (dns64)",
+			resource:     resources.ProductZIA,
+			resourceName: resourceIPv6DNS64Prefix,
+			typ:          reflect.TypeOf(ipv6config.IPv6ConfigPrefix{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"prefixMask",
+				"dnsPrefix",
+				"nonEditable",
+			},
+		},
+		{
+			name:         "ipv6config.IPv6ConfigPrefix (nat64)",
+			resource:     resources.ProductZIA,
+			resourceName: resourceIPv6NAT64Prefix,
+			typ:          reflect.TypeOf(ipv6config.IPv6ConfigPrefix{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"prefixMask",
+				"dnsPrefix",
+				"nonEditable",
 			},
 		},
 		{

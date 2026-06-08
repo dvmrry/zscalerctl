@@ -1251,6 +1251,141 @@ Fields:
 | `zpaTenantId`, `zpaServerGroup`, `zpaAppSegments` | Sensitive identifier / tenant configuration | `standard` | Local-only ZPA tenant and reference metadata render reviewed `id`/`name` fields only. |
 | `lastModifiedBy` | Secret | never | Admin reference is mapped into source records but dropped by projection. |
 
+## ZIA Browser Isolation Profiles
+
+Commands:
+
+```sh
+zscalerctl zia browser-isolation-profiles list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `url` | Sensitive identifier | `standard` | Local-only browser-isolation profile identifier and URL. |
+| `name` | Tenant configuration | `standard`, `share` | Profile name; scanned for pasted secret-shaped values. |
+| `defaultProfile` | Operational metadata | `standard`, `share`, `paranoid` | Whether Zscaler marks the profile as default. |
+
+This is a list-only resource because the SDK exposes list and name lookup, but
+no integer ID `get` path.
+
+## ZIA Dlp Edm Schemas Lite
+
+Commands:
+
+```sh
+zscalerctl zia dlp-edm-schemas-lite list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `schema` | Tenant configuration | `standard` | EDM schema reference; `id`, `name`, and `externalId` render only in standard mode. |
+| `tokenList` | Secret | never | Token/column criteria are mapped into source records and dropped by projection. |
+
+This is a list-only lite view of EDM schemas. Full EDM schema metadata remains
+available through `zia/dlp-edm-schemas`.
+
+## ZIA Dc Exclusions
+
+Commands:
+
+```sh
+zscalerctl zia dc-exclusions list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `dcid`, `expired` | Operational metadata | `standard`, `share`, `paranoid` | Data-center exclusion identity and expiry state. |
+| `startTime`, `endTime` | Operational metadata | `standard`, `share` | Exclusion window timestamps. |
+| `description` | Free text | `standard` | Admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `dcName` | Tenant configuration | `standard` | Data-center reference rendered as reviewed `id`/`name` fields only. |
+
+This is a list-only resource because the SDK exposes list and name lookup, but
+no integer ID `get` path.
+
+## ZIA Sub Clouds
+
+Commands:
+
+```sh
+zscalerctl zia sub-clouds list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Sub-cloud identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Sub-cloud name; scanned for pasted secret-shaped values. |
+| `dcs` | Tenant configuration | `standard` | Data-center topology references render only in standard mode. |
+| `exclusions` | Tenant configuration | `standard` | Exclusion metadata renders only in standard mode; nested admin identity is dropped. |
+
+This is list-only because the SDK's integer `Get` path answers a different
+"last DC in country" question rather than returning the listed sub-cloud record.
+
+## ZIA Ipv6 Config
+
+Commands:
+
+```sh
+zscalerctl zia ipv6-config show
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `ipV6Enabled` | Operational metadata | `standard`, `share`, `paranoid` | IPv6 enabled-state flag. |
+| `natPrefixes` | Tenant configuration | `standard` | NAT64 prefix references render only in standard mode. |
+| `dnsPrefix` | Sensitive identifier | `standard` | DNS64 prefix value; dropped from `share` and `paranoid`. |
+
+This is a singleton settings object exposed through `show`.
+
+## ZIA Ipv6 Dns64 Prefixes
+
+Commands:
+
+```sh
+zscalerctl zia ipv6-dns64-prefixes list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Prefix identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Prefix name; scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | Admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `prefixMask` | Sensitive identifier | `standard` | Prefix value; dropped from `share` and `paranoid`. |
+| `dnsPrefix`, `nonEditable` | Operational metadata | `standard`, `share`, `paranoid` | Prefix flags returned by the SDK. |
+
+This is a list-only prefix catalog.
+
+## ZIA Ipv6 Nat64 Prefixes
+
+Commands:
+
+```sh
+zscalerctl zia ipv6-nat64-prefixes list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Prefix identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Prefix name; scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | Admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `prefixMask` | Sensitive identifier | `standard` | Prefix value; dropped from `share` and `paranoid`. |
+| `dnsPrefix`, `nonEditable` | Operational metadata | `standard`, `share`, `paranoid` | Prefix flags returned by the SDK. |
+
+This is a list-only prefix catalog.
+
 ## ZIA Email Profiles
 
 Commands:

@@ -78,6 +78,7 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/auth_settings
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/browser_isolation
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/c2c_incident_receiver
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles
@@ -87,6 +88,7 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_engines
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match_lite
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profile_lite
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profiles
@@ -127,8 +129,11 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/security_policy_settin
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/dc_exclusions
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/ipv6_config
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/sub_clouds
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments

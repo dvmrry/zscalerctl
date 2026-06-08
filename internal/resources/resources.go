@@ -829,6 +829,17 @@ func networkPortsField(name string, allowed []redact.Mode) FieldSpec {
 	}
 }
 
+func ipv6PrefixFields(descriptionReason string) []FieldSpec {
+	return []FieldSpec{
+		operationalField("id", allModes()),
+		tenantConfigField("name", standardShareModes()),
+		freeTextField("description", descriptionReason),
+		sensitiveIdentifierField("prefixMask"),
+		operationalField("dnsPrefix", allModes()),
+		operationalField("nonEditable", allModes()),
+	}
+}
+
 func fieldList(groups ...[]FieldSpec) []FieldSpec {
 	var out []FieldSpec
 	for _, group := range groups {
@@ -2564,6 +2575,117 @@ func Catalog() ResourceCatalog {
 				operationalField("lastModifiedTime", standardShareModes()),
 				operationalField("type", allModes()),
 			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "browser-isolation-profiles",
+			Operations: ListOperations(),
+			Fields: []FieldSpec{
+				sensitiveIdentifierField("id"),
+				tenantConfigField("name", standardShareModes()),
+				sensitiveIdentifierField("url"),
+				operationalField("defaultProfile", allModes()),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "dlp-edm-schemas-lite",
+			Operations: ListOperations(),
+			Fields: []FieldSpec{
+				{
+					Name:           "schema",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						sensitiveIdentifierField("name"),
+						sensitiveIdentifierField("externalId"),
+					},
+				},
+				secretField("tokenList"),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "dc-exclusions",
+			Operations: ListOperations(),
+			Fields: []FieldSpec{
+				operationalField("dcid", allModes()),
+				operationalField("expired", allModes()),
+				operationalField("startTime", standardShareModes()),
+				operationalField("endTime", standardShareModes()),
+				freeTextField("description", "ZIA DC exclusion description"),
+				idNameExtensionsField("dcName", standardOnlyMode()),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "sub-clouds",
+			Operations: ListOperations(),
+			Fields: []FieldSpec{
+				operationalField("id", allModes()),
+				tenantConfigField("name", standardShareModes()),
+				{
+					Name:           "dcs",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						tenantConfigField("name", standardShareModes()),
+						sensitiveIdentifierField("country"),
+					},
+				},
+				{
+					Name:           "exclusions",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						idNameExtensionsField("datacenter", standardOnlyMode()),
+						secretField("lastModifiedUser"),
+						sensitiveIdentifierField("country"),
+						operationalField("expired", allModes()),
+						operationalField("disabledByOps", allModes()),
+						operationalField("createTime", allModes()),
+						operationalField("startTime", standardShareModes()),
+						operationalField("endTime", standardShareModes()),
+						operationalField("lastModifiedTime", allModes()),
+					},
+				},
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "ipv6-config",
+			Operations: ShowOperation(),
+			Fields: []FieldSpec{
+				operationalField("ipV6Enabled", allModes()),
+				{
+					Name:           "natPrefixes",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						tenantConfigField("name", standardShareModes()),
+						freeTextField("description", "ZIA IPv6 NAT prefix description"),
+						sensitiveIdentifierField("prefixMask"),
+						operationalField("dnsPrefix", allModes()),
+						operationalField("nonEditable", allModes()),
+					},
+				},
+				sensitiveIdentifierField("dnsPrefix"),
+			},
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "ipv6-dns64-prefixes",
+			Operations: ListOperations(),
+			Fields:     ipv6PrefixFields("ZIA IPv6 DNS64 prefix description"),
+		},
+		{
+			Product:    ProductZIA,
+			Name:       "ipv6-nat64-prefixes",
+			Operations: ListOperations(),
+			Fields:     ipv6PrefixFields("ZIA IPv6 NAT64 prefix description"),
 		},
 		{
 			Product:    ProductZIA,
