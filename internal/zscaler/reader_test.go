@@ -16,9 +16,11 @@ import (
 	authsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/auth_settings"
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
+	browserisolation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/browser_isolation"
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
+	dlpedmlite "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match_lite"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
 	dlpincidentreceivers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_incident_receiver_servers"
 	dlpnotificationtemplates "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_notification_templates"
@@ -45,8 +47,11 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
 	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
+	dcexclusions "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/dc_exclusions"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
+	ipv6config "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/ipv6_config"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
+	subclouds "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/sub_clouds"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
 	userdepartments "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments"
@@ -3820,6 +3825,134 @@ func TestDeferredZIABatchProjectionBoundaries(t *testing.T) {
 			standardPresent: []string{"onboardableEntity"},
 			standardAbsent:  []string{"lastValidationMsg", "lastModifiedBy"},
 			shareAbsent:     []string{"onboardableEntity", "lastValidationMsg", "lastModifiedBy"},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			standard := projectOneRecordInMode(t, resources.ProductZIA, tc.resource, redact.ModeStandard, []resources.SourceRecord{tc.record})
+			for _, field := range tc.standardPresent {
+				if _, ok := standard[field]; !ok {
+					t.Errorf("standard projected %s missing %s", tc.resource, field)
+				}
+			}
+			for _, field := range tc.standardAbsent {
+				if _, ok := standard[field]; ok {
+					t.Errorf("standard projected %s includes %s, want dropped", tc.resource, field)
+				}
+			}
+			assertNoCanaries(t, tc.resource+" standard", standard, canary)
+
+			for _, mode := range []redact.Mode{redact.ModeShare, redact.ModeParanoid} {
+				got := projectOneRecordInMode(t, resources.ProductZIA, tc.resource, mode, []resources.SourceRecord{tc.record})
+				for _, field := range tc.shareAbsent {
+					if _, ok := got[field]; ok {
+						t.Errorf("%s projected %s includes %s, want dropped", mode, tc.resource, field)
+					}
+				}
+				assertNoCanaries(t, tc.resource+" "+string(mode), got, canary)
+			}
+		})
+	}
+}
+
+func TestZIAListOnlyStaticBatchProjectionBoundaries(t *testing.T) {
+	t.Parallel()
+
+	const canary = "synthetic-sensitive-canary"
+	tests := []struct {
+		name            string
+		resource        string
+		record          resources.SourceRecord
+		standardPresent []string
+		standardAbsent  []string
+		shareAbsent     []string
+	}{
+		{
+			name:     "browser isolation profile URL is standard-only",
+			resource: resourceBrowserIsolation,
+			record: browserIsolationProfileSourceRecord(browserisolation.CBIProfile{
+				ID:             "profile-id",
+				Name:           "Isolation",
+				URL:            "https://isolation.example.invalid",
+				DefaultProfile: true,
+			}),
+			standardPresent: []string{"id", "url"},
+			shareAbsent:     []string{"id", "url"},
+		},
+		{
+			name:     "edm lite token list is dropped",
+			resource: resourceDLPEDMLite,
+			record: dlpEDMLiteSourceRecord(dlpedmlite.DLPEDMLite{
+				Schema:    dlpedmlite.SchemaIDNameExtension{ID: 1, Name: "Schema", ExternalID: "external-schema"},
+				TokenList: []dlpedmlite.TokenList{{Name: canary, Type: "TEXT", OriginalColumn: 1}},
+			}),
+			standardPresent: []string{"schema"},
+			standardAbsent:  []string{"tokenList"},
+			shareAbsent:     []string{"schema", "tokenList"},
+		},
+		{
+			name:     "dc exclusion datacenter reference is standard-only",
+			resource: resourceDCExclusions,
+			record: dcExclusionSourceRecord(dcexclusions.DCExclusions{
+				DcID:        1,
+				Description: "maintenance window",
+				DcName:      &ziacommon.IDNameExtensions{ID: 2, Name: "Datacenter"},
+			}),
+			standardPresent: []string{"dcName"},
+			shareAbsent:     []string{"description", "dcName"},
+		},
+		{
+			name:     "sub-cloud nested topology is standard-only and admin identity drops",
+			resource: resourceSubClouds,
+			record: subCloudSourceRecord(subclouds.SubClouds{
+				ID:   1,
+				Name: "Subcloud",
+				Dcs:  []subclouds.DCs{{ID: 2, Name: "DC", Country: "US"}},
+				Exclusions: []subclouds.Exclusions{{
+					Datacenter:       &ziacommon.IDNameExtensions{ID: 3, Name: "Datacenter"},
+					LastModifiedUser: &ziacommon.IDNameExtensions{ID: 4, Name: canary},
+					Country:          "US",
+				}},
+			}),
+			standardPresent: []string{"dcs", "exclusions"},
+			shareAbsent:     []string{"dcs", "exclusions"},
+		},
+		{
+			name:     "ipv6 config prefixes are standard-only",
+			resource: resourceIPv6Config,
+			record: ipv6ConfigSourceRecord(ipv6config.IPv6Config{
+				IpV6Enabled: true,
+				DnsPrefix:   "2001:db8:64::/96",
+				NatPrefixes: []ipv6config.IPv6ConfigPrefix{{ID: 1, Name: "NAT64", PrefixMask: "2001:db8::/64"}},
+			}),
+			standardPresent: []string{"dnsPrefix", "natPrefixes"},
+			shareAbsent:     []string{"dnsPrefix", "natPrefixes"},
+		},
+		{
+			name:     "ipv6 dns64 prefix mask is standard-only",
+			resource: resourceIPv6DNS64Prefix,
+			record: ipv6ConfigPrefixSourceRecord(ipv6config.IPv6ConfigPrefix{
+				ID:         1,
+				Name:       "DNS64",
+				PrefixMask: "2001:db8:64::/96",
+			}),
+			standardPresent: []string{"prefixMask"},
+			shareAbsent:     []string{"prefixMask"},
+		},
+		{
+			name:     "ipv6 nat64 prefix mask is standard-only",
+			resource: resourceIPv6NAT64Prefix,
+			record: ipv6ConfigPrefixSourceRecord(ipv6config.IPv6ConfigPrefix{
+				ID:         1,
+				Name:       "NAT64",
+				PrefixMask: "2001:db8::/64",
+			}),
+			standardPresent: []string{"prefixMask"},
+			shareAbsent:     []string{"prefixMask"},
 		},
 	}
 

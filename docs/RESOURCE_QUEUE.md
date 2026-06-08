@@ -94,7 +94,7 @@ Product-track status:
 
 | Product | Resources | Status | Next action |
 | --- | --- | --- | --- |
-| ZIA | Current queued legacy-ZIA resources, singleton settings, focused ordinary-recheck batch, identity/device recheck for `zia/departments`, `zia/users`, and `zia/devices`, plus the focused DLP/capture sensitive batch | Prior surfaces cataloged after focused runtime validation and review; the DLP/capture batch remains runtime-gated until its focused smoke pass. | Continue only through the remaining shape-decision tracks below. |
+| ZIA | Current queued legacy-ZIA resources, singleton settings, focused ordinary-recheck batch, identity/device recheck for `zia/departments`, `zia/users`, and `zia/devices`, the focused DLP/capture sensitive batch, plus the list-only/static batch | Prior surfaces cataloged after focused runtime validation and review; the list-only/static batch remains runtime-gated until its focused smoke pass. | Continue only through the remaining shape-decision tracks below. |
 | ZPA | Tier-1 resources plus `zpa/application-segments` | Cataloged after focused runtime validation and trimming unavailable private-cloud endpoints. | Continue later from the remaining ZPA SDK surface; keep focused trim discipline. |
 | ZTW | Initial reference batch, admin-governance resources, and the pinned-SDK close-out configuration/policy batch | Cataloged after focused runtime validation and review. | Keep ZTW closed unless a future SDK bump exposes new read-only config packages. |
 | ZCC | `trusted-networks`, `notification-templates`, `zia-postures` | Deferred after `404` endpoint responses across the first ZCC list batch. | Deferred; investigate endpoint/auth/entitlement behavior before retrying ZCC. |
@@ -162,7 +162,7 @@ resource handler.
 
 ## Remaining SDK Package Review
 
-The current enabled catalog contains 75 ZIA resources, 16 ZPA resources, and 20
+The current enabled catalog contains 82 ZIA resources, 16 ZPA resources, and 20
 ZTW resources. The rows below are package-level scouting notes, not a promise
 that every surface should become a resource.
 
@@ -186,7 +186,7 @@ Remaining work is grouped by the decision that blocks catalog work:
 
 | Track | Surfaces | Decision before catalog work |
 | --- | --- | --- |
-| List-only or name-get candidates | `browser_isolation`, `dlp/dlp_exact_data_match_lite`, `location/locationlite`, `trafficforwarding/dc_exclusions`, `trafficforwarding/sub_clouds`, PAC files, cloud application policy lists | Add explicit list-only/dump-only or name-get semantics before queueing. `locationlite` should wait for a concrete performance or pagination reason because it overlaps `locations` and `sublocations`. |
+| List-only or name-get candidates | `location/locationlite`, PAC files, cloud application policy lists | Add explicit list-only/dump-only or name-get semantics before queueing. `locationlite` should wait for a concrete performance or pagination reason because it overlaps `locations` and `sublocations`. |
 | SaaS/CASB split candidates | `saas_security_api`, `saas_security_api/casb_dlp_rules`, `saas_security_api/casb_malware_rules` | Split `saas_security_api` into separate resources such as domain profiles, quarantine tombstone templates, CASB email labels, CASB tenants, and SaaS scan info. CASB DLP/malware rules can use list/dump via `/all`, but `get` needs a rule-type decision. |
 | Deferred live/auth failures | See [Deferred Resource SDK Recheck](DEFERRED_RESOURCE_RECHECK.md). | Retry only as focused endpoint/auth probes that record exact status code, auth mode, product cloud, endpoint path, SDK version, and source commit. |
 | Adjacent-to-failure scout | `ips_control_policies/ips_policies` | Ordinary list/get shape, but adjacent to the failed IPS signature-rule endpoint. Probe separately before queueing. |

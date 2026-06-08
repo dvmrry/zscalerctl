@@ -25,6 +25,7 @@ import (
 	authsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/auth_settings"
 	bandwidthclasses "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_classes"
 	bandwidthcontrolrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/bandwidth_control/bandwidth_control_rules"
+	browserisolation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/browser_isolation"
 	c2cincidentreceiver "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/c2c_incident_receiver"
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
 	riskprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles"
@@ -34,6 +35,7 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpengines "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_engines"
 	dlpexactdatamatch "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match"
+	dlpedmlite "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match_lite"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
 	dlpidmprofilelite "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profile_lite"
 	dlpidmprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profiles"
@@ -74,8 +76,11 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
 	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
+	dcexclusions "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/dc_exclusions"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
+	ipv6config "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/ipv6_config"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
+	subclouds "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/sub_clouds"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
 	userdepartments "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments"
@@ -183,9 +188,11 @@ const (
 	resourceTenancyProfiles  = "tenancy-restriction-profiles"
 	resourceVZENClusters     = "vzen-clusters"
 	resourceVZENNodes        = "vzen-nodes"
+	resourceBrowserIsolation = "browser-isolation-profiles"
 	resourceDLPEngines       = "dlp-engines"
 	resourceDLPDictionaries  = "dlp-dictionaries"
 	resourceDLPEDMSchemas    = "dlp-edm-schemas"
+	resourceDLPEDMLite       = "dlp-edm-schemas-lite"
 	resourceDLPIDMLite       = "dlp-idm-profile-lite"
 	resourceDLPIDMProfiles   = "dlp-idm-profiles"
 	resourceDLPWebRules      = "dlp-web-rules"
@@ -201,6 +208,11 @@ const (
 	resourceFirewallDNSRules = "firewall-dns-rules"
 	resourceCustomFileTypes  = "custom-file-types"
 	resourceZPAGateways      = "zpa-gateways"
+	resourceDCExclusions     = "dc-exclusions"
+	resourceSubClouds        = "sub-clouds"
+	resourceIPv6Config       = "ipv6-config"
+	resourceIPv6DNS64Prefix  = "ipv6-dns64-prefixes"
+	resourceIPv6NAT64Prefix  = "ipv6-nat64-prefixes"
 	resourcePublicCloudAccts = "public-cloud-accounts"
 	resourceForwardingGWs    = "forwarding-gateways"
 	resourceECGroups         = "ec-groups"
@@ -925,6 +937,13 @@ func newResourceHandlers(client sdkClient) map[resourceKey]resourceHandler {
 			}),
 			vzenNodeSourceRecord,
 		),
+		{product: resources.ProductZIA, name: resourceBrowserIsolation}: newListOnlyHandler(
+			resourceBrowserIsolation,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]browserisolation.CBIProfile, error) {
+				return browserisolation.GetAll(ctx, service)
+			}),
+			browserIsolationProfileSourceRecord,
+		),
 		{product: resources.ProductZIA, name: resourceDLPEngines}: newListGetHandler(
 			resourceDLPEngines,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpengines.DLPEngines, error) {
@@ -954,6 +973,13 @@ func newResourceHandlers(client sdkClient) map[resourceKey]resourceHandler {
 				return dlpexactdatamatch.GetDLPEDMSchemaID(ctx, service, id)
 			}),
 			dlpEDMSchemaSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceDLPEDMLite}: newListOnlyHandler(
+			resourceDLPEDMLite,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpedmlite.DLPEDMLite, error) {
+				return dlpedmlite.GetAllEDMSchema(ctx, service, false, false)
+			}),
+			dlpEDMLiteSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDLPIDMLite}: newListGetHandler(
 			resourceDLPIDMLite,
@@ -1104,6 +1130,39 @@ func newResourceHandlers(client sdkClient) map[resourceKey]resourceHandler {
 				return zpagateways.Get(ctx, service, id)
 			}),
 			zpaGatewaySourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceDCExclusions}: newListOnlyHandler(
+			resourceDCExclusions,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dcexclusions.DCExclusions, error) {
+				return dcexclusions.GetAll(ctx, service)
+			}),
+			dcExclusionSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceSubClouds}: newListOnlyHandler(
+			resourceSubClouds,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]subclouds.SubClouds, error) {
+				return subclouds.GetAll(ctx, service)
+			}),
+			subCloudSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceIPv6Config}: newSingletonHandler(
+			resourceIPv6Config,
+			ziaSDKShow(client, ipv6config.GetIPv6Config),
+			ipv6ConfigSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceIPv6DNS64Prefix}: newListOnlyHandler(
+			resourceIPv6DNS64Prefix,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ipv6config.IPv6ConfigPrefix, error) {
+				return ipv6config.GetDns64Prefix(ctx, service)
+			}),
+			ipv6ConfigPrefixSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceIPv6NAT64Prefix}: newListOnlyHandler(
+			resourceIPv6NAT64Prefix,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ipv6config.IPv6ConfigPrefix, error) {
+				return ipv6config.GetNat64Prefix(ctx, service)
+			}),
+			ipv6ConfigPrefixSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceEmailProfiles}: newListGetHandler(
 			resourceEmailProfiles,
@@ -3892,6 +3951,33 @@ func dlpEDMSchemaSourceRecord(schema dlpexactdatamatch.DLPEDMSchema) resources.S
 	return resources.NewSourceRecord(fields)
 }
 
+func browserIsolationProfileSourceRecord(profile browserisolation.CBIProfile) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"id":             profile.ID,
+		"name":           profile.Name,
+		"url":            profile.URL,
+		"defaultProfile": profile.DefaultProfile,
+	})
+}
+
+func dlpEDMLiteSourceRecord(schema dlpedmlite.DLPEDMLite) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"schema":    dlpEDMLiteSchemaSource(schema.Schema),
+		"tokenList": schema.TokenList,
+	})
+}
+
+func dlpEDMLiteSchemaSource(schema dlpedmlite.SchemaIDNameExtension) map[string]any {
+	fields := map[string]any{
+		"id":   schema.ID,
+		"name": schema.Name,
+	}
+	if schema.ExternalID != "" {
+		fields["externalId"] = schema.ExternalID
+	}
+	return fields
+}
+
 func dlpIDMProfileLiteSourceRecord(profile dlpidmprofilelite.DLPIDMProfileLite) resources.SourceRecord {
 	fields := map[string]any{
 		"profileId":        profile.ProfileID,
@@ -4341,6 +4427,94 @@ func zpaGatewaySourceRecord(gateway zpagateways.ZPAGateways) resources.SourceRec
 	}
 	addIDNameExtensionsPtr(fields, "lastModifiedBy", gateway.LastModifiedBy)
 	return resources.NewSourceRecord(fields)
+}
+
+func dcExclusionSourceRecord(exclusion dcexclusions.DCExclusions) resources.SourceRecord {
+	fields := map[string]any{
+		"dcid":        exclusion.DcID,
+		"expired":     exclusion.Expired,
+		"startTime":   exclusion.StartTime,
+		"endTime":     exclusion.EndTime,
+		"description": exclusion.Description,
+	}
+	addIDNameExtensionsPtr(fields, "dcName", exclusion.DcName)
+	return resources.NewSourceRecord(fields)
+}
+
+func subCloudSourceRecord(cloud subclouds.SubClouds) resources.SourceRecord {
+	fields := map[string]any{
+		"id":         cloud.ID,
+		"name":       cloud.Name,
+		"dcs":        subCloudDCsSource(cloud.Dcs),
+		"exclusions": subCloudExclusionsSource(cloud.Exclusions),
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func subCloudDCsSource(values []subclouds.DCs) []map[string]any {
+	out := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":      value.ID,
+			"name":    value.Name,
+			"country": value.Country,
+		})
+	}
+	return out
+}
+
+func subCloudExclusionsSource(values []subclouds.Exclusions) []map[string]any {
+	out := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		item := map[string]any{
+			"country":          value.Country,
+			"expired":          value.Expired,
+			"disabledByOps":    value.DisabledByOps,
+			"createTime":       value.CreateTime,
+			"startTime":        value.StartTime,
+			"endTime":          value.EndTime,
+			"lastModifiedTime": value.LastModifiedTime,
+		}
+		if value.Datacenter != nil {
+			item["datacenter"] = idNameExtensionsSource(value.Datacenter)
+		}
+		if value.LastModifiedUser != nil {
+			item["lastModifiedUser"] = idNameExtensionsSource(value.LastModifiedUser)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func ipv6ConfigSourceRecord(config ipv6config.IPv6Config) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"ipV6Enabled": config.IpV6Enabled,
+		"natPrefixes": ipv6ConfigPrefixesSource(config.NatPrefixes),
+		"dnsPrefix":   config.DnsPrefix,
+	})
+}
+
+func ipv6ConfigPrefixSourceRecord(prefix ipv6config.IPv6ConfigPrefix) resources.SourceRecord {
+	return resources.NewSourceRecord(ipv6ConfigPrefixSource(prefix))
+}
+
+func ipv6ConfigPrefixesSource(values []ipv6config.IPv6ConfigPrefix) []map[string]any {
+	out := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, ipv6ConfigPrefixSource(value))
+	}
+	return out
+}
+
+func ipv6ConfigPrefixSource(prefix ipv6config.IPv6ConfigPrefix) map[string]any {
+	return map[string]any{
+		"id":          prefix.ID,
+		"name":        prefix.Name,
+		"description": prefix.Description,
+		"prefixMask":  prefix.PrefixMask,
+		"dnsPrefix":   prefix.DnsPrefix,
+		"nonEditable": prefix.NonEditable,
+	}
 }
 
 func c2cIncidentReceiverSourceRecord(receiver c2cincidentreceiver.C2CIncidentReceiver) resources.SourceRecord {
