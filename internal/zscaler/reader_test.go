@@ -3135,8 +3135,8 @@ func TestReaderZTWAdminGovernanceProjectsSDKShapesThroughAllowList(t *testing.T)
 		"email",
 		"comments",
 		"pwdLastModifiedTime",
-		"adminScopescopeGroupMemberEntities",
-		"adminScopeScopeEntities",
+		"adminScopeGroupMemberEntities",
+		"adminScopeEntities",
 		"role",
 	} {
 		if _, ok := userShareGot[field]; ok {
