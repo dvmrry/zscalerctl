@@ -3,3 +3,10 @@
 # scripts/live-smoke.sh auto-uses this file on feature branches when it differs
 # from origin/main and no explicit --resources or LIVE_SMOKE_RESOURCES was set.
 # Keep this focused on the resources changed by the current branch.
+zia/dlp-engines
+zia/dlp-dictionaries
+zia/dlp-edm-schemas
+zia/dlp-idm-profile-lite
+zia/dlp-idm-profiles
+zia/dlp-web-rules
+zia/c2c-incident-receivers

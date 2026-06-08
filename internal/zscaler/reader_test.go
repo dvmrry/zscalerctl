@@ -22,6 +22,7 @@ import (
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
 	dlpincidentreceivers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_incident_receiver_servers"
 	dlpnotificationtemplates "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_notification_templates"
+	dlpwebrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_web_rules"
 	emailprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/email_profiles"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
@@ -3705,6 +3706,151 @@ func TestReaderListDLPICAPServersProjectsSDKShapeThroughAllowList(t *testing.T) 
 	assertNoCanaries(t, "dlp-icap-servers", got, canary)
 	if got["status"] != "ENABLED" {
 		t.Errorf("projected dlp-icap-servers status = %v, want ENABLED", got["status"])
+	}
+}
+
+func TestDeferredZIABatchProjectionBoundaries(t *testing.T) {
+	t.Parallel()
+
+	const canary = "synthetic-sensitive-canary"
+	tests := []struct {
+		name            string
+		resource        string
+		record          resources.SourceRecord
+		standardPresent []string
+		standardAbsent  []string
+		shareAbsent     []string
+	}{
+		{
+			name:     "dlp engine expression is standard-only",
+			resource: resourceDLPEngines,
+			record: resources.NewSourceRecord(map[string]any{
+				"id":                   1,
+				"name":                 "Engine",
+				"engineExpression":     "dict(123)",
+				"customDlpEngine":      true,
+				"predefinedEngineName": "Predefined",
+			}),
+			standardPresent: []string{"engineExpression"},
+			shareAbsent:     []string{"engineExpression"},
+		},
+		{
+			name:     "dlp dictionary detector content is always dropped",
+			resource: resourceDLPDictionaries,
+			record: resources.NewSourceRecord(map[string]any{
+				"id":                    2,
+				"name":                  "Dictionary",
+				"phrases":               []map[string]any{{"phrase": canary}},
+				"patterns":              []map[string]any{{"pattern": canary}},
+				"exactDataMatchDetails": []map[string]any{{"secondaryFieldMatchOn": canary}},
+			}),
+			standardPresent: []string{"name"},
+			standardAbsent:  []string{"phrases", "patterns", "exactDataMatchDetails"},
+			shareAbsent:     []string{"phrases", "patterns", "exactDataMatchDetails"},
+		},
+		{
+			name:     "edm schema data model is standard-only or dropped",
+			resource: resourceDLPEDMSchemas,
+			record: resources.NewSourceRecord(map[string]any{
+				"schemaId":         3,
+				"projectName":      "EDM Project",
+				"filename":         "edm.csv",
+				"tokenList":        []map[string]any{{"name": canary}},
+				"modifiedBy":       map[string]any{"id": 1, "name": canary},
+				"schedule":         map[string]any{"scheduleType": "DAILY"},
+				"fileUploadStatus": "READY",
+			}),
+			standardPresent: []string{"projectName", "filename"},
+			standardAbsent:  []string{"tokenList", "modifiedBy", "schedule"},
+			shareAbsent:     []string{"projectName", "filename", "tokenList", "modifiedBy", "schedule"},
+		},
+		{
+			name:     "idm profile host and username are standard-only",
+			resource: resourceDLPIDMProfiles,
+			record: resources.NewSourceRecord(map[string]any{
+				"profileId":      4,
+				"profileName":    "Profile",
+				"host":           "idm.example.invalid",
+				"profileDirPath": "/srv/idm",
+				"userName":       "svc-idm",
+				"modifiedBy":     map[string]any{"id": 1, "name": canary},
+				"uploadStatus":   "COMPLETE",
+			}),
+			standardPresent: []string{"profileName", "host", "profileDirPath", "userName"},
+			standardAbsent:  []string{"modifiedBy"},
+			shareAbsent:     []string{"profileName", "host", "profileDirPath", "userName", "modifiedBy"},
+		},
+		{
+			name:     "web dlp rule criteria is standard-only and recursive subrules drop",
+			resource: resourceDLPWebRules,
+			record: resources.NewSourceRecord(map[string]any{
+				"id":                   5,
+				"name":                 "Web DLP",
+				"externalAuditorEmail": "auditor@example.invalid",
+				"receiver":             map[string]any{"id": 1, "name": "Receiver", "tenant": map[string]any{"name": canary}},
+				"users":                []map[string]any{{"id": 1, "name": "User"}},
+				"subRules":             []map[string]any{{"name": canary}},
+				"state":                "ENABLED",
+			}),
+			standardPresent: []string{"externalAuditorEmail", "receiver", "users"},
+			standardAbsent:  []string{"subRules"},
+			shareAbsent:     []string{"externalAuditorEmail", "receiver", "users", "subRules"},
+		},
+		{
+			name:     "web dlp rule receiver without tenant does not panic",
+			resource: resourceDLPWebRules,
+			record: dlpWebRuleSourceRecord(dlpwebrules.WebDLPRules{
+				ID:       5,
+				Name:     "Web DLP",
+				Receiver: &dlpwebrules.Receiver{ID: 1, Name: "Receiver", Type: "INCIDENT_RECEIVER"},
+			}),
+			standardPresent: []string{"receiver"},
+			shareAbsent:     []string{"receiver"},
+		},
+		{
+			name:     "c2c receiver auth details are dropped",
+			resource: resourceC2CIncidentRcvs,
+			record: resources.NewSourceRecord(map[string]any{
+				"id":                6,
+				"name":              "Receiver",
+				"onboardableEntity": map[string]any{"id": 1, "name": "Entity", "tenantAuthorizationInfo": map[string]any{"clientSecret": canary}},
+				"lastValidationMsg": map[string]any{"errorMsg": canary},
+				"lastModifiedBy":    map[string]any{"id": 1, "name": canary},
+			}),
+			standardPresent: []string{"onboardableEntity"},
+			standardAbsent:  []string{"lastValidationMsg", "lastModifiedBy"},
+			shareAbsent:     []string{"onboardableEntity", "lastValidationMsg", "lastModifiedBy"},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			standard := projectOneRecordInMode(t, resources.ProductZIA, tc.resource, redact.ModeStandard, []resources.SourceRecord{tc.record})
+			for _, field := range tc.standardPresent {
+				if _, ok := standard[field]; !ok {
+					t.Errorf("standard projected %s missing %s", tc.resource, field)
+				}
+			}
+			for _, field := range tc.standardAbsent {
+				if _, ok := standard[field]; ok {
+					t.Errorf("standard projected %s includes %s, want dropped", tc.resource, field)
+				}
+			}
+			assertNoCanaries(t, tc.resource+" standard", standard, canary)
+
+			for _, mode := range []redact.Mode{redact.ModeShare, redact.ModeParanoid} {
+				got := projectOneRecordInMode(t, resources.ProductZIA, tc.resource, mode, []resources.SourceRecord{tc.record})
+				for _, field := range tc.shareAbsent {
+					if _, ok := got[field]; ok {
+						t.Errorf("%s projected %s includes %s, want dropped", mode, tc.resource, field)
+					}
+				}
+				assertNoCanaries(t, tc.resource+" "+string(mode), got, canary)
+			}
+		})
 	}
 }
 
