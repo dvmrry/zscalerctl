@@ -31,7 +31,7 @@ Markdown output so generated inventory cannot be mistaken for validation data.
 
 ## Current Findings
 
-As of the module-cache SDK `github.com/zscaler/zscaler-sdk-go/v3@v3.8.37`:
+As of the module-cache SDK `github.com/zscaler/zscaler-sdk-go/v3@v3.8.38`:
 
 - ZIA and ZPA have broad high-level service package trees.
 - ZTW has the next strongest config-like service tree and is the best candidate

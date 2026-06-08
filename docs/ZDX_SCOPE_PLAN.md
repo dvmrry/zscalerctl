@@ -45,7 +45,7 @@ output look more deterministic than it is.
 
 ## SDK Findings
 
-Inspected SDK: `github.com/zscaler/zscaler-sdk-go/v3` `v3.8.37`.
+Inspected SDK: `github.com/zscaler/zscaler-sdk-go/v3` `v3.8.38`.
 
 | SDK surface | Finding | Scope posture |
 | --- | --- | --- |

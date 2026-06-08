@@ -29,6 +29,8 @@ available. Queue entries are not validation evidence.
   batch is ready to apply. Do not replay stale commands blindly.
 - For non-ZIA or unclear surfaces, run `make sdk-surface-inventory` first and
   record the category from `docs/SDK_SURFACE_INVENTORY.md` before queueing.
+  Use the full pinned SDK module cache to decide what is available to add;
+  `vendor/` only shows packages already imported by the current catalog.
 - Keep failed live-smoke endpoints in the deferred list until their endpoint or
   auth-mode behavior is understood.
 - Do not use dev-tenant OneAPI availability to demote resources already proven
@@ -94,7 +96,7 @@ Product-track status:
 | --- | --- | --- | --- |
 | ZIA | Current queued legacy-ZIA resources, singleton settings, focused ordinary-recheck batch, and identity/device recheck for `zia/departments`, `zia/users`, and `zia/devices` | Cataloged after focused runtime validation and review. | Continue only through the remaining shape-decision tracks below. |
 | ZPA | Tier-1 resources plus `zpa/application-segments` | Cataloged after focused runtime validation and trimming unavailable private-cloud endpoints. | Continue later from the remaining ZPA SDK surface; keep focused trim discipline. |
-| ZTW | Initial reference batch plus admin-governance resources (`admin-users`, `admin-roles`) | Cataloged after focused runtime validation and review. | Continue policy/control surfaces only after explicit review. |
+| ZTW | Initial reference batch, admin-governance resources, and the pinned-SDK close-out configuration/policy batch | Cataloged or queued only after source review; close-out batch still requires focused runtime validation before merge. | Runtime-validate the close-out batch, then keep ZTW closed unless a future SDK bump exposes new read-only config packages. |
 | ZCC | `trusted-networks`, `notification-templates`, `zia-postures` | Deferred after `404` endpoint responses across the first ZCC list batch. | Deferred; investigate endpoint/auth/entitlement behavior before retrying ZCC. |
 | Zidentity | `groups`, `users`, `resource-servers` | Cataloged after focused runtime validation and review. | Keep membership expansion as a separate child-query design. |
 
@@ -115,6 +117,10 @@ this period:
   SDK_DIR="$(go list -m -f '{{.Dir}}' -mod=mod github.com/zscaler/zscaler-sdk-go/v3)"
   go run ./scripts/sdk-surface-inventory.go --sdk-dir "$SDK_DIR"
   ```
+
+  The full module cache is the denominator for "what can be added." The
+  committed `vendor/` tree is intentionally pruned by `go mod vendor` and only
+  proves which SDK packages are already imported.
 
 - add or refine batch notes, shape-decision notes, and deferred-resource notes;
 - regenerate scratch scaffolds locally for review;
@@ -156,11 +162,11 @@ resource handler.
 
 ## Remaining SDK Package Review
 
-The current enabled catalog contains 58 ZIA resources, 16 ZPA resources, and 10
+The current enabled catalog contains 66 ZIA resources, 16 ZPA resources, and 20
 ZTW resources. The rows below are package-level scouting notes, not a promise
 that every surface should become a resource.
 
-The pinned Go SDK (`github.com/zscaler/zscaler-sdk-go/v3` v3.8.37) remains the
+The pinned Go SDK (`github.com/zscaler/zscaler-sdk-go/v3` v3.8.38) remains the
 implementation authority. The Python SDK is useful only as scout evidence for
 resource names, endpoint intent, and default query semantics; do not use it to
 override the pinned Go SDK shape.
