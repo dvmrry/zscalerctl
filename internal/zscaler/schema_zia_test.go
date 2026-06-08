@@ -18,6 +18,7 @@ import (
 	browserisolation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/browser_isolation"
 	c2cincidentreceiver "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/c2c_incident_receiver"
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
+	cloudappcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudappcontrol"
 	cloudapplications "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/cloudapplications"
 	riskprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles"
 	cloudnss "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/cloudnss"
@@ -1809,6 +1810,56 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"lastModifiedBy",
 				"createTime",
 			},
+		},
+		{
+			name:         "cloudappcontrol.WebApplicationRules",
+			resource:     resources.ProductZIA,
+			resourceName: resourceCloudAppControl,
+			typ:          reflect.TypeOf(cloudappcontrol.WebApplicationRules{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"actions",
+				"state",
+				"rank",
+				"type",
+				"order",
+				"timeQuota",
+				"sizeQuota",
+				"cascadingEnabled",
+				"accessControl",
+				"applications",
+				"numberOfApplications",
+				"eunEnabled",
+				"eunTemplateId",
+				"browserEunTemplateId",
+				"predefined",
+				"validityStartTime",
+				"validityEndTime",
+				"validityTimeZoneId",
+				"userAgentTypes",
+				"lastModifiedTime",
+				"enforceTimeValidity",
+				"deviceTrustLevels",
+				"userRiskScoreLevels",
+				"labels",
+				"timeWindows",
+				"locations",
+				"locationGroups",
+				"tenancyProfileIds",
+			},
+			ignoredFields: ignoredBecause(
+				"user/group/device references and nested instance/profile structures are held until separately modeled",
+				"cbiProfile",
+				"cloudAppInstances",
+				"cloudAppRiskProfile",
+				"departments",
+				"deviceGroups",
+				"devices",
+				"groups",
+				"users",
+			),
 		},
 		{
 			name:         "cloudapplications.CloudApplications (policy)",

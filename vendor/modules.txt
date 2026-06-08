@@ -85,6 +85,7 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/browser_control_settin
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/browser_isolation
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/c2c_incident_receiver
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudappcontrol
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/cloudapplications
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/cloudnss

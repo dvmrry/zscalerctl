@@ -2,6 +2,7 @@ package zscaler
 
 import (
 	"context"
+	"sort"
 
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
 	activation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/activation"
@@ -17,6 +18,7 @@ import (
 	browserisolation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/browser_isolation"
 	c2cincidentreceiver "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/c2c_incident_receiver"
 	cloudappinstances "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloud_app_instances"
+	cloudappcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudappcontrol"
 	cloudapplications "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/cloudapplications"
 	riskprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles"
 	cloudnss "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/cloudnss"
@@ -820,6 +822,32 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 			}),
 			pacFileSourceRecord,
 		),
+		{product: resources.ProductZIA, name: resourceCloudAppControl}: newListOnlyHandler(
+			resourceCloudAppControl,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]cloudappcontrol.WebApplicationRules, error) {
+				// Cloud App Control has no flat list endpoint; enumerate the rule
+				// types and concatenate each type's rules (sorted for determinism).
+				mapping, err := cloudappcontrol.GetRuleTypeMapping(ctx, service)
+				if err != nil {
+					return nil, err
+				}
+				ruleTypes := make([]string, 0, len(mapping))
+				for ruleType := range mapping {
+					ruleTypes = append(ruleTypes, ruleType)
+				}
+				sort.Strings(ruleTypes)
+				var all []cloudappcontrol.WebApplicationRules
+				for _, ruleType := range ruleTypes {
+					rules, err := cloudappcontrol.GetByRuleType(ctx, service, ruleType)
+					if err != nil {
+						return nil, err
+					}
+					all = append(all, rules...)
+				}
+				return all, nil
+			}),
+			cloudAppControlSourceRecord,
+		),
 		{product: resources.ProductZIA, name: resourceCloudAppPolicy}: newListOnlyHandler(
 			resourceCloudAppPolicy,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]cloudapplications.CloudApplications, error) {
@@ -1075,4 +1103,41 @@ func extranetSourceRecord(item extranet.Extranet) resources.SourceRecord {
 		"createdAt":   item.CreatedAt,
 		"modifiedAt":  item.ModifiedAt,
 	})
+}
+
+func cloudAppControlSourceRecord(rule cloudappcontrol.WebApplicationRules) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                   rule.ID,
+		"name":                 rule.Name,
+		"description":          rule.Description,
+		"state":                rule.State,
+		"rank":                 rule.Rank,
+		"type":                 rule.Type,
+		"order":                rule.Order,
+		"timeQuota":            rule.TimeQuota,
+		"sizeQuota":            rule.SizeQuota,
+		"cascadingEnabled":     rule.CascadingEnabled,
+		"accessControl":        rule.AccessControl,
+		"numberOfApplications": rule.NumberOfApplications,
+		"eunEnabled":           rule.EunEnabled,
+		"eunTemplateId":        rule.EunTemplateID,
+		"browserEunTemplateId": rule.BrowserEunTemplateID,
+		"predefined":           rule.Predefined,
+		"validityStartTime":    rule.ValidityStartTime,
+		"validityEndTime":      rule.ValidityEndTime,
+		"validityTimeZoneId":   rule.ValidityTimeZoneID,
+		"lastModifiedTime":     rule.LastModifiedTime,
+		"enforceTimeValidity":  rule.EnforceTimeValidity,
+	}
+	addStringSlice(fields, "actions", rule.Actions)
+	addStringSlice(fields, "applications", rule.Applications)
+	addStringSlice(fields, "userAgentTypes", rule.UserAgentTypes)
+	addStringSlice(fields, "deviceTrustLevels", rule.DeviceTrustLevels)
+	addStringSlice(fields, "userRiskScoreLevels", rule.UserRiskScoreLevels)
+	addIDNameExtensionsSlice(fields, "labels", rule.Labels)
+	addIDNameExtensionsSlice(fields, "timeWindows", rule.TimeWindows)
+	addIDNameExtensionsSlice(fields, "locations", rule.Locations)
+	addIDNameExtensionsSlice(fields, "locationGroups", rule.LocationGroups)
+	addIDNameExtensionsSlice(fields, "tenancyProfileIds", rule.TenancyProfileIDs)
+	return resources.NewSourceRecord(fields)
 }
