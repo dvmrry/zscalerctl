@@ -94,7 +94,7 @@ Product-track status:
 
 | Product | Resources | Status | Next action |
 | --- | --- | --- | --- |
-| ZIA | Current queued legacy-ZIA resources, singleton settings, focused ordinary-recheck batch, and identity/device recheck for `zia/departments`, `zia/users`, and `zia/devices` | Cataloged after focused runtime validation and review. | Continue only through the remaining shape-decision tracks below. |
+| ZIA | Current queued legacy-ZIA resources, singleton settings, focused ordinary-recheck batch, identity/device recheck for `zia/departments`, `zia/users`, and `zia/devices`, plus the focused DLP/capture sensitive batch | Prior surfaces cataloged after focused runtime validation and review; the DLP/capture batch remains runtime-gated until its focused smoke pass. | Continue only through the remaining shape-decision tracks below. |
 | ZPA | Tier-1 resources plus `zpa/application-segments` | Cataloged after focused runtime validation and trimming unavailable private-cloud endpoints. | Continue later from the remaining ZPA SDK surface; keep focused trim discipline. |
 | ZTW | Initial reference batch, admin-governance resources, and the pinned-SDK close-out configuration/policy batch | Cataloged after focused runtime validation and review. | Keep ZTW closed unless a future SDK bump exposes new read-only config packages. |
 | ZCC | `trusted-networks`, `notification-templates`, `zia-postures` | Deferred after `404` endpoint responses across the first ZCC list batch. | Deferred; investigate endpoint/auth/entitlement behavior before retrying ZCC. |
@@ -162,7 +162,7 @@ resource handler.
 
 ## Remaining SDK Package Review
 
-The current enabled catalog contains 66 ZIA resources, 16 ZPA resources, and 20
+The current enabled catalog contains 75 ZIA resources, 16 ZPA resources, and 20
 ZTW resources. The rows below are package-level scouting notes, not a promise
 that every surface should become a resource.
 
@@ -223,16 +223,7 @@ boundary issue, or a deliberate privacy/material hold.
 
 | Resource | Last evidence | Required next probe |
 | --- | --- | --- |
-| `zia/dlp-engines` | Legacy-ZIA list request failed; exact status not recorded. | Retry DLP endpoints as a small family, not mixed with unrelated policy resources. |
-| `zia/dlp-dictionaries` | Legacy-ZIA list request failed; exact status not recorded. | Retry with DLP family; inspect dictionary fields for sensitive sample/content values before cataloging. |
 | `zia/ips-signature-rules` | Legacy-ZIA list request failed; exact status not recorded. | Retry before `ips_policies`; do not use IPS policy adjacency as proof either way. |
-| `zia/c2c-incident-receivers` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry as a single endpoint probe; receiver details may be sensitive destination metadata if reachable. |
-| `zia/dlp-edm-schemas` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; EDM schema names/columns may be sensitive and need conservative projection. |
-| `zia/dlp-idm-profile-lite` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; compare with full IDM profile endpoint before cataloging both. |
-| `zia/dlp-idm-profiles` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; inspect nested matching criteria and identifiers before cataloging. |
-| `zia/dlp-web-rules` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry with DLP family; policy-rule surface likely needs the same conservative nested-reference pattern as other rules. |
-| `zia/traffic-capture-rules` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry as a sensitive diagnostic/capture policy probe, not an ordinary policy batch. |
-| `zia/extranets` | Legacy-ZIA endpoint probe failed with `live_access_failed`; exact status not recorded. | Retry as a network-identifier-heavy probe; endpoints and IP/range fields should remain local-only if reachable. |
 | `zpa/private-cloud-groups` | ZPA endpoint probe failed with status 403. | Treat as permission/role or product-feature availability; retry only if RO client scopes/roles change. |
 | `zpa/private-cloud-controllers` | ZPA endpoint probe failed with status 401. | Treat as auth/config or endpoint-specific authorization; retry only with captured endpoint path and confirmed ZPA customer ID. |
 | `zcc/trusted-networks` | ZCC endpoint probe failed with status 404. | Probe the ZCC endpoint boundary before catalog work: compare OneAPI `/zcc/papi/public/v2/trusted-networks` routing against documented/product-local ZCC PAPI behavior and confirm whether 404 is path, cloud, entitlement, or SDK mismatch. |
