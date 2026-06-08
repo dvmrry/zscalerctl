@@ -77,9 +77,7 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
 	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
-	traffic_capture "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/traffic_capture"
 	dcexclusions "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/dc_exclusions"
-	extranet "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/extranet"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	ipv6config "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/ipv6_config"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
@@ -208,16 +206,6 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 				return filteringrules.Get(ctx, service, id)
 			}),
 			firewallFilteringRuleSourceRecord,
-		),
-		{product: resources.ProductZIA, name: resourceTrafficCaptureRules}: newListGetHandler(
-			resourceTrafficCaptureRules,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]traffic_capture.TrafficCaptureRules, error) {
-				return traffic_capture.GetAll(ctx, service, nil)
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*traffic_capture.TrafficCaptureRules, error) {
-				return traffic_capture.Get(ctx, service, id)
-			}),
-			trafficCaptureRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceForwardingRules}: newListGetHandler(
 			resourceForwardingRules,
@@ -779,16 +767,6 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 			}),
 			dcExclusionSourceRecord,
 		),
-		{product: resources.ProductZIA, name: resourceExtranet}: newListGetHandler(
-			resourceExtranet,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]extranet.Extranet, error) {
-				return extranet.GetAll(ctx, service, nil)
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*extranet.Extranet, error) {
-				return extranet.Get(ctx, service, id)
-			}),
-			extranetSourceRecord,
-		),
 		{product: resources.ProductZIA, name: resourceSubClouds}: newListOnlyHandler(
 			resourceSubClouds,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]subclouds.SubClouds, error) {
@@ -1050,52 +1028,6 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 	}
 }
 
-func trafficCaptureRuleSourceRecord(rule traffic_capture.TrafficCaptureRules) resources.SourceRecord {
-	fields := map[string]any{
-		"id":                  rule.ID,
-		"name":                rule.Name,
-		"order":               rule.Order,
-		"rank":                rule.Rank,
-		"accessControl":       rule.AccessControl,
-		"action":              rule.Action,
-		"state":               rule.State,
-		"description":         rule.Description,
-		"lastModifiedTime":    rule.LastModifiedTime,
-		"excludeSrcCountries": rule.ExcludeSrcCountries,
-		"defaultRule":         rule.DefaultRule,
-		"predefined":          rule.Predefined,
-		"txnSizeLimit":        rule.TxnSizeLimit,
-		"txnSampling":         rule.TxnSampling,
-	}
-	addIDNameExtensionsPtr(fields, "lastModifiedBy", rule.LastModifiedBy)
-	addStringSlice(fields, "srcIps", rule.SrcIps)
-	addStringSlice(fields, "destAddresses", rule.DestAddresses)
-	addStringSlice(fields, "destIpCategories", rule.DestIpCategories)
-	addStringSlice(fields, "destCountries", rule.DestCountries)
-	addStringSlice(fields, "sourceCountries", rule.SourceCountries)
-	addStringSlice(fields, "nwApplications", rule.NwApplications)
-	addStringSlice(fields, "deviceTrustLevels", rule.DeviceTrustLevels)
-	addIDNameExtensionsSlice(fields, "locations", rule.Locations)
-	addIDNameExtensionsSlice(fields, "locationGroups", rule.LocationsGroups)
-	addIDNameExtensionsSlice(fields, "departments", rule.Departments)
-	addIDNameExtensionsSlice(fields, "groups", rule.Groups)
-	addIDNameExtensionsSlice(fields, "users", rule.Users)
-	addIDNameExtensionsSlice(fields, "timeWindows", rule.TimeWindows)
-	addIDNameExtensionsSlice(fields, "nwApplicationGroups", rule.NwApplicationGroups)
-	addIDNameExtensionsSlice(fields, "appServiceGroups", rule.AppServiceGroups)
-	addIDNameExtensionsSlice(fields, "labels", rule.Labels)
-	addIDNameExtensionsSlice(fields, "destIpGroups", rule.DestIpGroups)
-	addIDNameExtensionsSlice(fields, "destIpv6Groups", rule.DestIpv6Groups)
-	addIDNameExtensionsSlice(fields, "nwServices", rule.NwServices)
-	addIDNameExtensionsSlice(fields, "nwServiceGroups", rule.NwServiceGroups)
-	addIDNameExtensionsSlice(fields, "srcIpGroups", rule.SrcIpGroups)
-	addIDNameExtensionsSlice(fields, "srcIpv6Groups", rule.SrcIpv6Groups)
-	addIDNameExtensionsSlice(fields, "deviceGroups", rule.DeviceGroups)
-	addIDNameExtensionsSlice(fields, "devices", rule.Devices)
-	addIDNameSlice(fields, "workloadGroups", rule.WorkloadGroups)
-	return resources.NewSourceRecord(fields)
-}
-
 func ipsSignatureRuleSourceRecord(rule ipssignaturerules.IPSSignatureRules) resources.SourceRecord {
 	return resources.NewSourceRecord(map[string]any{
 		"id":                         rule.ID,
@@ -1110,16 +1042,6 @@ func ipsSignatureRuleSourceRecord(rule ipssignaturerules.IPSSignatureRules) reso
 		"dynamicValidationSucceeded": rule.DynamicValidationSucceeded,
 		"disabledFromZSCM":           rule.DisabledFromZSCM,
 		"dynamicValRejectCode":       rule.DynamicValRejectCode,
-	})
-}
-
-func extranetSourceRecord(item extranet.Extranet) resources.SourceRecord {
-	return resources.NewSourceRecord(map[string]any{
-		"id":          item.ID,
-		"name":        item.Name,
-		"description": item.Description,
-		"createdAt":   item.CreatedAt,
-		"modifiedAt":  item.ModifiedAt,
 	})
 }
 

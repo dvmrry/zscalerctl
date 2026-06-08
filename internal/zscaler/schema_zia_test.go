@@ -78,9 +78,7 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
 	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
-	traffic_capture "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/traffic_capture"
 	dcexclusions "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/dc_exclusions"
-	extranet "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/extranet"
 	gretunnels "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/gretunnels"
 	ipv6config "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/ipv6_config"
 	staticips "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/staticips"
@@ -749,57 +747,6 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"lastModifiedBy",
 				"overrideGroups",
 				"overrideUsers",
-				"users",
-			),
-		},
-		{
-			name:         "traffic_capture.TrafficCaptureRules",
-			resource:     resources.ProductZIA,
-			resourceName: resourceTrafficCaptureRules,
-			typ:          reflect.TypeOf(traffic_capture.TrafficCaptureRules{}),
-			catalogFields: []string{
-				"id",
-				"name",
-				"description",
-				"state",
-				"order",
-				"rank",
-				"action",
-				"accessControl",
-				"defaultRule",
-				"predefined",
-				"lastModifiedTime",
-				"sourceCountries",
-				"destCountries",
-				"excludeSrcCountries",
-				"nwApplications",
-				"txnSizeLimit",
-				"txnSampling",
-				"deviceTrustLevels",
-				"srcIps",
-				"destAddresses",
-				"destIpCategories",
-				"labels",
-				"timeWindows",
-				"locations",
-				"locationGroups",
-				"srcIpGroups",
-				"srcIpv6Groups",
-				"destIpGroups",
-				"destIpv6Groups",
-				"nwServices",
-				"nwServiceGroups",
-				"nwApplicationGroups",
-				"appServiceGroups",
-				"workloadGroups",
-			},
-			ignoredFields: ignoredBecause(
-				"admin/user/device references are mapped then dropped until separately modeled",
-				"departments",
-				"deviceGroups",
-				"devices",
-				"groups",
-				"lastModifiedBy",
 				"users",
 			),
 		},
@@ -1716,24 +1663,6 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"description",
 				"dcName",
 			},
-		},
-		{
-			name:         "extranet.Extranet",
-			resource:     resources.ProductZIA,
-			resourceName: resourceExtranet,
-			typ:          reflect.TypeOf(extranet.Extranet{}),
-			catalogFields: []string{
-				"id",
-				"name",
-				"description",
-				"createdAt",
-				"modifiedAt",
-			},
-			ignoredFields: ignoredBecause(
-				"nested DNS server and IP pool lists are held until separately modeled",
-				"extranetDNSList",
-				"extranetIpPoolList",
-			),
 		},
 		{
 			name:         "subclouds.SubClouds",
