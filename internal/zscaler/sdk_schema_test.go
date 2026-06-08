@@ -8,6 +8,7 @@ import (
 
 	"github.com/dvmrry/zscalerctl/internal/resources"
 
+	activation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/activation"
 	ziaadminusers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/admins"
 	ziaadminroles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/roles"
 	advancedsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/advanced_settings"
@@ -57,6 +58,8 @@ import (
 	proxygateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways"
 	zpagateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/zpa_gateways"
 	ftpcontrolpolicy "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ftp_control_policy"
+	intermediatecacertificates "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/intermediatecacertificates"
+	ipspolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_policies"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	malwareprotection "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/malware_protection"
@@ -83,6 +86,7 @@ import (
 	subclouds "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/sub_clouds"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
+	userauthsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/user_authentication_settings"
 	userdepartments "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments"
 	usergroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups"
 	ziausers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/users"
@@ -2325,6 +2329,58 @@ func reviewedSDKShapes() []sdkShapeReview {
 			},
 		},
 		{
+			name:         "activation.Activation",
+			resource:     resources.ProductZIA,
+			resourceName: resourceActivationStatus,
+			typ:          reflect.TypeOf(activation.Activation{}),
+			catalogFields: []string{
+				"status",
+			},
+		},
+		{
+			name:         "activation.ZiaEusaStatus",
+			resource:     resources.ProductZIA,
+			resourceName: resourceEUSAStatus,
+			typ:          reflect.TypeOf(activation.ZiaEusaStatus{}),
+			catalogFields: []string{
+				"id",
+				"version",
+				"acceptedStatus",
+			},
+		},
+		{
+			name:         "userauthsettings.ExemptedUrls",
+			resource:     resources.ProductZIA,
+			resourceName: resourceAuthExemptedURLs,
+			typ:          reflect.TypeOf(userauthsettings.ExemptedUrls{}),
+			catalogFields: []string{
+				"urls",
+			},
+		},
+		{
+			name:         "intermediatecacertificates.IntermediateCACertificate",
+			resource:     resources.ProductZIA,
+			resourceName: resourceIntermediateCAs,
+			typ:          reflect.TypeOf(intermediatecacertificates.IntermediateCACertificate{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"type",
+				"region",
+				"status",
+				"defaultCertificate",
+				"certStartDate",
+				"certExpDate",
+				"currentState",
+				"publicKey",
+				"keyGenerationTime",
+				"hsmAttestationVerifiedTime",
+				"csrFileName",
+				"csrGenerationTime",
+			},
+		},
+		{
 			name:         "cloudappinstances.CloudApplicationInstances",
 			resource:     resources.ProductZIA,
 			resourceName: resourceCloudAppInsts,
@@ -3174,6 +3230,53 @@ func reviewedSDKShapes() []sdkShapeReview {
 				"timeWindows",
 				"users",
 				"zpaIpGroup",
+			},
+		},
+		{
+			name:         "ipspolicies.FirewallIPSRules",
+			resource:     resources.ProductZIA,
+			resourceName: resourceIPSPolicies,
+			typ:          reflect.TypeOf(ipspolicies.FirewallIPSRules{}),
+			catalogFields: []string{
+				"accessControl",
+				"action",
+				"capturePCAP",
+				"defaultRule",
+				"departments",
+				"description",
+				"destAddresses",
+				"destCountries",
+				"destIpCategories",
+				"destIpGroups",
+				"destIpv6Groups",
+				"deviceGroups",
+				"devices",
+				"enableFullLogging",
+				"eunTemplateId",
+				"groups",
+				"id",
+				"isEunEnabled",
+				"labels",
+				"lastModifiedBy",
+				"lastModifiedTime",
+				"locationGroups",
+				"locations",
+				"name",
+				"nwServiceGroups",
+				"nwServices",
+				"order",
+				"predefined",
+				"rank",
+				"resCategories",
+				"sourceCountries",
+				"srcIpGroups",
+				"srcIps",
+				"srcIpv6Groups",
+				"state",
+				"threatCategories",
+				"timeWindows",
+				"users",
+				"zpaAppSegments",
 			},
 		},
 		{

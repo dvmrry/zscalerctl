@@ -72,6 +72,7 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/errorx
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zdx
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/activation
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/admins
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/roles
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/advanced_settings
@@ -121,6 +122,8 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_pol
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/zpa_gateways
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ftp_control_policy
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/intermediatecacertificates
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_policies
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/malware_protection
@@ -147,6 +150,7 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/stat
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/sub_clouds
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/user_authentication_settings
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/users

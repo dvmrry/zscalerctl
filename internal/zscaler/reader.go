@@ -19,6 +19,7 @@ import (
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
 	sdkerrorx "github.com/zscaler/zscaler-sdk-go/v3/zscaler/errorx"
 	sdkzia "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia"
+	activation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/activation"
 	ziaadminusers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/admins"
 	ziaadminroles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/roles"
 	advancedsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/advanced_settings"
@@ -68,6 +69,8 @@ import (
 	proxygateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways"
 	zpagateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/zpa_gateways"
 	ftpcontrolpolicy "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ftp_control_policy"
+	intermediatecacertificates "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/intermediatecacertificates"
+	ipspolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_policies"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	malwareprotection "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/malware_protection"
@@ -94,6 +97,7 @@ import (
 	subclouds "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/sub_clouds"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
+	userauthsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/user_authentication_settings"
 	userdepartments "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments"
 	usergroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups"
 	ziausers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/users"
@@ -186,6 +190,7 @@ const (
 	resourceTimeIntervals     = "time-intervals"
 	resourceBandwidthClasses  = "bandwidth-classes"
 	resourceBandwidthRules    = "bandwidth-control-rules"
+	resourceIPSPolicies       = "ips-policies"
 	resourceDNSGateways       = "dns-gateways"
 	resourceNATRules          = "nat-control-rules"
 	resourceGroups            = "groups"
@@ -195,6 +200,10 @@ const (
 	resourceDevices           = "devices"
 	resourceWorkloadGroups    = "workload-groups"
 	resourceAlertSubs         = "alert-subscriptions"
+	resourceActivationStatus  = "activation-status"
+	resourceEUSAStatus        = "eusa-status"
+	resourceAuthExemptedURLs  = "auth-exempted-urls"
+	resourceIntermediateCAs   = "intermediate-ca-certificates"
 	resourceCloudAppInsts     = "cloud-app-instances"
 	resourceTenancyProfiles   = "tenancy-restriction-profiles"
 	resourceVZENClusters      = "vzen-clusters"
@@ -817,6 +826,16 @@ func newResourceHandlers(client sdkClient) map[resourceKey]resourceHandler {
 			}),
 			bandwidthControlRuleSourceRecord,
 		),
+		{product: resources.ProductZIA, name: resourceIPSPolicies}: newListGetHandler(
+			resourceIPSPolicies,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ipspolicies.FirewallIPSRules, error) {
+				return ipspolicies.GetAll(ctx, service)
+			}),
+			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*ipspolicies.FirewallIPSRules, error) {
+				return ipspolicies.Get(ctx, service, id)
+			}),
+			ipsPolicySourceRecord,
+		),
 		{product: resources.ProductZIA, name: resourceDNSGateways}: newListGetHandler(
 			resourceDNSGateways,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dnsgateways.DNSGateways, error) {
@@ -920,6 +939,31 @@ func newResourceHandlers(client sdkClient) map[resourceKey]resourceHandler {
 				return alerts.Get(ctx, service, id)
 			}),
 			alertSubscriptionSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceActivationStatus}: newSingletonHandler(
+			resourceActivationStatus,
+			ziaSDKShow(client, activation.GetActivationStatus),
+			structSourceRecord[activation.Activation],
+		),
+		{product: resources.ProductZIA, name: resourceEUSAStatus}: newSingletonHandler(
+			resourceEUSAStatus,
+			ziaSDKShow(client, activation.GetEusaStatus),
+			eusaStatusSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceAuthExemptedURLs}: newSingletonHandler(
+			resourceAuthExemptedURLs,
+			ziaSDKShow(client, userauthsettings.Get),
+			structSourceRecord[userauthsettings.ExemptedUrls],
+		),
+		{product: resources.ProductZIA, name: resourceIntermediateCAs}: newListGetHandler(
+			resourceIntermediateCAs,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]intermediatecacertificates.IntermediateCACertificate, error) {
+				return intermediatecacertificates.GetAll(ctx, service)
+			}),
+			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*intermediatecacertificates.IntermediateCACertificate, error) {
+				return intermediatecacertificates.GetCertificate(ctx, service, id)
+			}),
+			intermediateCACertificateSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceCloudAppInsts}: newListGetHandler(
 			resourceCloudAppInsts,
@@ -3233,6 +3277,82 @@ func bandwidthControlRuleSourceRecord(rule bandwidthcontrolrules.BandwidthContro
 	addIDNameExtensionsSlice(fields, "locations", rule.Locations)
 	addIDNameExtensionsSlice(fields, "timeWindows", rule.TimeWindows)
 	return resources.NewSourceRecord(fields)
+}
+
+func ipsPolicySourceRecord(rule ipspolicies.FirewallIPSRules) resources.SourceRecord {
+	fields := map[string]any{
+		"id":                rule.ID,
+		"name":              rule.Name,
+		"order":             rule.Order,
+		"rank":              rule.Rank,
+		"accessControl":     rule.AccessControl,
+		"enableFullLogging": rule.EnableFullLogging,
+		"action":            rule.Action,
+		"state":             rule.State,
+		"description":       rule.Description,
+		"lastModifiedTime":  rule.LastModifiedTime,
+		"defaultRule":       rule.DefaultRule,
+		"capturePCAP":       rule.CapturePCAP,
+		"predefined":        rule.Predefined,
+		"isEunEnabled":      rule.IsEUNEnabled,
+		"eunTemplateId":     rule.EUNTemplateID,
+	}
+	addIDNameExtensionsPtr(fields, "lastModifiedBy", rule.LastModifiedBy)
+	addStringSlice(fields, "srcIps", rule.SrcIps)
+	addStringSlice(fields, "destAddresses", rule.DestAddresses)
+	addStringSlice(fields, "destIpCategories", rule.DestIpCategories)
+	addStringSlice(fields, "destCountries", rule.DestCountries)
+	addStringSlice(fields, "sourceCountries", rule.SourceCountries)
+	addStringSlice(fields, "resCategories", rule.ResCategories)
+	addIDNameExtensionsSlice(fields, "locations", rule.Locations)
+	addIDNameExtensionsSlice(fields, "locationGroups", rule.LocationsGroups)
+	addIDNameExtensionsSlice(fields, "departments", rule.Departments)
+	addIDNameExtensionsSlice(fields, "groups", rule.Groups)
+	addIDNameExtensionsSlice(fields, "users", rule.Users)
+	addIDNameExtensionsSlice(fields, "timeWindows", rule.TimeWindows)
+	addIDNameExtensionsSlice(fields, "labels", rule.Labels)
+	addIDNameExtensionsSlice(fields, "destIpGroups", rule.DestIpGroups)
+	addIDNameExtensionsSlice(fields, "destIpv6Groups", rule.DestIpv6Groups)
+	addIDNameExtensionsSlice(fields, "nwServices", rule.NwServices)
+	addIDNameExtensionsSlice(fields, "nwServiceGroups", rule.NwServiceGroups)
+	addIDNameExtensionsSlice(fields, "srcIpGroups", rule.SrcIpGroups)
+	addIDNameExtensionsSlice(fields, "srcIpv6Groups", rule.SrcIpv6Groups)
+	addIDNameExtensionsSlice(fields, "deviceGroups", rule.DeviceGroups)
+	addIDNameExtensionsSlice(fields, "devices", rule.Devices)
+	addIDNameExtensionsSlice(fields, "threatCategories", rule.ThreatCategories)
+	if len(rule.ZPAAppSegments) > 0 {
+		fields["zpaAppSegments"] = zpaAppSegmentsSource(rule.ZPAAppSegments)
+	}
+	return resources.NewSourceRecord(fields)
+}
+
+func eusaStatusSourceRecord(status activation.ZiaEusaStatus) resources.SourceRecord {
+	fields := map[string]any{
+		"id":             status.ID,
+		"acceptedStatus": status.AcceptedStatus,
+	}
+	addIDNameExtensionsPtr(fields, "version", status.Version)
+	return resources.NewSourceRecord(fields)
+}
+
+func intermediateCACertificateSourceRecord(cert intermediatecacertificates.IntermediateCACertificate) resources.SourceRecord {
+	return resources.NewSourceRecord(map[string]any{
+		"id":                         cert.ID,
+		"name":                       cert.Name,
+		"description":                cert.Description,
+		"type":                       cert.Type,
+		"region":                     cert.Region,
+		"status":                     cert.Status,
+		"defaultCertificate":         cert.DefaultCertificate,
+		"certStartDate":              cert.CertStartDate,
+		"certExpDate":                cert.CertExpDate,
+		"currentState":               cert.CurrentState,
+		"publicKey":                  cert.PublicKey,
+		"keyGenerationTime":          cert.KeyGenerationTime,
+		"hsmAttestationVerifiedTime": cert.HSMAttestationVerifiedTime,
+		"csrFileName":                cert.CSRFileName,
+		"csrGenerationTime":          cert.CSRGenerationTime,
+	})
 }
 
 func dnsGatewaySourceRecord(gateway dnsgateways.DNSGateways) resources.SourceRecord {

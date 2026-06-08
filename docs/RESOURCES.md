@@ -357,6 +357,29 @@ The SDK also returns admin, user, group, department, device, and ZPA segment
 objects. The reader maps those structures, but the catalog keeps them out of
 rendered output until they are separately modeled.
 
+## ZIA IPs Policies
+
+Commands:
+
+```sh
+zscalerctl zia ips-policies list
+zscalerctl zia ips-policies get <id>
+zscalerctl dump --products zia --resources zia/ips-policies --out ./scratch-live-smoke
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `order`, `rank`, `lastModifiedTime` | Operational metadata | `standard`, `share`, `paranoid` | IPS policy identifiers, ordering, and timestamp metadata. |
+| `name`, `accessControl`, `enableFullLogging`, `action`, `state`, `defaultRule`, `capturePCAP`, `predefined`, `isEunEnabled`, `eunTemplateId` | Tenant configuration | `standard`, `share` | Policy controls and enabled-state metadata. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `sourceCountries`, `destCountries` | Operational metadata | `standard`, `share` | Country selector metadata. |
+| `srcIps`, `destAddresses`, `destIpCategories`, `resCategories` | Sensitive identifier | `standard` | Local-only IP and category selectors. |
+| `labels`, `timeWindows` | Tenant configuration | `standard`, `share` | Nested references render reviewed `id`/`name` fields only. |
+| `locations`, `locationGroups`, `departments`, `groups`, `users`, `destIpGroups`, `destIpv6Groups`, `nwServices`, `nwServiceGroups`, `srcIpGroups`, `srcIpv6Groups`, `deviceGroups`, `devices`, `threatCategories`, `zpaAppSegments` | Tenant configuration | `standard` | Local-only scope and policy references. Nested unreviewed fields are dropped. |
+| `lastModifiedBy` | Secret | never | Admin identity reference is mapped and dropped. |
+
 ## ZIA IP Source Groups
 
 Commands:
@@ -844,6 +867,74 @@ Fields:
 | `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
 | `email` | Sensitive identifier | `standard` | Local-only notification recipient address. |
 | `pt0Severities`, `secureSeverities`, `manageSeverities`, `complySeverities`, `systemSeverities` | Tenant configuration | `standard`, `share` | Reviewed alert severity selections. |
+
+## ZIA Activation Status
+
+Commands:
+
+```sh
+zscalerctl zia activation-status show
+zscalerctl dump --products zia --resources zia/activation-status --out ./scratch-live-smoke
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `status` | Operational metadata | `standard`, `share` | Activation status metadata. |
+
+## ZIA Eusa Status
+
+Commands:
+
+```sh
+zscalerctl zia eusa-status show
+zscalerctl dump --products zia --resources zia/eusa-status --out ./scratch-live-smoke
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | EUSA status identifier. |
+| `version` | Tenant configuration | `standard`, `share` | Rendered as an id/name reference; SDK extension data is dropped. |
+| `acceptedStatus` | Tenant configuration | `standard`, `share` | Current acceptance status. |
+
+## ZIA Auth Exempted Urls
+
+Commands:
+
+```sh
+zscalerctl zia auth-exempted-urls show
+zscalerctl dump --products zia --resources zia/auth-exempted-urls --out ./scratch-live-smoke
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `urls` | Sensitive identifier | `standard` | Authentication-exempt URL list; dropped from `share` and `paranoid`. |
+
+## ZIA Intermediate Ca Certificates
+
+Commands:
+
+```sh
+zscalerctl zia intermediate-ca-certificates list
+zscalerctl zia intermediate-ca-certificates get <id>
+zscalerctl dump --products zia --resources zia/intermediate-ca-certificates --out ./scratch-live-smoke
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Certificate metadata identifier. |
+| `name`, `type`, `status`, `defaultCertificate`, `currentState` | Tenant configuration | `standard`, `share` | Certificate metadata and workflow state. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `region`, `csrFileName` | Sensitive identifier | `standard` | Location and file identifiers are visible locally and dropped from `share` and `paranoid`. |
+| `certStartDate`, `certExpDate`, `keyGenerationTime`, `hsmAttestationVerifiedTime`, `csrGenerationTime` | Operational metadata | `standard`, `share` | Certificate lifecycle timestamps. |
+| `publicKey` | Secret | never | Key material is mapped and dropped. |
 
 ## ZIA Cloud App Instances
 
