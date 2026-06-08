@@ -12,6 +12,7 @@ import (
 	"time"
 
 	sdkerrorx "github.com/zscaler/zscaler-sdk-go/v3/zscaler/errorx"
+	activation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/activation"
 	ziaadminusers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/admins"
 	ziaadminroles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/roles"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/alerts"
@@ -45,6 +46,8 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxies"
 	proxygateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways"
 	ftpcontrolpolicy "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ftp_control_policy"
+	intermediatecacertificates "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/intermediatecacertificates"
+	ipspolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_policies"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationgroups"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 	natcontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies"
@@ -65,6 +68,7 @@ import (
 	subclouds "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/trafficforwarding/sub_clouds"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlfilteringpolicies"
+	userauthsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/user_authentication_settings"
 	userdepartments "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/departments"
 	usergroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/groups"
 	ziausers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/users"
@@ -4302,6 +4306,122 @@ func TestZIAAdminGovernanceProjectionBoundaries(t *testing.T) {
 	}
 }
 
+func TestZIAPolicyStatusBatchProjectionBoundaries(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canary = "synthetic-policy-status-secret-canary"
+		token  = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	)
+
+	tests := []struct {
+		name            string
+		resource        string
+		record          resources.SourceRecord
+		standardPresent []string
+		standardAbsent  []string
+		shareAbsent     []string
+	}{
+		{
+			name:     "ips policy selectors are standard-only and admin identity is dropped",
+			resource: resourceIPSPolicies,
+			record: ipsPolicySourceRecord(ipspolicies.FirewallIPSRules{
+				ID:               1,
+				Name:             "IPS policy",
+				Description:      "policy note psk=" + canary + " " + token,
+				SrcIps:           []string{"192.0.2.10"},
+				DestAddresses:    []string{"198.51.100.10"},
+				DestIpCategories: []string{"sensitive-category"},
+				ResCategories:    []string{"sensitive-resource"},
+				SourceCountries:  []string{"US"},
+				DestCountries:    []string{"CA"},
+				LastModifiedBy:   &ziacommon.IDNameExtensions{ID: 7, Name: "admin@example.invalid"},
+				Users:            []ziacommon.IDNameExtensions{{ID: 8, Name: "user@example.invalid"}},
+				ZPAAppSegments:   []ziacommon.ZPAAppSegments{{ID: 9, Name: "App Segment", ExternalID: "external-" + canary}},
+			}),
+			standardPresent: []string{"name", "srcIps", "destAddresses", "users", "zpaAppSegments"},
+			standardAbsent:  []string{"lastModifiedBy"},
+			shareAbsent:     []string{"description", "srcIps", "destAddresses", "destIpCategories", "resCategories", "users", "zpaAppSegments", "lastModifiedBy"},
+		},
+		{
+			name:     "auth exempted URLs are standard-only",
+			resource: resourceAuthExemptedURLs,
+			record: structSourceRecord(userauthsettings.ExemptedUrls{
+				URLs: []string{"https://auth-bypass.example.invalid/path"},
+			}),
+			standardPresent: []string{"urls"},
+			shareAbsent:     []string{"urls"},
+		},
+		{
+			name:     "activation status keeps only status metadata",
+			resource: resourceActivationStatus,
+			record: structSourceRecord(activation.Activation{
+				Status: "ACTIVE",
+			}),
+			standardPresent: []string{"status"},
+		},
+		{
+			name:     "EUSA status maps version without extensions",
+			resource: resourceEUSAStatus,
+			record: eusaStatusSourceRecord(activation.ZiaEusaStatus{
+				ID:             10,
+				Version:        &ziacommon.IDNameExtensions{ID: 11, Name: "version", Extensions: map[string]any{"secret": canary}},
+				AcceptedStatus: true,
+			}),
+			standardPresent: []string{"id", "version", "acceptedStatus"},
+			shareAbsent:     []string{"version.extensions"},
+		},
+		{
+			name:     "intermediate CA material is dropped or standard-only",
+			resource: resourceIntermediateCAs,
+			record: intermediateCACertificateSourceRecord(intermediatecacertificates.IntermediateCACertificate{
+				ID:                         12,
+				Name:                       "Intermediate CA",
+				Description:                "certificate note psk=" + canary + " " + token,
+				Type:                       "CUSTOM",
+				Region:                     "tenant-region",
+				Status:                     "ENABLED",
+				PublicKey:                  "-----BEGIN PUBLIC KEY-----" + canary + "-----END PUBLIC KEY-----",
+				CSRFileName:                "tenant-ca.csr",
+				HSMAttestationVerifiedTime: 123,
+			}),
+			standardPresent: []string{"name", "type", "region", "csrFileName"},
+			standardAbsent:  []string{"publicKey"},
+			shareAbsent:     []string{"description", "region", "publicKey", "csrFileName"},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			standard := projectOneRecordInMode(t, resources.ProductZIA, tc.resource, redact.ModeStandard, []resources.SourceRecord{tc.record})
+			for _, field := range tc.standardPresent {
+				if _, ok := valueAtPath(standard, field); !ok {
+					t.Errorf("standard projected %s missing %s", tc.resource, field)
+				}
+			}
+			for _, field := range tc.standardAbsent {
+				if _, ok := valueAtPath(standard, field); ok {
+					t.Errorf("standard projected %s includes %s, want dropped", tc.resource, field)
+				}
+			}
+			assertNoCanaries(t, tc.resource+" standard", standard, canary, token)
+
+			for _, mode := range []redact.Mode{redact.ModeShare, redact.ModeParanoid} {
+				got := projectOneRecordInMode(t, resources.ProductZIA, tc.resource, mode, []resources.SourceRecord{tc.record})
+				for _, field := range tc.shareAbsent {
+					if _, ok := valueAtPath(got, field); ok {
+						t.Errorf("%s projected %s includes %s, want dropped", mode, tc.resource, field)
+					}
+				}
+				assertNoCanaries(t, tc.resource+" "+string(mode), got, canary, token)
+			}
+		})
+	}
+}
+
 func TestReaderGetLocationRejectsNonNumericID(t *testing.T) {
 	t.Parallel()
 
@@ -6233,6 +6353,21 @@ func mustProjectedList(t *testing.T, record map[string]any, field string) []any 
 		t.Fatalf("projected record %s = %T, want []any", field, value)
 	}
 	return items
+}
+
+func valueAtPath(record map[string]any, path string) (any, bool) {
+	current := any(record)
+	for _, part := range strings.Split(path, ".") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = object[part]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
 }
 
 func mustFieldSpec(t *testing.T, fields []resources.FieldSpec, name string) resources.FieldSpec {

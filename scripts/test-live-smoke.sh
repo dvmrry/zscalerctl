@@ -28,7 +28,7 @@ cat >"$fake_bin" <<'SH'
 set -euo pipefail
 
 mode="${ZSCALERCTL_FAKE_MODE:-good}"
-resources=(zia/advanced-settings zia/atp-malware-policy zia/gre-tunnels zia/location-groups zia/locations zia/mobile-threat-settings zia/org-information zia/rule-labels zia/static-ips zia/url-filtering-rules zpa/server-groups zpa/application-segments zpa/app-connectors zpa/service-edge-groups zpa/service-edges zpa/cloud-connector-groups zpa/cloud-connectors zpa/posture-profiles zpa/cbi-zpa-profiles zpa/c2c-ip-ranges zpa/config-overrides ztw/workload-groups ztw/admin-users ztw/admin-roles zidentity/groups zidentity/users zidentity/resource-servers)
+resources=(zia/advanced-settings zia/atp-malware-policy zia/gre-tunnels zia/intermediate-ca-certificates zia/location-groups zia/locations zia/mobile-threat-settings zia/org-information zia/rule-labels zia/static-ips zia/url-filtering-rules zpa/server-groups zpa/application-segments zpa/app-connectors zpa/service-edge-groups zpa/service-edges zpa/cloud-connector-groups zpa/cloud-connectors zpa/posture-profiles zpa/cbi-zpa-profiles zpa/c2c-ip-ranges zpa/config-overrides ztw/workload-groups ztw/admin-users ztw/admin-roles zidentity/groups zidentity/users zidentity/resource-servers)
 
 schema_fields() {
   case "$1" in
@@ -40,6 +40,9 @@ schema_fields() {
       ;;
     gre-tunnels)
       printf '[{"name":"id","allowed_modes":["standard"]},{"name":"sourceIp","allowed_modes":["standard"]},{"name":"internalIpRange","allowed_modes":["standard"]},{"name":"comment","allowed_modes":["standard"]},{"name":"withinCountry","allowed_modes":["standard"]}]'
+      ;;
+    intermediate-ca-certificates)
+      printf '[{"name":"id","allowed_modes":["standard"]},{"name":"name","allowed_modes":["standard"]},{"name":"defaultCertificate","allowed_modes":["standard"]},{"name":"certStartDate","allowed_modes":["standard"]},{"name":"certExpDate","allowed_modes":["standard"]}]'
       ;;
     location-groups)
       printf '[{"name":"id","allowed_modes":["standard"]},{"name":"name","allowed_modes":["standard"]},{"name":"comments","allowed_modes":["standard"]},{"name":"groupType","allowed_modes":["standard"]},{"name":"predefined","allowed_modes":["standard"]}]'
@@ -213,6 +216,9 @@ JSON
       ;;
     *:zia:gre-tunnels)
       printf '[{"id":4,"sourceIp":"203.0.113.10","internalIpRange":"10.0.0.0/24","comment":"","withinCountry":true}]\n'
+      ;;
+    *:zia:intermediate-ca-certificates)
+      printf '[{"id":8,"name":"Intermediate CA","defaultCertificate":true,"certStartDate":1700000000,"certExpDate":1800000000}]\n'
       ;;
     *:zia:url-filtering-rules)
       printf '[{"id":6,"name":"URL rule","locations":[{"id":1,"name":"HQ"}]}]\n'
@@ -616,6 +622,18 @@ fi
 
 if ! grep -q '\[PASS\] zia atp-malware-policy show contains no denied field keys' "$tmp_dir/stdout-good"; then
   echo "live-smoke good fixture did not allow reviewed ATP password-control field" >&2
+  cat "$tmp_dir/stdout-good" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] zia intermediate-ca-certificates list contains no denied field keys' "$tmp_dir/stdout-good"; then
+  echo "live-smoke good fixture did not allow reviewed intermediate CA certificate metadata fields" >&2
+  cat "$tmp_dir/stdout-good" >&2
+  exit 1
+fi
+
+if ! grep -q '\[PASS\] dump zia intermediate-ca-certificates contains no denied field keys' "$tmp_dir/stdout-good"; then
+  echo "live-smoke good fixture did not allow reviewed intermediate CA certificate metadata fields in dump" >&2
   cat "$tmp_dir/stdout-good" >&2
   exit 1
 fi
