@@ -1,4 +1,5 @@
 STATICCHECK_VERSION ?= v0.7.0
+GOVULNCHECK_VERSION ?= v1.3.0
 SEMGREP_VERSION ?= 1.164.0
 FUZZTIME ?= 5s
 LIVE_SMOKE_OUT ?=
@@ -21,7 +22,7 @@ vet:
 	go vet -mod=vendor ./...
 
 vuln:
-	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 staticcheck:
 	go run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./...
