@@ -831,9 +831,25 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 				if err != nil {
 					return nil, err
 				}
-				ruleTypes := make([]string, 0, len(mapping))
-				for ruleType := range mapping {
-					ruleTypes = append(ruleTypes, ruleType)
+				// The mapping's direction (rule-type code vs display name) is not
+				// guaranteed, so probe both keys and values; invalid entries are
+				// skipped by the tolerant GetByRuleType loop below.
+				seen := map[string]struct{}{}
+				ruleTypes := make([]string, 0, len(mapping)*2)
+				for k, v := range mapping {
+					for _, candidate := range []string{k, v} {
+						if candidate == "" {
+							continue
+						}
+						if _, ok := seen[candidate]; ok {
+							continue
+						}
+						seen[candidate] = struct{}{}
+						ruleTypes = append(ruleTypes, candidate)
+					}
+				}
+				if len(ruleTypes) == 0 {
+					ruleTypes = cloudAppControlRuleTypes
 				}
 				sort.Strings(ruleTypes)
 				var all []cloudappcontrol.WebApplicationRules
@@ -1105,6 +1121,31 @@ func extranetSourceRecord(item extranet.Extranet) resources.SourceRecord {
 		"createdAt":   item.CreatedAt,
 		"modifiedAt":  item.ModifiedAt,
 	})
+}
+
+// cloudAppControlRuleTypes is a fallback list of Cloud App Control rule-type
+// codes used only when the live ruleTypeMapping endpoint returns nothing.
+var cloudAppControlRuleTypes = []string{
+	"AI_ML",
+	"BUSINESS_PRODUCTIVITY",
+	"CONSUMER",
+	"CUSTOM_CAPP",
+	"DNS_OVER_HTTPS",
+	"ENTERPRISE_COLLABORATION",
+	"FILE_SHARE",
+	"FINANCE",
+	"HEALTH_CARE",
+	"HOSTING_PROVIDER",
+	"HUMAN_RESOURCES",
+	"INSTANT_MESSAGING",
+	"IT_SERVICES",
+	"LEGAL",
+	"SALES_AND_MARKETING",
+	"SOCIAL_NETWORKING",
+	"STREAMING_MEDIA",
+	"SYSTEM_AND_DEVELOPMENT",
+	"WEBMAIL",
+	"WEB_CONFERENCING",
 }
 
 func cloudAppControlSourceRecord(rule cloudappcontrol.WebApplicationRules) resources.SourceRecord {
