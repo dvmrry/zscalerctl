@@ -5,7 +5,7 @@ and ZPA resource tracks. It is not an enabled catalog, entitlement check, safety
 proof, or live response-shape validation.
 
 The inventory was generated from the full `github.com/zscaler/zscaler-sdk-go/v3`
-module cache for SDK `v3.8.37`, not only from the committed vendor tree:
+module cache for SDK `v3.8.38`, not only from the committed vendor tree:
 
 ```sh
 SDK_DIR="$(go list -m -f '{{.Dir}}' -mod=mod github.com/zscaler/zscaler-sdk-go/v3)"
@@ -77,8 +77,10 @@ safe when zscalerctl wires only read functions, but it requires explicit review.
    validation. ZPA, ZTW, and Zidentity have each established at least one
    focused OneAPI path.
 2. Continue ZTW only through reviewed governance or configuration inventory
-   slices. Initial reference resources and admin governance are cataloged;
-   policy/control surfaces still need explicit review.
+   slices. Initial reference resources, admin governance, and the pinned-SDK
+   close-out configuration batch are cataloged after focused runtime
+   validation; newly exposed SDK packages still need explicit source review
+   before cataloging.
 3. Keep Zidentity to top-level read-only inventory unless a child-query command
    shape is designed. Resource servers, groups, and users are cataloged; group
    membership remains a separate follow-up.
@@ -164,15 +166,25 @@ It is likely closer to Cloud Connector/Workload than to ZIA inventory.
 | `ztw/network-service-groups` | `zscaler/ztw/services/policyresources/networkservicegroups` | `list-get-with-mutating-neighbors` | Included in the first ZTW reference batch. Child services render as id/name references only. |
 | `ztw/admin-users` | `zscaler/ztw/services/adminuserrolemgmt/adminusers` | `list-get-with-mutating-neighbors` | Included in the admin-governance batch. Person-identifying fields render standard-only; password and token fields are dropped. |
 | `ztw/admin-roles` | `zscaler/ztw/services/adminuserrolemgmt/adminroles` | `list-get-with-mutating-neighbors` | Included in the admin-governance batch. Role identity renders share-safe; permission details render standard-only. |
-| `ztw/locations` | `zscaler/ztw/services/location` | `list-get-with-mutating-neighbors` | Useful but may overlap with ZIA location semantics; review separately. |
+| `ztw/locations` | `zscaler/ztw/services/locationmanagement/location` | `list-get-with-mutating-neighbors` | Included in the pinned-SDK close-out batch. Location addresses and detailed controls render standard-only; VPN/VPC internals are dropped. |
+| `ztw/location-templates` | `zscaler/ztw/services/locationmanagement/locationtemplate` | `list-get-with-mutating-neighbors` | Included in the pinned-SDK close-out batch. Template controls render standard-only; admin identity is dropped. |
+| `ztw/account-groups` | `zscaler/ztw/services/partner_integrations/account_groups` | `list-get-with-mutating-neighbors` | Included in the pinned-SDK close-out batch. Child account and connector group references render standard-only. |
+| `ztw/public-cloud-info` | `zscaler/ztw/services/partner_integrations/public_cloud_info` | `list-get-with-mutating-neighbors` | Included in the pinned-SDK close-out batch. Cloud account display identifiers render standard-only; external/account detail internals are dropped. |
+| `ztw/zpa-application-segments` | `zscaler/ztw/services/policyresources/zparesources` | `read-only-nonstandard` | Included in the pinned-SDK close-out batch as list-only ZPA segment references. |
+| `ztw/forwarding-rules` | `zscaler/ztw/services/policy_management/forwarding_rules` | `list-get-with-mutating-neighbors` | Included in the pinned-SDK close-out batch. Network criteria and nested policy references render standard-only. |
+| `ztw/traffic-dns-rules` | `zscaler/ztw/services/policy_management/traffic_dns_rules` | `list-get-with-mutating-neighbors` | Included in the pinned-SDK close-out batch. Network criteria and gateway references render standard-only. |
+| `ztw/traffic-log-rules` | `zscaler/ztw/services/policy_management/traffic_log_rules` | `list-get-with-mutating-neighbors` | Included in the pinned-SDK close-out batch. Location/proxy/EC references render standard-only. |
+| Covered by `ztw/dns-gateways` | `zscaler/ztw/services/forwarding_gateways/dns_forwarding_gateway` | `list-get-with-mutating-neighbors` | Same `/ztw/api/v1/dnsGateways` endpoint family as the existing DNS gateways resource; do not catalog a duplicate unless the SDK diverges. |
 
 Do not queue as ordinary inventory:
 
 | SDK package | Reason |
 | --- | --- |
+| `zscaler/ztw/services/activation` and `zscaler/ztw/services/activation_cli` | Activation/control surfaces, not inventory. |
+| `zscaler/ztw/services/locationmanagement/locationlite` | Lookup/helper surface rather than a full list/get inventory resource. |
+| `zscaler/ztw/services/partner_integrations` | Mixed discovery/template/settings helpers; queue concrete child resources instead. |
 | `zscaler/ztw/services/provisioning/api_keys` | API key surface by name. |
 | `zscaler/ztw/services/provisioning/provisioning_url` | Provisioning URL surface by name. |
-| `zscaler/ztw/services/policy/...` | Policy/control surfaces; valuable, but should follow the simpler ZTW references. |
 
 ## ZWA
 

@@ -160,11 +160,19 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/common
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/dns_gateway
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/ecgroup
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/forwarding_gateways/zia_forwarding_gateway
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/locationmanagement/location
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/locationmanagement/locationtemplate
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/partner_integrations/account_groups
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/partner_integrations/public_cloud_info
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policy_management/forwarding_rules
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policy_management/traffic_dns_rules
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policy_management/traffic_log_rules
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipdestinationgroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipgroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipsourcegroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networkservicegroups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networkservices
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/zparesources
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/provisioning/public_cloud_account
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/workload_groups
 # golang.org/x/sys v0.44.0

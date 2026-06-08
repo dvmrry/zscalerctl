@@ -79,11 +79,19 @@ import (
 	ztwdnsgateway "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/dns_gateway"
 	ztwecgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/ecgroup"
 	ztwziaforwardinggateway "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/forwarding_gateways/zia_forwarding_gateway"
+	ztwlocation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/locationmanagement/location"
+	ztwlocationtemplate "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/locationmanagement/locationtemplate"
+	ztwaccountgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/partner_integrations/account_groups"
+	ztwpubliccloudinfo "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/partner_integrations/public_cloud_info"
+	ztwforwardingrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policy_management/forwarding_rules"
+	ztwtrafficdnsrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policy_management/traffic_dns_rules"
+	ztwtrafficlogrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policy_management/traffic_log_rules"
 	ztwipdestinationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipdestinationgroups"
 	ztwipgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipgroups"
 	ztwipsourcegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/ipsourcegroups"
 	ztwnetworkservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networkservicegroups"
 	ztwnetworkservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networkservices"
+	ztwzparesources "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/zparesources"
 	ztwpubliccloudaccount "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/provisioning/public_cloud_account"
 	ztwworkloadgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/workload_groups"
 
@@ -3164,6 +3172,255 @@ func TestReaderZTWAdminGovernanceProjectsSDKShapesThroughAllowList(t *testing.T)
 		t.Errorf("ProjectRecordsAndVerify(ztw/admin-roles share) = %#v, want share-safe role identity", roleShareGot)
 	}
 	assertNoCanaries(t, "ztw/admin-roles share", roleShareGot, canary)
+}
+
+func TestReaderZTWCloseoutBatchProjectsSDKShapesThroughAllowList(t *testing.T) {
+	t.Parallel()
+
+	const canary = "ztw-closeout-batch-psk-canary"
+	cases := []struct {
+		name         string
+		record       resources.SourceRecord
+		absentFields []string
+	}{
+		{
+			name: resourceLocations,
+			record: ztwLocationSourceRecord(ztwlocation.Locations{
+				ID:          2001,
+				Name:        "Cloud Connector location",
+				ParentID:    99,
+				Country:     "US",
+				State:       "CA",
+				IPAddresses: []string{"198.51.100.10 psk=" + canary},
+				Ports:       []int{80, 443},
+				Description: "temporary psk=" + canary,
+				VPNCredentials: []ztwlocation.VPNCredentials{{
+					ID:           1,
+					IPAddress:    "198.51.100.20",
+					PreSharedKey: "psk=" + canary,
+				}},
+				PublicCloudAccountID: &ztwcommon.CommonIDName{ID: 2, Name: "account psk=" + canary},
+				VPCInfo: ztwlocation.VPCInfo{
+					CloudProvider: "AWS",
+					CloudMeta:     ztwlocation.CloudMeta{ID: 3, Name: "vpc psk=" + canary},
+				},
+			}),
+			absentFields: []string{"vpnCredentials", "vpcInfo"},
+		},
+		{
+			name: resourceLocationTmpls,
+			record: ztwLocationTemplateSourceRecord(ztwlocationtemplate.LocationTemplate{
+				ID:          2002,
+				Name:        "Template",
+				Description: "temporary psk=" + canary,
+				LocationTemplateDetails: &ztwlocationtemplate.LocationTemplateDetails{
+					TemplatePrefix: "prefix psk=" + canary,
+					AuthRequired:   true,
+					LastModUid:     &ztwcommon.CommonIDNameExternalID{ID: 4, Name: "admin psk=" + canary, ExternalID: canary},
+				},
+				Editable:    true,
+				LastModTime: 1700000500,
+				LastModUid:  &ztwcommon.CommonIDNameExternalID{ID: 5, Name: "admin psk=" + canary, ExternalID: canary},
+			}),
+			absentFields: []string{"lastModUid"},
+		},
+		{
+			name: resourceAccountGroups,
+			record: ztwAccountGroupSourceRecord(ztwaccountgroups.AccountGroups{
+				ID:          2003,
+				Name:        "Account group",
+				Description: "temporary psk=" + canary,
+				CloudType:   "AWS",
+				PublicCloudAccounts: []ztwcommon.IDNameExtensions{{
+					ID:   6,
+					Name: "account psk=" + canary,
+				}},
+				CloudConnectorGroups: []ztwcommon.IDNameExtensions{{
+					ID:   7,
+					Name: "connector group psk=" + canary,
+				}},
+			}),
+		},
+		{
+			name: resourcePublicCloudInfo,
+			record: ztwPublicCloudInfoSourceRecord(ztwpubliccloudinfo.PublicCloudInfo{
+				ID:           2004,
+				Name:         "cloud account psk=" + canary,
+				CloudType:    "AWS",
+				ExternalID:   "external psk=" + canary,
+				LastModTime:  1700000600,
+				LastSyncTime: 1700000700,
+				AccountGroups: []ztwcommon.IDNameExtensions{{
+					ID:   8,
+					Name: "account group psk=" + canary,
+				}},
+				LastModUser:      &ztwcommon.CommonIDNameExternalID{ID: 9, Name: "admin psk=" + canary, ExternalID: canary},
+				RegionStatus:     []ztwcommon.RegionStatus{{ID: 10, Name: "us-west-2", CloudType: "AWS", Status: true}},
+				SupportedRegions: []ztwcommon.SupportedRegions{{ID: 11, Name: "us-east-1", CloudType: "AWS"}},
+				AccountDetails: &ztwpubliccloudinfo.AccountDetails{
+					AwsAccountID:       "123456789012",
+					AwsRoleName:        "role psk=" + canary,
+					CloudWatchGroupArn: "arn:aws:logs:::psk=" + canary,
+					ExternalID:         "external psk=" + canary,
+					TrustedAccountID:   "trusted psk=" + canary,
+				},
+			}),
+			absentFields: []string{"externalId", "lastModUser", "accountDetails"},
+		},
+		{
+			name: resourceZTWZPAAppSegs,
+			record: ztwZPAApplicationSegmentSourceRecord(ztwzparesources.ZPAApplicationSegment{
+				ID:          2005,
+				Name:        "Application segment",
+				Description: "temporary psk=" + canary,
+				ZpaID:       12,
+				Deleted:     false,
+			}),
+		},
+		{
+			name: resourceForwardingRules,
+			record: ztwForwardingRuleSourceRecord(ztwforwardingrules.ForwardingRules{
+				ID:               2006,
+				Name:             "Forwarding rule",
+				Description:      "temporary psk=" + canary,
+				Type:             "EC_RDR",
+				Order:            1,
+				Rank:             7,
+				ForwardMethod:    "ECZPA",
+				State:            "ENABLED",
+				LastModifiedTime: 1700000800,
+				SrcIps:           []string{"192.0.2.10 psk=" + canary},
+				DestAddresses:    []string{"example.internal psk=" + canary},
+				DestIpCategories: []string{"category psk=" + canary},
+				ResCategories:    []string{"resource psk=" + canary},
+				Locations:        []ztwcommon.IDNameExtensions{{ID: 13, Name: "location psk=" + canary}},
+				LastModifiedBy:   &ztwcommon.IDNameExtensions{ID: 14, Name: "admin psk=" + canary},
+				ProxyGateway:     &ztwcommon.CommonIDName{ID: 15, Name: "proxy psk=" + canary},
+				ZPAApplicationSegments: []ztwcommon.ZPAApplicationSegments{{
+					ID:          16,
+					Name:        "segment psk=" + canary,
+					Description: "segment description psk=" + canary,
+					ZPAID:       17,
+				}},
+			}),
+			absentFields: []string{"lastModifiedBy"},
+		},
+		{
+			name: resourceTrafficDNSRules,
+			record: ztwTrafficDNSRuleSourceRecord(ztwtrafficdnsrules.ECDNSRules{
+				ID:               2007,
+				Name:             "DNS rule",
+				Description:      "temporary psk=" + canary,
+				Type:             "EC_DNS",
+				Action:           "ALLOW",
+				Order:            2,
+				Rank:             8,
+				State:            "ENABLED",
+				SrcIps:           []string{"192.0.2.11 psk=" + canary},
+				DestAddresses:    []string{"dns.example.internal psk=" + canary},
+				Locations:        []ztwcommon.IDNameExtensions{{ID: 18, Name: "location psk=" + canary}},
+				DNSGateway:       &ztwcommon.CommonIDName{ID: 19, Name: "dns gateway psk=" + canary},
+				LastModifiedTime: 1700000900,
+				LastModifiedBy:   &ztwcommon.IDNameExtensions{ID: 20, Name: "admin psk=" + canary},
+			}),
+			absentFields: []string{"lastModifiedBy"},
+		},
+		{
+			name: resourceTrafficLogRules,
+			record: ztwTrafficLogRuleSourceRecord(ztwtrafficlogrules.ECTrafficLogRules{
+				ID:               2008,
+				Name:             "Traffic log rule",
+				Description:      "temporary psk=" + canary,
+				Order:            3,
+				Rank:             9,
+				State:            "ENABLED",
+				Type:             "EC_SELF",
+				ForwardMethod:    "ECSELF",
+				Locations:        []ztwcommon.IDNameExtensions{{ID: 21, Name: "location psk=" + canary}},
+				ProxyGateway:     &ztwcommon.CommonIDName{ID: 22, Name: "proxy psk=" + canary},
+				LastModifiedTime: 1700001000,
+				LastModifiedBy:   &ztwcommon.IDNameExtensions{ID: 23, Name: "admin psk=" + canary},
+			}),
+			absentFields: []string{"lastModifiedBy"},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := projectOneRecord(t, resources.ProductZTW, tc.name, []resources.SourceRecord{tc.record})
+			assertNoCanaries(t, "ztw "+tc.name, got, canary)
+			for _, field := range tc.absentFields {
+				if _, ok := got[field]; ok {
+					t.Errorf("projected ztw %s = %#v, want no %s", tc.name, got, field)
+				}
+			}
+		})
+	}
+}
+
+func TestReaderZTWCloseoutBatchShareModeDropsSensitiveCriteria(t *testing.T) {
+	t.Parallel()
+
+	const canary = "ztw-closeout-share-psk-canary"
+	cases := []struct {
+		name         string
+		record       resources.SourceRecord
+		absentFields []string
+	}{
+		{
+			name: resourceLocations,
+			record: ztwLocationSourceRecord(ztwlocation.Locations{
+				ID:          2101,
+				Name:        "Cloud Connector location",
+				IPAddresses: []string{"198.51.100.10 psk=" + canary},
+				Description: "temporary psk=" + canary,
+			}),
+			absentFields: []string{"ipAddresses", "description", "authRequired"},
+		},
+		{
+			name: resourcePublicCloudInfo,
+			record: ztwPublicCloudInfoSourceRecord(ztwpubliccloudinfo.PublicCloudInfo{
+				ID:        2102,
+				Name:      "cloud account psk=" + canary,
+				CloudType: "AWS",
+			}),
+			absentFields: []string{"name"},
+		},
+		{
+			name: resourceForwardingRules,
+			record: ztwForwardingRuleSourceRecord(ztwforwardingrules.ForwardingRules{
+				ID:            2103,
+				Name:          "Forwarding rule",
+				SrcIps:        []string{"192.0.2.10 psk=" + canary},
+				DestAddresses: []string{"example.internal psk=" + canary},
+				Locations:     []ztwcommon.IDNameExtensions{{ID: 13, Name: "location psk=" + canary}},
+			}),
+			absentFields: []string{"srcIps", "destAddresses", "locations"},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			spec := mustFindSpec(t, resources.ProductZTW, tc.name)
+			projected, _, err := resources.ProjectRecordsAndVerify(spec, redact.ModeShare, []resources.SourceRecord{tc.record})
+			if err != nil {
+				t.Fatalf("ProjectRecordsAndVerify(ztw/%s share) error = %v, want nil", tc.name, err)
+			}
+			got := projected.Records()[0].Fields()
+			assertNoCanaries(t, "ztw "+tc.name+" share", got, canary)
+			for _, field := range tc.absentFields {
+				if _, ok := got[field]; ok {
+					t.Errorf("ProjectRecordsAndVerify(ztw/%s share) includes %s, want dropped", tc.name, field)
+				}
+			}
+		})
+	}
 }
 
 func TestReaderListAlertSubscriptionsProjectsSDKShapeThroughAllowList(t *testing.T) {

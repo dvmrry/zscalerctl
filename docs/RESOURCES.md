@@ -1840,6 +1840,163 @@ Fields:
 | `rank`, `policyAccess`, `alertingAccess`, `dashboardAccess`, `reportAccess`, `analysisAccess`, `usernameAccess`, `adminAcctAccess`, `deviceInfoAccess`, `permissions`, `logsLimit` | Tenant configuration | `standard` | Authorization details are visible to the local administrator and dropped from `share` and `paranoid`. |
 | `featurePermissions` | Secret or unmodeled nested structure | never | Arbitrary feature-permission map is dropped until its shape is reviewed. |
 
+## ZTW Locations
+
+Commands:
+
+```sh
+zscalerctl ztw locations list
+zscalerctl ztw locations get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | ZTW location identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `parentId`, `upBandwidth`, `dnBandwidth`, `overrideUpBandwidth`, `overrideDnBandwidth`, `sharedUpBandwidth`, `sharedDownBandwidth`, `unusedUpBandwidth`, `otherSubLocation`, `other6SubLocation`, `idleTimeInMinutes`, `displayTimeUnit`, `surrogateRefreshTimeInMinutes`, `surrogateRefreshTimeUnit`, `aupTimeoutInDays`, `childCount` | Operational metadata | `standard` | Location hierarchy, counters, and timing/bandwidth values are local-admin only. |
+| `country`, `state`, `language`, `tz`, `ports`, `authRequired`, `sslScanEnabled`, `zappSSLScanEnabled`, `xffForwardEnabled`, `ecLocation`, `surrogateIP`, `surrogateIPEnforcedForKnownBrowsers`, `ofwEnabled`, `ipsControl`, `aupEnabled`, `cautionEnabled`, `aupBlockInternetUntilAccepted`, `aupForceSslInspection`, `profile`, `ipv6Enabled`, `ipv6Dns64Prefix`, `kerberosAuth`, `digestAuthEnabled`, `matchInChild`, `excludeFromDynamicGroups`, `excludeFromManualGroups` | Tenant configuration | `standard` | Detailed location controls are visible to the local administrator and dropped from shared output. |
+| `ipAddresses` | Sensitive identifier | `standard` | Local-only location addresses. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `vpnCredentials`, `vpcInfo` | Secret or unmodeled nested structure | never | VPN credentials and VPC/cloud internals are dropped. |
+| `virtualZens`, `virtualZenClusters`, `staticLocationGroups`, `dynamiclocationGroups` | Tenant configuration | `standard` | Rendered as id/name/external-ID references only. |
+| `publicCloudAccountId` | Tenant configuration | `standard` | Rendered as an id/name reference only. |
+
+## ZTW Location Templates
+
+Commands:
+
+```sh
+zscalerctl ztw location-templates list
+zscalerctl ztw location-templates get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `editable` | Operational metadata | `standard`, `share`, `paranoid` | Template identity and editability flag. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `desc` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `template` | Tenant configuration | `standard` | Nested template controls render only in local-admin output. |
+| `lastModTime` | Operational metadata | `standard`, `share` | SDK timestamp value. |
+| `lastModUid` | Secret | never | Admin identity is dropped. |
+
+## ZTW Account Groups
+
+Commands:
+
+```sh
+zscalerctl ztw account-groups list
+zscalerctl ztw account-groups get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Account group identifier. |
+| `name`, `cloudType` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `publicCloudAccounts`, `cloudConnectorGroups` | Tenant configuration | `standard` | Rendered as id/name references only; child resource details are owned by their dedicated resources. |
+
+## ZTW Public Cloud Info
+
+Commands:
+
+```sh
+zscalerctl ztw public-cloud-info list
+zscalerctl ztw public-cloud-info get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Public cloud info identifier. |
+| `name` | Sensitive identifier | `standard` | Cloud account/display identifier; local-only. |
+| `cloudType` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `externalId`, `lastModUser`, `accountDetails` | Secret or unmodeled nested structure | never | External account IDs, admin identity, and account details are dropped. |
+| `lastModTime`, `lastSyncTime` | Operational metadata | `standard`, `share` | SDK timestamp values. |
+| `accountGroups`, `regionStatus`, `supportedRegions` | Tenant configuration | `standard` | Rendered as reviewed references/status summaries only. |
+
+## ZTW Zpa Application Segments
+
+Commands:
+
+```sh
+zscalerctl ztw zpa-application-segments list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `deleted` | Operational metadata | `standard`, `share`, `paranoid` | Segment identity and deletion state. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `zpaId` | Sensitive identifier | `standard` | Local-only ZPA tenant/application reference. |
+
+## ZTW Forwarding Rules
+
+Commands:
+
+```sh
+zscalerctl ztw forwarding-rules list
+zscalerctl ztw forwarding-rules get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `type`, `order`, `rank`, `defaultRule`, `state`, `lastModifiedTime`, `sourceIpGroupExclusion`, `zpaBrokerRule` | Operational metadata | `standard`, `share`, `paranoid` for broad flags; timestamp is `standard`, `share` | Rule identity, ordering, state, and broad flags. |
+| `name`, `accessControl`, `forwardMethod`, `wanSelection`, `blockResponseCode`, `nwApplications`, `destCountries`, `sourceCountries`, `labels` | Tenant configuration | `standard`, `share` | Share-safe rule metadata and broad criteria. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `srcIps`, `destAddresses`, `destIpCategories`, `resCategories` | Sensitive identifier | `standard` | Local-only network and resource criteria. |
+| `locations`, `locationGroups`, `ecGroups`, `departments`, `groups`, `users`, `srcIpGroups`, `srcIpv6Groups`, `destIpGroups`, `destIpv6Groups`, `nwServices`, `nwServiceGroups`, `nwApplicationGroups`, `appServiceGroups`, `srcWorkloadGroups`, `proxyGateway`, `zpaApplicationSegments`, `zpaApplicationSegmentGroups` | Tenant configuration | `standard` | Rendered as constrained references; child graph details are owned by dedicated resources. |
+| `lastModifiedBy` | Secret | never | Admin identity is dropped. |
+
+## ZTW Traffic Dns Rules
+
+Commands:
+
+```sh
+zscalerctl ztw traffic-dns-rules list
+zscalerctl ztw traffic-dns-rules get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `type`, `order`, `rank`, `state`, `predefined`, `defaultRule`, `lastModifiedTime` | Operational metadata | `standard`, `share`, `paranoid` for broad flags; timestamp is `standard`, `share` | Rule identity, ordering, state, and broad flags. |
+| `name`, `action` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `srcIps`, `destAddresses` | Sensitive identifier | `standard` | Local-only network criteria. |
+| `locations`, `locationGroups`, `ecGroups`, `srcIpGroups`, `destIpGroups`, `dnsGateway`, `zpaIpGroup` | Tenant configuration | `standard` | Rendered as constrained references only. |
+| `lastModifiedBy` | Secret | never | Admin identity is dropped. |
+
+## ZTW Traffic Log Rules
+
+Commands:
+
+```sh
+zscalerctl ztw traffic-log-rules list
+zscalerctl ztw traffic-log-rules get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `order`, `rank`, `state`, `type`, `defaultRule`, `lastModifiedTime` | Operational metadata | `standard`, `share`, `paranoid` for broad flags; timestamp is `standard`, `share` | Rule identity, ordering, state, and broad flags. |
+| `name`, `forwardMethod` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `locations`, `proxyGateway`, `ecGroups` | Tenant configuration | `standard` | Rendered as constrained references only. |
+| `lastModifiedBy` | Secret | never | Admin identity is dropped. |
+
 ## ZIDENTITY Groups
 
 Commands:
