@@ -1085,7 +1085,11 @@ func (a *App) resolveFormat(opts globalOptions) output.Format {
 func (a *App) style(opts globalOptions) output.Style {
 	stdoutTTY := a.stdoutTTY && opts.output == ""
 	color := output.ShouldColor(opts.colorMode, a.env, stdoutTTY)
-	return output.NewStyle(color, output.Supports256Color(a.env))
+	style := output.NewStyle(color, output.Supports256Color(a.env))
+	if stdoutTTY {
+		style.Width = output.TerminalWidth(a.out)
+	}
+	return style
 }
 
 func requireNoArgs(command string, args []string) error {
