@@ -13,11 +13,11 @@ targetRules = [
 ]
 condition = "AND"
 regexTarget = "secret"
+# Any Go test file: the regexes below are exact, known fixture canaries, so
+# scoping to *_test.go (rather than enumerating each file) lets the fixtures
+# through wherever a security test lives without admitting any real secret.
 paths = [
-  '''^internal/cli/app_test\.go$''',
-  '''^internal/redact/redact_test\.go$''',
-  '''^internal/resources/resources_test\.go$''',
-  '''^internal/zscaler/reader_test\.go$''',
+  '''_test\.go$''',
 ]
 regexes = [
   '''^A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v$''',
