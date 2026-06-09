@@ -206,6 +206,7 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/userportal/aup
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/userportal/portal_controller
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/userportal/portal_link
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/activation
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/adminuserrolemgmt/adminroles
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/adminuserrolemgmt/adminusers
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/common
