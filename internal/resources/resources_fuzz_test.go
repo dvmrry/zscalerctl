@@ -1,6 +1,7 @@
 package resources_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -27,7 +28,15 @@ func FuzzProjectRecordSubsetAndCanaryRedaction(f *testing.F) {
 		if len(data)+len(prefix)+len(suffix) > 8192 {
 			return
 		}
-		if strings.Contains(prefix, canary) || strings.Contains(suffix, canary) {
+		// The Go fuzzer harvests string constants from this test (including the
+		// canary) and injects them into its inputs. The canary is meaningful only
+		// in the secret-SHAPED occurrences this harness injects on purpose
+		// ("psk="+canary); a bare canary that the fuzzer slips into prefix,
+		// suffix, or data lands as an ordinary low-entropy field value, which the
+		// redactor correctly does NOT redact (it must not mangle arbitrary
+		// strings). Skip those inputs so the assertion stays a real leak test, not
+		// a test of the fuzzer feeding itself its own constant.
+		if strings.Contains(prefix, canary) || strings.Contains(suffix, canary) || bytes.Contains(data, []byte(canary)) {
 			return
 		}
 

@@ -108,13 +108,27 @@ Security tab (`continue-on-error`, so a finding surfaces without blocking the
 build). Promote a finding class to a blocking gate only after it is triaged and
 the rule is known to be stable for this repository.
 
-## Blocking Gates
+## Blocking Gates And Fuzzing
 
-Secret scanning and the bounded fuzz smoke are merge blockers, not advisory.
-`make secret-scan` (part of `make check`) runs gitleaks over the working tree
-with the same `.gitleaks.toml` config as CI's `secret-scan` job, so an allowlist
-gap or a real leak is caught locally. The `fuzz-smoke` CI job runs the redaction
-and projection fuzz targets for a short bounded budget on every pull request so a
-fuzzer-discovered no-leak bypass fails the build; the deeper weekly sweep lives
-in `fuzz.yml`. `fuzz-smoke` is deliberately kept out of local `make check` to
-keep the local loop fast.
+Secret scanning is a merge blocker, not advisory: `make secret-scan` (part of
+`make check`) runs gitleaks over the working tree with the same `.gitleaks.toml`
+config as CI's `secret-scan` job, so an allowlist gap or a real leak is caught
+locally.
+
+Fuzzing uses the standard two-tier model, **not** a live-exploration blocking
+gate:
+
+- **Regression (blocking, deterministic):** `go test ./...` (the `unit` CI job)
+  runs every fuzz target's seed corpus — the inline `f.Add` seeds plus any
+  committed `testdata/fuzz/<target>/*` crash inputs — as ordinary tests. A
+  committed crash input that still reproduces fails the build deterministically.
+- **Discovery (advisory):** the weekly `fuzz.yml` workflow runs live
+  `-fuzz` exploration and uploads any newly discovered crash input as an
+  artifact. When the fuzzer finds a real bug, commit that input under
+  `testdata/fuzz/` so the regression tier then catches it forever.
+
+A short live-`-fuzz` job was previously wired as a blocking PR gate; it was
+removed because live exploration is nondeterministic (it can fail an unrelated
+PR on a freshly mutated input whose reproduction is not committed) and because a
+fuzz-harness false positive can block real work. `make fuzz-smoke` remains as a
+local discovery helper.
