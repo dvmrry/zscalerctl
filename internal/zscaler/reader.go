@@ -251,6 +251,10 @@ const (
 	resourceSecurityPolicyURLAllowlist = "url-allow-list"
 	resourceSecurityPolicyURLDenylist  = "url-deny-list"
 	resourceZPAServerGroups            = "server-groups"
+	resourceZPAMicrotenants            = "microtenants"
+	resourceZPAVersionProfiles         = "version-profiles"
+	resourceZPAClientTypes             = "client-types"
+	resourceZPAPlatforms               = "platforms"
 	resourceZPASegmentGroups           = "segment-groups"
 	resourceZPAAppSegments             = "application-segments"
 	resourceZPAAppConnectors           = "app-connectors"
@@ -266,6 +270,14 @@ const (
 	resourceZPACBIZPAProfs             = "cbi-zpa-profiles"
 	resourceZPAC2CIPRanges             = "c2c-ip-ranges"
 	resourceZPAConfigOvrds             = "config-overrides"
+	resourceZPAIsolationProfiles       = "isolation-profiles"
+	resourceZPABranchConnectors        = "branch-connectors"
+	resourceZPAUserPortals             = "user-portals"
+	resourceZPAUserPortalAups          = "user-portal-aups"
+	resourceZPAUserPortalLinks         = "user-portal-links"
+	resourceZPABrowserAccess           = "browser-access"
+	resourceZPAInspectionAppSegments   = "inspection-app-segments"
+	resourceZPAPRAAppSegments          = "pra-app-segments"
 	resourceZidentityGroups            = "groups"
 	resourceZidentityUsers             = "users"
 	resourceZidentityResourceServers   = "resource-servers"
@@ -915,6 +927,21 @@ func zpaSDKList[T any](
 		defer cleanup()
 		items, _, err := call(ctx, service)
 		return items, err
+	}
+}
+
+func zpaSDKShow[T any](
+	client sdkClient,
+	call func(context.Context, *zsdk.Service) (*T, *http.Response, error),
+) func(context.Context) (*T, error) {
+	return func(ctx context.Context) (*T, error) {
+		service, cleanup, err := client.productService(ctx, resources.ProductZPA)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		item, _, err := call(ctx, service)
+		return item, err
 	}
 }
 
