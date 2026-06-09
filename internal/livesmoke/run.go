@@ -52,6 +52,9 @@ func newExecRunner(bin string) *execRunner {
 
 func (r *execRunner) Run(args ...string) (stdout, stderr []byte, exitCode int) {
 	full := append(append([]string(nil), r.argv...), args...)
+	// #nosec G204 -- dev tool: the command is the operator-chosen zscalerctl
+	// binary (or `go run`), and args are the fixed CLI verbs this validator
+	// issues, not attacker input.
 	cmd := exec.Command(full[0], full[1:]...)
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out

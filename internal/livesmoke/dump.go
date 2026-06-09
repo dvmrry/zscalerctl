@@ -9,6 +9,14 @@ import (
 	"strings"
 )
 
+// readArtifact reads a dump artifact (resource file, manifest, report) from the
+// validator's own output directory.
+func readArtifact(path string) ([]byte, error) {
+	// #nosec G304 -- path is a dump artifact under the tool's own output dir,
+	// not external request input.
+	return os.ReadFile(path)
+}
+
 type dumpManifestResource struct {
 	Product string `json:"product"`
 	Name    string `json:"name"`
@@ -89,7 +97,7 @@ func (s *smoke) validateDump() {
 }
 
 func (s *smoke) validateManifest(path string) *dumpManifest {
-	body, err := os.ReadFile(path)
+	body, err := readArtifact(path)
 	if err != nil {
 		s.rep.fail("dump manifest missing: %s", path)
 		return nil
@@ -133,7 +141,7 @@ func (s *smoke) validateManifest(path string) *dumpManifest {
 }
 
 func (s *smoke) validateRedactionReport(path string) {
-	body, err := os.ReadFile(path)
+	body, err := readArtifact(path)
 	if err != nil {
 		s.rep.fail("redaction report missing: %s", path)
 		return
@@ -209,7 +217,7 @@ func (s *smoke) validateDumpResource(dumpDir, qualified string) {
 	}
 
 	start := s.rep.failures
-	body, err := os.ReadFile(file)
+	body, err := readArtifact(file)
 	if err != nil {
 		s.rep.fail("dump resource file missing: %s", file)
 		s.rep.record(qualified, "dump", "FAIL", "-", "missing dump file")
@@ -260,7 +268,7 @@ func (s *smoke) compareCounts(qualified, operation, artifact string, dumpCount i
 func (s *smoke) crossCheckManifestCounts(dumpDir string, manifest *dumpManifest) {
 	for _, r := range manifest.Resources {
 		file := filepath.Join(dumpDir, filepath.FromSlash(r.Path))
-		body, err := os.ReadFile(file)
+		body, err := readArtifact(file)
 		if err != nil {
 			s.rep.fail("manifest references missing resource file: %s", r.Path)
 			continue

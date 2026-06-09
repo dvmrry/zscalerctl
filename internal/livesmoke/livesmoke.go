@@ -88,6 +88,7 @@ func (s *smoke) run() int {
 
 	// 3. Verify the binary exists (exec runner only) and set up the output dir.
 	if s.opts.Bin != "" {
+		// #nosec G204 -- operator-supplied --bin path for this dev tool.
 		if _, err := exec.LookPath(s.opts.Bin); err != nil {
 			return s.usage("zscalerctl binary not found or not executable: %s", s.opts.Bin)
 		}
@@ -141,8 +142,10 @@ func (s *smoke) finishFailure() int {
 	summary, err := s.rep.writeFailureSummary(s.outDir, s.stderrs)
 	if err == nil {
 		fmt.Fprintf(s.rep.errw, "[INFO] failure summary: %s\n\n", summary)
+		// #nosec G304 -- summary is a path this tool just wrote under its own
+		// output dir, not external input.
 		if body, rerr := os.ReadFile(summary); rerr == nil {
-			s.rep.errw.Write(body)
+			_, _ = s.rep.errw.Write(body)
 		}
 	}
 	fmt.Fprintf(s.rep.errw, "[FAIL] live smoke completed with %d failure(s); artifacts kept at %s\n", s.rep.failures, s.outDir)
@@ -165,6 +168,8 @@ func (s *smoke) setupOutDir() int {
 		}
 		s.outDir = s.opts.OutDir
 	}
+	// #nosec G302 -- this is a directory; 0700 (owner-only) is the intended,
+	// tightest mode for it.
 	_ = os.Chmod(s.outDir, 0o700)
 	return 0
 }
@@ -383,6 +388,8 @@ func sortedCopy(in []string) []string {
 const defaultManifest = "live-smoke.manifest"
 
 func (s *smoke) loadManifest(path string) ([]string, error) {
+	// #nosec G304 -- path is the operator-supplied --manifest/default manifest
+	// path for this dev tool, not external request input.
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("live smoke manifest not found: %s", path)
@@ -407,7 +414,11 @@ func (s *smoke) shouldUseDefaultManifest() bool {
 	return manifestChangedFromBase()
 }
 
+// gitOutput runs a fixed git query (for default-manifest branch auto-discovery)
+// and returns its stdout, or "" on error.
 func gitOutput(args ...string) string {
+	// #nosec G204 -- fixed git subcommands for branch/diff discovery; args are
+	// constants from this file, not external input.
 	out, err := exec.Command("git", args...).Output()
 	if err != nil {
 		return ""
@@ -420,20 +431,27 @@ func manifestChangedFromBase() bool {
 	if base == "" {
 		base = "origin/main"
 	}
-	if exec.Command("git", "rev-parse", "--is-inside-work-tree").Run() != nil {
+	if gitFails("rev-parse", "--is-inside-work-tree") {
 		return true
 	}
-	if exec.Command("git", "rev-parse", "--verify", "-q", base).Run() != nil {
+	if gitFails("rev-parse", "--verify", "-q", base) {
 		return true
 	}
-	if exec.Command("git", "diff", "--quiet", base+"...HEAD", "--", defaultManifest).Run() != nil {
+	if gitFails("diff", "--quiet", base+"...HEAD", "--", defaultManifest) {
 		return true
 	}
-	if exec.Command("git", "diff", "--quiet", "--", defaultManifest).Run() != nil {
+	if gitFails("diff", "--quiet", "--", defaultManifest) {
 		return true
 	}
 	others := strings.TrimSpace(gitOutput("ls-files", "--others", "--exclude-standard", "--", defaultManifest))
 	return others != ""
+}
+
+// gitFails runs a fixed git command and reports whether it exited non-zero.
+func gitFails(args ...string) bool {
+	// #nosec G204 -- fixed git subcommands for default-manifest discovery; the
+	// only variable is a branch ref read from config/env, not request input.
+	return exec.Command("git", args...).Run() != nil
 }
 
 // fileMode returns the permission bits of path as a 3-digit octal string.
