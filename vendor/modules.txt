@@ -169,6 +169,8 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorschedule
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegment
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegmentbrowseraccess
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegmentinspection
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegmentpra
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/branch_connector
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges

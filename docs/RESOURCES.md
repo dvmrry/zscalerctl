@@ -2424,6 +2424,66 @@ Fields:
 
 The SDK also returns the application ID, microtenant ID, and nested portal references (`applicationId`, `microtenantId`, `userPortalId`, `userPortals`); the catalog keeps those out of rendered output as tenant-identifying or unmodeled.
 
+## ZPA Browser Access
+
+Commands:
+
+```sh
+zscalerctl zpa browser-access list
+zscalerctl zpa browser-access get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `bypassType`, `bypassOnReauth`, `enabled`, `passiveHealthEnabled`, `fqdnDnsCheck`, `apiProtectionEnabled`, `selectConnectorCloseToApp`, `doubleEncrypt`, `healthCheckType`, `isCnameEnabled`, `ipAnchored`, `tcpKeepAlive`, `useInDrMode`, `inspectTrafficWithZia`, `healthReporting`, `icmpAccessType`, `creationTime`, `modifiedBy`, `modifiedTime`, `readOnly`, `restrictionType` | Operational metadata | `standard`, `share`, `paranoid` | Segment state and metadata. |
+| `name`, `segmentGroupName`, `microtenantName` | Tenant configuration | `standard`, `share` | Segment, group, and microtenant names. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `domainNames`, `tcpPortRanges`, `udpPortRanges` | Sensitive identifier | `standard` | Application domains and port ranges. |
+
+The SDK also returns group/microtenant IDs, DR config, port-range objects, and nested clientless/server-group structures (`segmentGroupId`, `microtenantId`, `appRecommendationId`, `matchStyle`, `configSpace`, `extranetEnabled`, `isIncompleteDRConfig`, `zscalerManaged`, `weightedLoadBalancing`, `tcpPortRange`, `udpPortRange`, `clientlessApps`, `serverGroups`, `sharedMicrotenantDetails`, `policyStyle`, `zpnErId`); the catalog keeps those out of rendered output as tenant-identifying or unmodeled.
+
+## ZPA Inspection App Segments
+
+Commands:
+
+```sh
+zscalerctl zpa inspection-app-segments list
+zscalerctl zpa inspection-app-segments get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `bypassType`, `bypassOnReauth`, `enabled`, `adpEnabled`, `autoAppProtectEnabled`, `passiveHealthEnabled`, `fqdnDnsCheck`, `apiProtectionEnabled`, `selectConnectorCloseToApp`, `doubleEncrypt`, `healthCheckType`, `isCnameEnabled`, `ipAnchored`, `tcpKeepAlive`, `useInDrMode`, `healthReporting`, `icmpAccessType`, `creationTime`, `modifiedBy`, `modifiedTime`, `readOnly`, `restrictionType`, `tcpProtocols`, `udpProtocols` | Operational metadata | `standard`, `share`, `paranoid` | Segment state and metadata. |
+| `name`, `segmentGroupName`, `microtenantName` | Tenant configuration | `standard`, `share` | Segment, group, and microtenant names. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `domainNames`, `tcpPortRanges`, `udpPortRanges` | Sensitive identifier | `standard` | Application domains and port ranges. |
+
+The SDK also returns group/microtenant IDs, DR config, port-range objects, and nested inspection/app/server-group structures (`segmentGroupId`, `microtenantId`, `appRecommendationId`, `matchStyle`, `configSpace`, `extranetEnabled`, `isIncompleteDRConfig`, `zscalerManaged`, `weightedLoadBalancing`, `tcpPortRange`, `udpPortRange`, `inspectionApps`, `commonAppsDto`, `serverGroups`, `sharedMicrotenantDetails`, `policyStyle`); the catalog keeps those out of rendered output as tenant-identifying or unmodeled.
+
+## ZPA Pra App Segments
+
+Commands:
+
+```sh
+zscalerctl zpa pra-app-segments list
+zscalerctl zpa pra-app-segments get <id>
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `bypassType`, `bypassOnReauth`, `enabled`, `passiveHealthEnabled`, `fqdnDnsCheck`, `apiProtectionEnabled`, `selectConnectorCloseToApp`, `doubleEncrypt`, `healthCheckType`, `isCnameEnabled`, `ipAnchored`, `tcpKeepAlive`, `useInDrMode`, `healthReporting`, `icmpAccessType`, `creationTime`, `modifiedBy`, `modifiedTime`, `readOnly`, `restrictionType` | Operational metadata | `standard`, `share`, `paranoid` | Segment state and metadata. |
+| `name`, `segmentGroupName`, `microtenantName` | Tenant configuration | `standard`, `share` | Segment, group, and microtenant names. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `domainNames`, `tcpPortRanges`, `udpPortRanges` | Sensitive identifier | `standard` | Application domains and port ranges. |
+
+The SDK also returns group/microtenant IDs, DR config, timeouts, port-range objects, and nested PRA/app/server-group structures (`segmentGroupId`, `microtenantId`, `appRecommendationId`, `matchStyle`, `configSpace`, `applications`, `extranetEnabled`, `isIncompleteDRConfig`, `zscalerManaged`, `weightedLoadBalancing`, `tcpPortRange`, `udpPortRange`, `defaultIdleTimeout`, `defaultMaxAge`, `praApps`, `commonAppsDto`, `serverGroups`, `sharedMicrotenantDetails`, `policyStyle`, `zpnErId`); the catalog keeps those out of rendered output as tenant-identifying or unmodeled.
+
 ## ZPA Server Groups
 
 Commands:

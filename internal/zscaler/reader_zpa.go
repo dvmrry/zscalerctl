@@ -10,6 +10,9 @@ import (
 	zpaappconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup"
 	zpaappconnschedule "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorschedule"
 	zpaapplicationsegment "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegment"
+	zpaappsegmentba "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegmentbrowseraccess"
+	zpaappsegmentinspection "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegmentinspection"
+	zpaappsegmentpra "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegmentpra"
 	zpaappservercontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller"
 	zpabranchconnector "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/branch_connector"
 	zpac2cipranges "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges"
@@ -278,6 +281,36 @@ func addZPAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 				return zpauserportallink.Get(ctx, service, id)
 			}),
 			jsonSourceRecord[zpauserportallink.UserPortalLink],
+		),
+		{product: resources.ProductZPA, name: resourceZPABrowserAccess}: newListGetHandler(
+			resourceZPABrowserAccess,
+			zpaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]zpaappsegmentba.BrowserAccess, *http.Response, error) {
+				return zpaappsegmentba.GetAll(ctx, service)
+			}),
+			zpaSDKStringGet(client, func(ctx context.Context, service *zsdk.Service, id string) (*zpaappsegmentba.BrowserAccess, *http.Response, error) {
+				return zpaappsegmentba.Get(ctx, service, id)
+			}),
+			jsonSourceRecord[zpaappsegmentba.BrowserAccess],
+		),
+		{product: resources.ProductZPA, name: resourceZPAInspectionAppSegments}: newListGetHandler(
+			resourceZPAInspectionAppSegments,
+			zpaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]zpaappsegmentinspection.AppSegmentInspection, *http.Response, error) {
+				return zpaappsegmentinspection.GetAll(ctx, service)
+			}),
+			zpaSDKStringGet(client, func(ctx context.Context, service *zsdk.Service, id string) (*zpaappsegmentinspection.AppSegmentInspection, *http.Response, error) {
+				return zpaappsegmentinspection.Get(ctx, service, id)
+			}),
+			jsonSourceRecord[zpaappsegmentinspection.AppSegmentInspection],
+		),
+		{product: resources.ProductZPA, name: resourceZPAPRAAppSegments}: newListGetHandler(
+			resourceZPAPRAAppSegments,
+			zpaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]zpaappsegmentpra.AppSegmentPRA, *http.Response, error) {
+				return zpaappsegmentpra.GetAll(ctx, service)
+			}),
+			zpaSDKStringGet(client, func(ctx context.Context, service *zsdk.Service, id string) (*zpaappsegmentpra.AppSegmentPRA, *http.Response, error) {
+				return zpaappsegmentpra.Get(ctx, service, id)
+			}),
+			jsonSourceRecord[zpaappsegmentpra.AppSegmentPRA],
 		),
 		{product: resources.ProductZPA, name: resourceZPASegmentGroups}: newListGetHandler(
 			resourceZPASegmentGroups,
