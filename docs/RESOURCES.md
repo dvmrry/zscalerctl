@@ -1993,6 +1993,88 @@ zscalerctl zia url-deny-list show
 This singleton settings page renders the global URL deny list only in
 `standard`. The allow-list field is explicitly modeled and dropped.
 
+## ZPA Version Profiles
+
+Commands:
+
+```sh
+zscalerctl zpa version-profiles list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id` | Operational metadata | `standard`, `share`, `paranoid` | Version profile identifier. |
+| `name` | Tenant configuration | `standard`, `share` | Scanned for pasted secret-shaped values. |
+| `description` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
+| `creationTime`, `modifiedBy`, `modifiedTime`, `visibilityScope`, `numberOfAssistants`, `numberOfCustomers`, `numberOfPrivateBrokers`, `numberOfSiteControllers`, `numberOfUpdatedAssistants`, `numberOfUpdatedPrivateBrokers`, `numberOfUpdatedSiteControllers` | Operational metadata | `standard`, `share`, `paranoid` | Profile metadata and broker/assistant counts. |
+| `upgradePriority` | Tenant configuration | `standard`, `share` | Upgrade priority setting. |
+
+The SDK also returns the ZPA customer ID, custom-scope customer ID lists, and nested version details (`customerId`, `customScopeCustomerIds`, `customScopeRequestCustomerIds`, `versions`); the catalog keeps those out of rendered output as tenant-identifying or unmodeled.
+
+## ZPA Client Types
+
+Commands:
+
+```sh
+zscalerctl zpa client-types list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `zpn_client_type_exporter`, `zpn_client_type_exporter_noauth`, `zpn_client_type_browser_isolation`, `zpn_client_type_machine_tunnel`, `zpn_client_type_ip_anchoring`, `zpn_client_type_edge_connector`, `zpn_client_type_zapp`, `zpn_client_type_slogger`, `zpn_client_type_branch_connector`, `zpn_client_type_zapp_partner`, `zpn_client_type_vdi`, `zpn_client_type_zia_inspection` | Operational metadata | `standard`, `share`, `paranoid` | Client-type reference identifiers. |
+
+## ZPA Platforms
+
+Commands:
+
+```sh
+zscalerctl zpa platforms list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `linux`, `android`, `windows`, `ios`, `mac` | Operational metadata | `standard`, `share`, `paranoid` | Supported client platform reference values. |
+
+## ZPA App Connector Schedule
+
+Commands:
+
+```sh
+zscalerctl zpa app-connector-schedule list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `deleteDisabled`, `enabled` | Operational metadata | `standard`, `share`, `paranoid` | Auto-delete schedule state. |
+| `frequency`, `frequencyInterval` | Tenant configuration | `standard`, `share` | Auto-delete schedule configuration. |
+
+The SDK also returns the ZPA customer ID (`customerId`), kept out of rendered output as tenant-identifying.
+
+## ZPA Service Edge Schedule
+
+Commands:
+
+```sh
+zscalerctl zpa service-edge-schedule list
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `id`, `deleteDisabled`, `enabled` | Operational metadata | `standard`, `share`, `paranoid` | Auto-delete schedule state. |
+| `frequency`, `frequencyInterval` | Tenant configuration | `standard`, `share` | Auto-delete schedule configuration. |
+
+The SDK also returns the ZPA customer ID (`customerId`), kept out of rendered output as tenant-identifying.
+
 ## ZPA Microtenants
 
 Commands:

@@ -252,6 +252,11 @@ const (
 	resourceSecurityPolicyURLDenylist  = "url-deny-list"
 	resourceZPAServerGroups            = "server-groups"
 	resourceZPAMicrotenants            = "microtenants"
+	resourceZPAVersionProfiles         = "version-profiles"
+	resourceZPAClientTypes             = "client-types"
+	resourceZPAPlatforms               = "platforms"
+	resourceZPAAppConnectorSchedule    = "app-connector-schedule"
+	resourceZPAServiceEdgeSchedule     = "service-edge-schedule"
 	resourceZPASegmentGroups           = "segment-groups"
 	resourceZPAAppSegments             = "application-segments"
 	resourceZPAAppConnectors           = "app-connectors"
@@ -916,6 +921,21 @@ func zpaSDKList[T any](
 		defer cleanup()
 		items, _, err := call(ctx, service)
 		return items, err
+	}
+}
+
+func zpaSDKShow[T any](
+	client sdkClient,
+	call func(context.Context, *zsdk.Service) (*T, *http.Response, error),
+) func(context.Context) (*T, error) {
+	return func(ctx context.Context) (*T, error) {
+		service, cleanup, err := client.productService(ctx, resources.ProductZPA)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		item, _, err := call(ctx, service)
+		return item, err
 	}
 }
 

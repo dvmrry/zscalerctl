@@ -9,21 +9,26 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 	zpaappconnectorcontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorcontroller"
 	zpaappconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup"
+	zpaappconnschedule "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorschedule"
 	zpaapplicationsegment "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegment"
 	zpaappservercontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller"
 	zpac2cipranges "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges"
+	zpaclienttypes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/clienttypes"
 	zpacloudconnector "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector"
 	zpacloudconnectorgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector_group"
 	zpacbizpaprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloudbrowserisolation/cbizpaprofile"
 	zpacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/common"
 	zpaconfigoverride "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/config_override"
+	zpaversionprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/customerversionprofile"
 	zpamachinegroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/machinegroup"
 	zpamicrotenants "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/microtenants"
+	zpaplatforms "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/platforms"
 	zpapostureprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/postureprofile"
 	zpasegmentgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/segmentgroup"
 	zpaservergroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup"
 	zpaserviceedgecontroller "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgecontroller"
 	zpaserviceedgegroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgegroup"
+	zpaserviceedgeschedule "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgeschedule"
 	zpatrustednetwork "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/trustednetwork"
 	ztwcommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/common"
 	ztwnetworkservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networkservicegroups"
@@ -53,6 +58,94 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 				"modifiedTime",
 				"roles",
 				"user",
+			},
+		},
+		{
+			name:         "zpaversionprofile.CustomerVersionProfile",
+			resource:     resources.ProductZPA,
+			resourceName: resourceZPAVersionProfiles,
+			typ:          reflect.TypeOf(zpaversionprofile.CustomerVersionProfile{}),
+			catalogFields: []string{
+				"id",
+				"name",
+				"description",
+				"creationTime",
+				"modifiedBy",
+				"modifiedTime",
+				"customerId",
+				"customScopeCustomerIds",
+				"customScopeRequestCustomerIds",
+				"versions",
+				"visibilityScope",
+				"upgradePriority",
+				"numberOfAssistants",
+				"numberOfCustomers",
+				"numberOfPrivateBrokers",
+				"numberOfSiteControllers",
+				"numberOfUpdatedAssistants",
+				"numberOfUpdatedPrivateBrokers",
+				"numberOfUpdatedSiteControllers",
+			},
+		},
+		{
+			name:         "zpaclienttypes.ClientTypes",
+			resource:     resources.ProductZPA,
+			resourceName: resourceZPAClientTypes,
+			typ:          reflect.TypeOf(zpaclienttypes.ClientTypes{}),
+			catalogFields: []string{
+				"zpn_client_type_exporter",
+				"zpn_client_type_exporter_noauth",
+				"zpn_client_type_browser_isolation",
+				"zpn_client_type_machine_tunnel",
+				"zpn_client_type_ip_anchoring",
+				"zpn_client_type_edge_connector",
+				"zpn_client_type_zapp",
+				"zpn_client_type_slogger",
+				"zpn_client_type_branch_connector",
+				"zpn_client_type_zapp_partner",
+				"zpn_client_type_vdi",
+				"zpn_client_type_zia_inspection",
+			},
+		},
+		{
+			name:         "zpaplatforms.Platforms",
+			resource:     resources.ProductZPA,
+			resourceName: resourceZPAPlatforms,
+			typ:          reflect.TypeOf(zpaplatforms.Platforms{}),
+			catalogFields: []string{
+				"linux",
+				"android",
+				"windows",
+				"ios",
+				"mac",
+			},
+		},
+		{
+			name:         "zpaappconnschedule.AssistantSchedule",
+			resource:     resources.ProductZPA,
+			resourceName: resourceZPAAppConnectorSchedule,
+			typ:          reflect.TypeOf(zpaappconnschedule.AssistantSchedule{}),
+			catalogFields: []string{
+				"id",
+				"customerId",
+				"deleteDisabled",
+				"enabled",
+				"frequency",
+				"frequencyInterval",
+			},
+		},
+		{
+			name:         "zpaserviceedgeschedule.AssistantSchedule",
+			resource:     resources.ProductZPA,
+			resourceName: resourceZPAServiceEdgeSchedule,
+			typ:          reflect.TypeOf(zpaserviceedgeschedule.AssistantSchedule{}),
+			catalogFields: []string{
+				"id",
+				"customerId",
+				"deleteDisabled",
+				"enabled",
+				"frequency",
+				"frequencyInterval",
 			},
 		},
 		{
