@@ -2938,9 +2938,9 @@ Fields:
 
 | Field | Classification | Modes | Notes |
 | --- | --- | --- | --- |
-| `id`, `active`, `enableFailOpen`, `enableCaptivePortalDetection`, `captivePortalWebSecDisableMinutes`, `enableStrictEnforcementPrompt`, `strictEnforcementPromptDelayMinutes`, `enableWebSecOnProxyUnreachable`, `enableWebSecOnTunnelFailure`, `tunnelFailureRetryCount`, `createdBy`, `editedBy` | Operational metadata | `standard`, `share`, `paranoid` | Fail-open policy state and settings. |
+| `id`, `active`, `enableFailOpen`, `enableCaptivePortalDetection`, `captivePortalWebSecDisableMinutes`, `enableStrictEnforcementPrompt`, `strictEnforcementPromptDelayMinutes`, `enableWebSecOnProxyUnreachable`, `enableWebSecOnTunnelFailure`, `tunnelFailureRetryCount` | Operational metadata | `standard`, `share`, `paranoid` | Fail-open policy state and settings. |
 | `strictEnforcementPromptMessage` | Free text | `standard` | High-risk admin-controlled text; scanned before output, including bare high-entropy tokens. |
-| `companyId` | Secret | never | Tenant-identifying company ID is dropped. |
+| `createdBy`, `editedBy`, `companyId` | Secret | never | Admin identity and tenant-identifying company ID are dropped. |
 
 This is a ZCC OneAPI reachability probe (`/zcc/papi/public/v1/webFailOpenPolicy`). ZCC coverage expands only after a live-smoke pass confirms the `/zcc/papi/` route is reachable on the tenant.
 
