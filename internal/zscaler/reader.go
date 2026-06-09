@@ -245,6 +245,7 @@ const (
 	resourceZCCDevices        = "devices"
 	resourceZCCAdminRoles     = "admin-roles"
 	resourceZCCCompanyInfo    = "company-info"
+	resourceZTWActivationStat = "activation-status"
 	resourceEmailProfiles     = "email-profiles"
 
 	resourceAdvancedSettings           = "advanced-settings"

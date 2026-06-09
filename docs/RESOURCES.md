@@ -2536,6 +2536,23 @@ Fields:
 | `description` | Free text | `standard` | Standard-only operator context; scanned with free-text and rendered-string backstops. |
 | `configKey`, `configValue`, `configValueInt`, `customerId`, `targetGid` | Secret or unmodeled nested structure | none | Dropped because override keys, values, and tenant/target identifiers require resource-specific review before exposure. |
 
+## ZTW Activation Status
+
+Commands:
+
+```sh
+zscalerctl ztw activation-status show
+zscalerctl dump --products ztw --resources ztw/activation-status --out ./scratch-live-smoke
+```
+
+Fields:
+
+| Field | Classification | Modes | Notes |
+| --- | --- | --- | --- |
+| `orgEditStatus`, `orgLastActivateStatus`, `adminActivateStatus` | Operational metadata | `standard`, `share` | EC admin activation status metadata. |
+
+The SDK also returns a per-admin status map (`adminStatusMap`); the catalog keeps it out of rendered output as unmodeled tenant-identifying detail.
+
 ## ZTW Workload Groups
 
 Commands:
