@@ -3,16 +3,3 @@
 # scripts/live-smoke.sh auto-uses this file on feature branches when it differs
 # from origin/main and no explicit --resources or LIVE_SMOKE_RESOURCES was set.
 # Keep this focused on the resources changed by the current branch.
-
-# ZCC read batch (survivors after trimming 404/400/live-access failures)
-zcc/fail-open-policy
-zcc/forwarding-profiles
-zcc/trusted-networks
-zcc/web-app-services
-zcc/application-profiles
-zcc/custom-ip-apps
-zcc/predefined-ip-apps
-zcc/process-based-apps
-zcc/devices
-zcc/admin-roles
-zcc/company-info
