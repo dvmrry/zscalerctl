@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
+	sdkcommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/common"
 	sdkerrorx "github.com/zscaler/zscaler-sdk-go/v3/zscaler/errorx"
 	activation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/activation"
 	ziaadminusers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/admins"
@@ -6181,6 +6183,38 @@ func TestReaderGetScanMissMapsToResourceNotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), string(resources.ProductZIA)+"/"+resourceAppServices) {
 		t.Errorf("SDKReader.Get(missing id) error = %q, want product/resource context", err.Error())
+	}
+}
+
+func TestForeignSDKEnvCannotOverrideExplicitMicrotenant(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates process env.
+
+	// First, demonstrate the hazard this guards against: the vendored SDK
+	// consults ZPA_MICROTENANT_ID on every request with HIGHER priority than
+	// the explicit configuration this tool sets.
+	t.Setenv("ZPA_MICROTENANT_ID", "foreign-microtenant")
+	t.Setenv("ZSCALER_SANDBOX_TOKEN", "foreign-sandbox-token")
+	q := sdkcommon.InjectMicrotentantID(nil, url.Values{}, "explicit-microtenant")
+	if got := q.Get("microtenantId"); got != "foreign-microtenant" {
+		t.Fatalf("SDK priority changed: InjectMicrotentantID = %q, want foreign env to win pre-neutralization (update this guard if the SDK fixed it)", got)
+	}
+
+	// Building the SDK configuration must neutralize the foreign request-time
+	// vars for the process lifetime — a scoped unset-and-restore cannot help
+	// because the SDK reads them per request, long after construction.
+	cfg := newSDKConfiguration(context.Background(), validReaderConfig())
+	for _, key := range []string{"ZPA_MICROTENANT_ID", "ZSCALER_SANDBOX_TOKEN"} {
+		if value := os.Getenv(key); value != "" {
+			t.Errorf("os.Getenv(%s) = %q after newSDKConfiguration, want empty", key, value)
+		}
+	}
+	// The explicit ZSCALERCTL_* microtenant still flows through the config tier.
+	if cfg.Zscaler.Client.MicrotenantID != "zscalerctl-zpa-microtenant-id" {
+		t.Errorf("config MicrotenantID = %q, want explicit zscalerctl value", cfg.Zscaler.Client.MicrotenantID)
+	}
+	q = sdkcommon.InjectMicrotentantID(nil, url.Values{}, cfg.Zscaler.Client.MicrotenantID)
+	if got := q.Get("microtenantId"); got != "zscalerctl-zpa-microtenant-id" {
+		t.Errorf("post-neutralization InjectMicrotentantID = %q, want the explicit config value", got)
 	}
 }
 
