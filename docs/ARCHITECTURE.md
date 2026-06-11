@@ -334,6 +334,14 @@ Dump writers should:
 - Avoid partial successful output looking complete.
 - Include enough manifest data to support review and diff workflows.
 
+Large tenants: dump output is fully buffered in memory. List collection
+accumulates every record, output marshals the entire payload, and the final
+redaction pass byte-scans a second full copy of the serialized bytes, so
+expect peak memory of roughly twice the serialized dump size (plus in-memory
+record overhead). `TestLargeTenantDumpBaseline` in `internal/dump` pins this
+baseline with a synthetic multi-thousand-record tenant and fails if peak heap
+growth ever exceeds 20x the serialized output size.
+
 By default, dump collection aborts before writing files when any selected
 resource fails. `--continue-on-error` is the explicit opt-in for partial dumps:
 successful resources are written, `manifest.json` is marked `partial`, failed
