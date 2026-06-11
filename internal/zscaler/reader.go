@@ -1166,6 +1166,7 @@ func (s fixedService) service(ctx context.Context, _ resources.Product) (*zsdk.S
 }
 
 func newLegacyZIAClient(cfg *sdkzia.Configuration) (*sdkzia.Client, error) {
+	neutralizeForeignSDKEnv()
 	restore := suppressSDKLogEnv()
 	defer restore()
 	return sdkzia.NewClient(cfg)
@@ -1192,6 +1193,7 @@ func jsonSourceRecord[T any](item T) resources.SourceRecord {
 }
 
 func newSDKConfiguration(ctx context.Context, cfg ReaderConfig) *zsdk.Configuration {
+	neutralizeForeignSDKEnv()
 	timeout := effectiveTimeout(cfg.Timeout)
 	httpClient := &http.Client{
 		Timeout:   timeout,
@@ -1382,6 +1384,21 @@ func effectiveTimeout(timeout time.Duration) time.Duration {
 		return defaultTimeout
 	}
 	return timeout
+}
+
+// neutralizeForeignSDKEnv permanently unsets the Zscaler SDK environment
+// variables the vendored SDK consults at REQUEST time, where the scoped
+// unset-and-restore of suppressSDKLogEnv cannot protect: ZPA_MICROTENANT_ID is
+// read on every ZPA request with higher priority than the explicit
+// configuration this tool sets (a stray value from another Zscaler tool would
+// silently redirect every ZPA read to the wrong microtenant), and
+// ZSCALER_SANDBOX_TOKEN is a call-time credential fallback. Clearing them for
+// the process lifetime upholds the contract that zscalerctl honors only
+// explicit ZSCALERCTL_* configuration.
+func neutralizeForeignSDKEnv() {
+	for _, key := range []string{"ZPA_MICROTENANT_ID", "ZSCALER_SANDBOX_TOKEN"} {
+		_ = os.Unsetenv(key)
+	}
 }
 
 func suppressSDKLogEnv() func() {
