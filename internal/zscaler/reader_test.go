@@ -982,7 +982,7 @@ func TestReaderListStaticIPsProjectsSDKShapeThroughAllowList(t *testing.T) {
 	if !strings.Contains(comment, "<REDACTED:SECRET>") {
 		t.Errorf("projected static-ips comment = %v, want typed redaction marker", got["comment"])
 	}
-	for _, field := range []string{"city", "managedBy", "lastModifiedBy"} {
+	for _, field := range []string{"managedBy", "lastModifiedBy"} {
 		if _, ok := got[field]; ok {
 			t.Errorf("projected static-ips = %#v, want no %s", got, field)
 		}

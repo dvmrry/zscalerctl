@@ -184,6 +184,7 @@ func catalogZIA() ResourceCatalog {
 					Classification: ClassOperational,
 					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
 				},
+				idNameField("city", standardOnlyMode()),
 			},
 		},
 		{
