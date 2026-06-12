@@ -564,7 +564,7 @@ func catalogZIA() ResourceCatalog {
 				operationalField("timeQuota", standardShareModes()),
 				operationalField("sizeQuota", standardShareModes()),
 				operationalField("ciparule", allModes()),
-				operationalField("browserEunTemplateId", allModes()),
+				sensitiveIdentifierField("browserEunTemplateId"),
 				sensitiveIdentifierField("endUserNotificationUrl"),
 				sensitiveIdentifierField("cbiProfileId"),
 				{

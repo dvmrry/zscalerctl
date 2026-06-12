@@ -101,8 +101,9 @@ func TestURLFilteringRuleWave1PromotedFieldsAcrossModes(t *testing.T) {
 	}
 	assertNoCanaries(t, "url-filtering-rules", standard, adminCanary, cbiURLCanary, excludedCanary)
 
-	// Mode gating: browserEunTemplateId is allowed in all modes; every other
-	// promoted field is standard-only and must disappear in share and paranoid.
+	// Mode gating: every promoted field is standard-only — including
+	// browserEunTemplateId, a tenant-specific EUN template reference
+	// (sensitiveIdentifierField) — and must disappear in share and paranoid.
 	standardOnlyFields := []string{
 		"departments",
 		"groups",
@@ -112,12 +113,10 @@ func TestURLFilteringRuleWave1PromotedFieldsAcrossModes(t *testing.T) {
 		"overrideUsers",
 		"overrideGroups",
 		"cbiProfile",
+		"browserEunTemplateId",
 	}
 	for _, mode := range []redact.Mode{redact.ModeShare, redact.ModeParanoid} {
 		got := projectOneRecordInMode(t, resources.ProductZIA, resourceURLRules, mode, records)
-		if got["browserEunTemplateId"] != 7707 {
-			t.Errorf("projected url-filtering-rules (%v) browserEunTemplateId = %#v, want 7707", mode, got["browserEunTemplateId"])
-		}
 		for _, field := range standardOnlyFields {
 			if _, ok := got[field]; ok {
 				t.Errorf("projected url-filtering-rules (%v) = %#v, want no %s", mode, got, field)
