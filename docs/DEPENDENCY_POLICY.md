@@ -56,9 +56,14 @@ version bump:
 6. Re-check whether legacy ZIA client cleanup can safely call the SDK `Close`
    method. Version 3.8.37 can deadlock on `Close`, so the current adapter avoids
    that call for short-lived CLI operations.
-7. Confirm `TestReviewedSDKShapesMatchCatalogOrIgnoredRegistry` still passes,
-   and review any new SDK response fields it reports before classifying or
-   ignoring them.
+7. Run the shape-registry tests. The registry diff is the complete
+   field-review checklist for the bump: any new SDK response field fails
+   `TestReviewedSDKShapesMatchCatalogOrIgnoredRegistry` until it is classified
+   in the catalog or excluded with a recorded reason. Then run
+   `make field-coverage` to regenerate
+   [FIELD_COVERAGE.md](FIELD_COVERAGE.md) (a stale report fails
+   `TestFieldCoverageReportIsCurrent`), and keep its deferred column at zero —
+   that column is the watchdog for fields parked without a final decision.
 8. Run the required checks above.
 
 Do not add a new resource in the same change as an SDK bump unless the SDK bump
