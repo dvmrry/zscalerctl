@@ -641,6 +641,25 @@ func catalogZIA() ResourceCatalog {
 					Classification: ClassSensitiveIdentifier,
 					AllowedModes:   []redact.Mode{redact.ModeStandard},
 				},
+				{
+					// Custom-category admin scope wrapper. Sub-field names
+					// mirror the SDK JSON tags verbatim: "Type" and
+					// "ScopeEntities" are capitalized upstream while
+					// "scopeGroupMemberEntities" is not.
+					Name:           "scopes",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardShareModes(),
+					Fields: []FieldSpec{
+						// Admin scope type enum (ORGANIZATION, DEPARTMENT,
+						// LOCATION, LOCATION_GROUP): non-identifying.
+						operationalField("Type", allModes()),
+						// Department/location/location-group references:
+						// standard-only, matching the rule-family
+						// user/group/location reference precedent.
+						idNameExtensionsField("ScopeEntities", standardOnlyMode()),
+						idNameExtensionsField("scopeGroupMemberEntities", standardOnlyMode()),
+					},
+				},
 			},
 		},
 		{
@@ -1201,8 +1220,32 @@ func catalogZIA() ResourceCatalog {
 				operationalField("id", allModes()),
 				sensitiveIdentifierField("name"),
 				sensitiveIdentifierField("email"),
-				idNameField("groups", standardOnlyMode()),
-				idNameField("department", standardOnlyMode()),
+				{
+					// Group references carry an admin-authored comments
+					// string alongside id/name; idp_id and isSystemDefined
+					// bookkeeping stay unclassified (query zia/groups).
+					Name:           "groups",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						tenantConfigField("name", standardShareModes()),
+						freeTextField("comments", "ZIA user group reference comments"),
+					},
+				},
+				{
+					// Department reference mirrors the groups reference;
+					// idp_id and deleted bookkeeping stay unclassified
+					// (query zia/departments).
+					Name:           "department",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						tenantConfigField("name", standardShareModes()),
+						freeTextField("comments", "ZIA user department reference comments"),
+					},
+				},
 				freeTextField("comments", "ZIA user comments"),
 				sensitiveIdentifierField("tempAuthEmail"),
 				tenantConfigField("authMethods", standardOnlyMode()),

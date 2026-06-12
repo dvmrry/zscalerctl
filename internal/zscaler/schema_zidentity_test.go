@@ -106,12 +106,9 @@ func reviewedSDKShapesZidentity() []sdkShapeReview {
 				"id",
 				"name",
 				"displayName",
-			},
-			ignoredFields: ignoredBecause(
-				"resource server service context can expose product or organization identifiers; classify deliberately before rendering",
 				"cloudName",
 				"orgName",
-			),
+			},
 		},
 		{
 			name:         "zidresourceservers.Scopes",

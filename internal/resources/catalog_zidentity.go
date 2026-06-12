@@ -61,6 +61,14 @@ func catalogZidentity() ResourceCatalog {
 								operationalField("id", allModes()),
 								tenantConfigField("name", standardShareModes()),
 								tenantConfigField("displayName", standardShareModes()),
+								// Zscaler cloud placement (e.g. a
+								// zscalertwo.net-style cloud domain) narrows
+								// tenant identity the way geo fields do:
+								// standard-only per the country/state ruling.
+								sensitiveIdentifierField("cloudName"),
+								// Organization name identifies the tenant
+								// directly: standard-only.
+								sensitiveIdentifierField("orgName"),
 							},
 						},
 						{

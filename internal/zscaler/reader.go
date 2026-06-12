@@ -3701,10 +3701,14 @@ func idNameExternalIDSource(value *ziacommon.IDNameExternalID) map[string]any {
 }
 
 func userGroupSource(value ziacommon.UserGroups) map[string]any {
-	return map[string]any{
+	fields := map[string]any{
 		"id":   value.ID,
 		"name": value.Name,
 	}
+	if value.Comments != "" {
+		fields["comments"] = value.Comments
+	}
+	return fields
 }
 
 func addUserGroups(fields map[string]any, name string, values []ziacommon.UserGroups) {
@@ -3719,10 +3723,14 @@ func addUserGroups(fields map[string]any, name string, values []ziacommon.UserGr
 }
 
 func userDepartmentSource(value ziacommon.UserDepartment) map[string]any {
-	return map[string]any{
+	fields := map[string]any{
 		"id":   value.ID,
 		"name": value.Name,
 	}
+	if value.Comments != "" {
+		fields["comments"] = value.Comments
+	}
+	return fields
 }
 
 func cloudInstanceIdentifierSource(value cloudappinstances.InstanceIdentifiers) map[string]any {
@@ -4153,6 +4161,8 @@ func zidentityServiceRefSource(value zidresourceservers.Service) map[string]any 
 		"id":          value.ID,
 		"name":        value.Name,
 		"displayName": value.DisplayName,
+		"cloudName":   value.CloudName,
+		"orgName":     value.OrgName,
 	}
 }
 
