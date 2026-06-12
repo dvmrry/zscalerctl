@@ -2366,7 +2366,9 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			catalogFields: []string{
 				"id",
 				"name",
+				"ruleText",
 				"description",
+				"category",
 				"enabled",
 				"deleted",
 				"promoteTime",
@@ -2377,10 +2379,15 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"disabledFromZSCM",
 				"dynamicValRejectCode",
 			},
+		},
+		{
+			name: "ips_signature_rules.IPSSignatureCategory",
+			typ:  reflect.TypeOf(ipssignaturerules.IPSSignatureCategory{}),
 			ignoredFields: ignoredBecause(
-				"signature detection text and category reference are held until separately modeled",
-				"category",
-				"ruleText",
+				"threat category sub-fields are explicitly modeled in the ips-signature-rules category catalog field; this entry catches SDK additions",
+				"id",
+				"name",
+				"isNameL10nTag",
 			),
 		},
 		{

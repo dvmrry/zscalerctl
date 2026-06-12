@@ -717,7 +717,22 @@ func catalogZIA() ResourceCatalog {
 			Fields: []FieldSpec{
 				operationalField("id", allModes()),
 				tenantConfigField("name", standardShareModes()),
+				// Suricata/Snort signature bodies embed tenant network
+				// indicators (IPs, hostnames, payload regexes); the rule text
+				// is never emitted in any mode and never reaches the source
+				// record.
+				secretField("ruleText"),
 				freeTextField("description", "ZIA IPS signature rule description"),
+				{
+					Name:           "category",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						tenantConfigField("name", standardShareModes()),
+						operationalField("isNameL10nTag", allModes()),
+					},
+				},
 				operationalField("enabled", allModes()),
 				operationalField("deleted", allModes()),
 				operationalField("promoteTime", standardShareModes()),
