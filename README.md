@@ -108,6 +108,7 @@ Full model: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) · [docs/DATA_CLASSIFIC
 
 **Usage**
 - [AGENTS.md](AGENTS.md) — cold-start guide for AI agents driving the CLI
+- [skills/zscalerctl/](skills/zscalerctl/SKILL.md) — installable agent skill (copy or symlink into your agent's skill directory, e.g. `~/.claude/skills/zscalerctl/`) so agents auto-reach for the CLI on Zscaler questions
 - [docs/INSTALL.md](docs/INSTALL.md) — install, verify, configure
 - [docs/RESOURCES.md](docs/RESOURCES.md) — enabled resource reference
 - [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md) — deferred / queued / excluded state
