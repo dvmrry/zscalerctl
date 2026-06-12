@@ -359,12 +359,12 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"latitude",
 				"longitude",
 				"routableIP",
+				"city",
 				"lastModificationTime",
 				"comment",
 			},
 			ignoredFields: ignoredBecause(
-				"nested city/admin references are mapped then dropped by projection",
-				"city",
+				"nested admin references are mapped then dropped by projection",
 				"managedBy",
 				"lastModifiedBy",
 			),
@@ -373,7 +373,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name: "staticips.City",
 			typ:  reflect.TypeOf(staticips.City{}),
 			ignoredFields: ignoredBecause(
-				"covered by dropped city parent",
+				"used inside the modeled city reference parent; parent catalog fields decide whether id/name can render",
 				"id",
 				"name",
 			),
