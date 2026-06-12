@@ -89,12 +89,23 @@ The primary leak-prevention control is allow-list projection:
 - API responses are ingested into internal models.
 - Each supported resource declares a safe view model.
 - Only explicitly allowed fields may be rendered.
-- Unknown fields are dropped by default.
+- Fields outside the allow-list are dropped fail-closed — and none are left
+  undecided: every emitted field is explicitly classified, and every
+  non-emitted SDK field is deliberately excluded with a recorded reason
+  ([FIELD_COVERAGE.md](FIELD_COVERAGE.md)).
 - Free-text fields are excluded, redacted, or scanned before output.
 
-Output redaction is defense-in-depth, not the main safety mechanism. Every
-renderer should still pass final bytes through redaction and secret scanning,
-but the normal rendered model should already exclude unsafe fields.
+This coverage claim is test-enforced, not aspirational. The shape-registry
+tests fail the build when an SDK response field is neither classified in the
+catalog nor excluded with a recorded reason, and
+`TestFieldCoverageReportIsCurrent` fails the build when the committed
+coverage report drifts from the code, so a new SDK field cannot ship
+undecided.
+
+Output redaction is defense-in-depth for values, not the field-selection
+mechanism. Classification decides which fields render; every renderer still
+passes the final bytes through redaction and secret scanning to catch
+secret-shaped values pasted into otherwise-safe fields.
 
 ## Secret Handling
 

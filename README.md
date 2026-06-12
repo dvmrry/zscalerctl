@@ -16,7 +16,7 @@ A single Go binary, agentic/pipeline-first by design, so one reviewed command ca
 - **Read-only by design** — no write commands and no raw API executor (and none planned for v1).
 - **Agentic-first output** — deterministic JSON whenever output is piped or redirected; a styled `pretty` view on a terminal, both rendered from the same sanitized data.
 - **Explicit auth only** — reads only `ZSCALERCTL_*` config; never the Zscaler SDK's own env vars or files.
-- **Leak-resistant** — allow-list projection into safe views; redaction and secret scanning as defense-in-depth.
+- **Leak-resistant** — allow-list projection into safe views, with every SDK field classified or deliberately excluded on the record, test-enforced ([docs/FIELD_COVERAGE.md](docs/FIELD_COVERAGE.md)); redaction and secret scanning as defense-in-depth for values.
 - **Sanitized, fail-closed dumps** — releases ship checksums, per-target SBOMs, and provenance attestations.
 - **Stable automation contract** — documented exit codes and JSON error envelopes.
 
