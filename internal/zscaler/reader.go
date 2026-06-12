@@ -1584,33 +1584,45 @@ func greTunnelSourceRecord(tunnel gretunnels.GreTunnels) resources.SourceRecord 
 
 func sublocationSourceRecord(location locationmanagement.Locations) resources.SourceRecord {
 	fields := map[string]any{
-		"id":                       location.ID,
-		"name":                     location.Name,
-		"parentId":                 location.ParentID,
-		"description":              location.Description,
-		"country":                  location.Country,
-		"state":                    location.State,
-		"tz":                       location.TZ,
-		"profile":                  location.Profile,
-		"childCount":               location.ChildCount,
-		"authRequired":             location.AuthRequired,
-		"basicAuthEnabled":         location.BasicAuthEnabled,
-		"digestAuthEnabled":        location.DigestAuthEnabled,
-		"kerberosAuth":             location.KerberosAuth,
-		"sslScanEnabled":           location.SSLScanEnabled,
-		"zappSSLScanEnabled":       location.ZappSSLScanEnabled,
-		"xffForwardEnabled":        location.XFFForwardEnabled,
-		"surrogateIP":              location.SurrogateIP,
-		"ofwEnabled":               location.OFWEnabled,
-		"ipsControl":               location.IPSControl,
-		"aupEnabled":               location.AUPEnabled,
-		"cautionEnabled":           location.CautionEnabled,
-		"otherSubLocation":         location.OtherSubLocation,
-		"other6SubLocation":        location.Other6SubLocation,
-		"subLocScopeEnabled":       location.SubLocScopeEnabled,
-		"subLocScope":              location.SubLocScope,
-		"excludeFromManualGroups":  location.ExcludeFromManualGroups,
-		"excludeFromDynamicGroups": location.ExcludeFromDynamicGroups,
+		"id":                                  location.ID,
+		"name":                                location.Name,
+		"parentId":                            location.ParentID,
+		"description":                         location.Description,
+		"country":                             location.Country,
+		"state":                               location.State,
+		"tz":                                  location.TZ,
+		"language":                            location.Language,
+		"profile":                             location.Profile,
+		"upBandwidth":                         location.UpBandwidth,
+		"dnBandwidth":                         location.DnBandwidth,
+		"childCount":                          location.ChildCount,
+		"authRequired":                        location.AuthRequired,
+		"basicAuthEnabled":                    location.BasicAuthEnabled,
+		"digestAuthEnabled":                   location.DigestAuthEnabled,
+		"kerberosAuth":                        location.KerberosAuth,
+		"sslScanEnabled":                      location.SSLScanEnabled,
+		"zappSSLScanEnabled":                  location.ZappSSLScanEnabled,
+		"xffForwardEnabled":                   location.XFFForwardEnabled,
+		"surrogateIP":                         location.SurrogateIP,
+		"surrogateIPEnforcedForKnownBrowsers": location.SurrogateIPEnforcedForKnownBrowsers,
+		"idleTimeInMinutes":                   location.IdleTimeInMinutes,
+		"surrogateRefreshTimeInMinutes":       location.SurrogateRefreshTimeInMinutes,
+		"ofwEnabled":                          location.OFWEnabled,
+		"ipsControl":                          location.IPSControl,
+		"aupEnabled":                          location.AUPEnabled,
+		"cautionEnabled":                      location.CautionEnabled,
+		"aupBlockInternetUntilAccepted":       location.AUPBlockInternetUntilAccepted,
+		"aupForceSslInspection":               location.AUPForceSSLInspection,
+		"aupTimeoutInDays":                    location.AUPTimeoutInDays,
+		"iotDiscoveryEnabled":                 location.IOTDiscoveryEnabled,
+		"iotEnforcePolicySet":                 location.IOTEnforcePolicySet,
+		"cookiesAndProxy":                     location.CookiesAndProxy,
+		"otherSubLocation":                    location.OtherSubLocation,
+		"other6SubLocation":                   location.Other6SubLocation,
+		"subLocScopeEnabled":                  location.SubLocScopeEnabled,
+		"subLocScope":                         location.SubLocScope,
+		"excludeFromManualGroups":             location.ExcludeFromManualGroups,
+		"excludeFromDynamicGroups":            location.ExcludeFromDynamicGroups,
 	}
 	if len(location.IPAddresses) > 0 {
 		fields["ipAddresses"] = append([]string(nil), location.IPAddresses...)
@@ -3701,10 +3713,14 @@ func idNameExternalIDSource(value *ziacommon.IDNameExternalID) map[string]any {
 }
 
 func userGroupSource(value ziacommon.UserGroups) map[string]any {
-	return map[string]any{
+	fields := map[string]any{
 		"id":   value.ID,
 		"name": value.Name,
 	}
+	if value.Comments != "" {
+		fields["comments"] = value.Comments
+	}
+	return fields
 }
 
 func addUserGroups(fields map[string]any, name string, values []ziacommon.UserGroups) {
@@ -3719,10 +3735,14 @@ func addUserGroups(fields map[string]any, name string, values []ziacommon.UserGr
 }
 
 func userDepartmentSource(value ziacommon.UserDepartment) map[string]any {
-	return map[string]any{
+	fields := map[string]any{
 		"id":   value.ID,
 		"name": value.Name,
 	}
+	if value.Comments != "" {
+		fields["comments"] = value.Comments
+	}
+	return fields
 }
 
 func cloudInstanceIdentifierSource(value cloudappinstances.InstanceIdentifiers) map[string]any {
@@ -4153,6 +4173,8 @@ func zidentityServiceRefSource(value zidresourceservers.Service) map[string]any 
 		"id":          value.ID,
 		"name":        value.Name,
 		"displayName": value.DisplayName,
+		"cloudName":   value.CloudName,
+		"orgName":     value.OrgName,
 	}
 }
 

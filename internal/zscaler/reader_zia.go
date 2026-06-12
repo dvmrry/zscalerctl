@@ -1114,5 +1114,44 @@ func cloudAppControlSourceRecord(rule cloudappcontrol.WebApplicationRules) resou
 	addIDNameExtensionsSlice(fields, "locations", rule.Locations)
 	addIDNameExtensionsSlice(fields, "locationGroups", rule.LocationGroups)
 	addIDNameExtensionsSlice(fields, "tenancyProfileIds", rule.TenancyProfileIDs)
+	addIDNameExtensionsSlice(fields, "departments", rule.Departments)
+	addIDNameExtensionsSlice(fields, "groups", rule.Groups)
+	addIDNameExtensionsSlice(fields, "users", rule.Users)
+	addIDNameExtensionsSlice(fields, "deviceGroups", rule.DeviceGroups)
+	addIDNameExtensionsSlice(fields, "devices", rule.Devices)
+	addIDCustomPtr(fields, "cloudAppRiskProfile", rule.CloudAppRiskProfile)
+	if len(rule.CloudAppInstances) > 0 {
+		fields["cloudAppInstances"] = cloudAppControlInstancesSource(rule.CloudAppInstances)
+	}
+	if rule.CBIProfile != (cloudappcontrol.CBIProfile{}) {
+		fields["cbiProfile"] = cloudAppControlCBIProfileSource(rule.CBIProfile)
+	}
 	return resources.NewSourceRecord(fields)
+}
+
+// cloudAppControlCBIProfileSource maps the cloudappcontrol-local CBIProfile
+// struct (a superset of ziacommon.CBIProfile with defaultProfile/sandboxMode).
+// The url value still reaches the source record but the catalog classifies it
+// as a secret, so projection drops it in every mode.
+func cloudAppControlCBIProfileSource(value cloudappcontrol.CBIProfile) map[string]any {
+	return map[string]any{
+		"id":             value.ID,
+		"name":           value.Name,
+		"url":            value.URL,
+		"profileSeq":     value.ProfileSeq,
+		"defaultProfile": value.DefaultProfile,
+		"sandboxMode":    value.SandboxMode,
+	}
+}
+
+func cloudAppControlInstancesSource(values []cloudappcontrol.CloudAppInstances) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, map[string]any{
+			"id":   value.ID,
+			"name": value.Name,
+			"type": value.Type,
+		})
+	}
+	return out
 }

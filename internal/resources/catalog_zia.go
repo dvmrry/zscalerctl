@@ -399,6 +399,36 @@ func catalogZIA() ResourceCatalog {
 					Classification: ClassTenantConfig,
 					AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
 				},
+				operationalField("language", standardShareModes()),
+				tenantConfigField("upBandwidth", standardShareModes()),
+				tenantConfigField("dnBandwidth", standardShareModes()),
+				tenantConfigField("basicAuthEnabled", standardShareModes()),
+				tenantConfigField("digestAuthEnabled", standardShareModes()),
+				tenantConfigField("kerberosAuth", standardShareModes()),
+				tenantConfigField("zappSSLScanEnabled", standardShareModes()),
+				tenantConfigField("xffForwardEnabled", standardShareModes()),
+				tenantConfigField("surrogateIP", standardShareModes()),
+				tenantConfigField("surrogateIPEnforcedForKnownBrowsers", standardShareModes()),
+				operationalField("idleTimeInMinutes", standardShareModes()),
+				operationalField("surrogateRefreshTimeInMinutes", standardShareModes()),
+				tenantConfigField("aupEnabled", standardShareModes()),
+				tenantConfigField("cautionEnabled", standardShareModes()),
+				tenantConfigField("aupBlockInternetUntilAccepted", standardShareModes()),
+				tenantConfigField("aupForceSslInspection", standardShareModes()),
+				operationalField("aupTimeoutInDays", standardShareModes()),
+				tenantConfigField("iotDiscoveryEnabled", standardShareModes()),
+				tenantConfigField("iotEnforcePolicySet", standardShareModes()),
+				{
+					Name:                "cookiesAndProxy",
+					Classification:      ClassTenantConfig,
+					AllowedModes:        []redact.Mode{redact.ModeStandard, redact.ModeShare},
+					SensitiveNameReason: "boolean auth posture toggle; field name references cookie-based authentication surrogacy, not cookie material",
+				},
+				// Booleans marking the Zscaler-created default catch-all
+				// sublocation ("Other"/"Other6"); structural state, not tenant
+				// identity.
+				operationalField("otherSubLocation", standardShareModes()),
+				operationalField("other6SubLocation", standardShareModes()),
 				{
 					Name:           "vpnCredentials",
 					Classification: ClassSecret,
@@ -640,6 +670,25 @@ func catalogZIA() ResourceCatalog {
 					Name:           "regexPatternsRetainingParentCategory",
 					Classification: ClassSensitiveIdentifier,
 					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					// Custom-category admin scope wrapper. Sub-field names
+					// mirror the SDK JSON tags verbatim: "Type" and
+					// "ScopeEntities" are capitalized upstream while
+					// "scopeGroupMemberEntities" is not.
+					Name:           "scopes",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardShareModes(),
+					Fields: []FieldSpec{
+						// Admin scope type enum (ORGANIZATION, DEPARTMENT,
+						// LOCATION, LOCATION_GROUP): non-identifying.
+						operationalField("Type", allModes()),
+						// Department/location/location-group references:
+						// standard-only, matching the rule-family
+						// user/group/location reference precedent.
+						idNameExtensionsField("ScopeEntities", standardOnlyMode()),
+						idNameExtensionsField("scopeGroupMemberEntities", standardOnlyMode()),
+					},
 				},
 			},
 		},
@@ -1015,6 +1064,7 @@ func catalogZIA() ResourceCatalog {
 				tenantConfigField("insertXauHeader", standardShareModes()),
 				tenantConfigField("base64EncodeXauHeader", standardShareModes()),
 				idNameExternalIDField("cert", standardShareModes()),
+				secretField("lastModifiedBy"),
 				operationalField("lastModifiedTime", standardShareModes()),
 			},
 		},
@@ -1030,6 +1080,7 @@ func catalogZIA() ResourceCatalog {
 				operationalField("type", allModes()),
 				idNameExternalIDField("primaryProxy", standardShareModes()),
 				idNameExternalIDField("secondaryProxy", standardShareModes()),
+				secretField("lastModifiedBy"),
 				operationalField("lastModifiedTime", standardShareModes()),
 			},
 		},
@@ -1045,6 +1096,7 @@ func catalogZIA() ResourceCatalog {
 				idNameExtensionsField("secondaryDataCenter", standardShareModes()),
 				operationalField("createTime", standardShareModes()),
 				operationalField("lastModifiedTime", standardShareModes()),
+				secretField("lastModifiedBy"),
 				operationalField("default", allModes()),
 			},
 		},
@@ -1098,6 +1150,7 @@ func catalogZIA() ResourceCatalog {
 				operationalField("defaultRule", allModes()),
 				tenantConfigField("protocols", standardShareModes()),
 				tenantConfigField("deviceTrustLevels", standardShareModes()),
+				secretField("lastModifiedBy"),
 				idNameExtensionsField("bandwidthClasses", standardShareModes()),
 				idNameExtensionsField("labels", standardShareModes()),
 				idNameExtensionsField("timeWindows", standardShareModes()),
@@ -1122,6 +1175,7 @@ func catalogZIA() ResourceCatalog {
 				tenantConfigField("protocols", standardShareModes()),
 				tenantConfigField("failureBehavior", standardShareModes()),
 				operationalField("lastModifiedTime", standardShareModes()),
+				secretField("lastModifiedBy"),
 				operationalField("autoCreated", allModes()),
 				operationalField("natZtrGateway", allModes()),
 				tenantConfigField("dnsGatewayProtocols", standardShareModes()),
@@ -1143,6 +1197,7 @@ func catalogZIA() ResourceCatalog {
 				sensitiveIdentifierField("redirectIp"),
 				tenantConfigField("redirectPort", standardShareModes()),
 				operationalField("lastModifiedTime", standardShareModes()),
+				secretField("lastModifiedBy"),
 				operationalField("trustedResolverRule", allModes()),
 				operationalField("enableFullLogging", allModes()),
 				operationalField("predefined", allModes()),
@@ -1201,8 +1256,32 @@ func catalogZIA() ResourceCatalog {
 				operationalField("id", allModes()),
 				sensitiveIdentifierField("name"),
 				sensitiveIdentifierField("email"),
-				idNameField("groups", standardOnlyMode()),
-				idNameField("department", standardOnlyMode()),
+				{
+					// Group references carry an admin-authored comments
+					// string alongside id/name; idp_id and isSystemDefined
+					// bookkeeping stay unclassified (query zia/groups).
+					Name:           "groups",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						tenantConfigField("name", standardShareModes()),
+						freeTextField("comments", "ZIA user group reference comments"),
+					},
+				},
+				{
+					// Department reference mirrors the groups reference;
+					// idp_id and deleted bookkeeping stay unclassified
+					// (query zia/departments).
+					Name:           "department",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						tenantConfigField("name", standardShareModes()),
+						freeTextField("comments", "ZIA user department reference comments"),
+					},
+				},
 				freeTextField("comments", "ZIA user comments"),
 				sensitiveIdentifierField("tempAuthEmail"),
 				tenantConfigField("authMethods", standardOnlyMode()),
@@ -2158,6 +2237,37 @@ func catalogZIA() ResourceCatalog {
 				idNameExtensionsField("locations", standardOnlyMode()),
 				idNameExtensionsField("locationGroups", standardOnlyMode()),
 				idNameExtensionsField("tenancyProfileIds", standardOnlyMode()),
+				idNameExtensionsField("departments", standardOnlyMode()),
+				idNameExtensionsField("groups", standardOnlyMode()),
+				idNameExtensionsField("users", standardOnlyMode()),
+				idNameExtensionsField("deviceGroups", standardOnlyMode()),
+				idNameExtensionsField("devices", standardOnlyMode()),
+				idNameField("cloudAppRiskProfile", standardOnlyMode()),
+				{
+					Name:           "cloudAppInstances",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						tenantConfigField("name", standardShareModes()),
+						operationalField("type", allModes()),
+					},
+				},
+				{
+					Name:           "cbiProfile",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						tenantConfigField("name", standardShareModes()),
+						secretField("url"),
+						operationalField("profileSeq", allModes()),
+						operationalField("defaultProfile", allModes()),
+						// Reveals the isolation profile's security posture;
+						// kept out of paranoid like other posture flags.
+						tenantConfigField("sandboxMode", standardShareModes()),
+					},
+				},
 			},
 		},
 		{

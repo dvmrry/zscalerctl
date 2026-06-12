@@ -1379,8 +1379,16 @@ func TestReaderListURLCategoriesProjectsSDKShapeThroughAllowList(t *testing.T) {
 			t.Fatalf("projected url-categories %s = %T %#v, want non-empty []string", field, got[field], got[field])
 		}
 	}
-	if _, ok := got["scopes"]; ok {
-		t.Errorf("projected url-categories = %#v, want no scopes", got)
+	scopes := mustProjectedList(t, got, "scopes")
+	scope, ok := scopes[0].(map[string]any)
+	if !ok {
+		t.Fatalf("projected url-categories scopes[0] = %T, want map[string]any", scopes[0])
+	}
+	if scope["Type"] != "LOCATION" {
+		t.Errorf("projected url-categories scopes[0].Type = %v, want LOCATION", scope["Type"])
+	}
+	if !strings.Contains(fmt.Sprint(scope["ScopeEntities"]), scopeCanary) {
+		t.Errorf("projected url-categories scopes[0].ScopeEntities = %#v, want scope entity name in standard mode", scope["ScopeEntities"])
 	}
 	for _, field := range []string{"urls", "keywords", "regexPatterns"} {
 		if _, ok := got[field]; ok {
@@ -1389,7 +1397,7 @@ func TestReaderListURLCategoriesProjectsSDKShapeThroughAllowList(t *testing.T) {
 			}
 		}
 	}
-	for _, forbidden := range []string{canary, urlCanary, scopeCanary} {
+	for _, forbidden := range []string{canary, urlCanary} {
 		if strings.Contains(fmt.Sprint(got), forbidden) {
 			t.Errorf("projected url-categories = %#v, want no %q", got, forbidden)
 		}
@@ -2075,8 +2083,9 @@ func TestZIAIdentityDeviceProjectionBoundaries(t *testing.T) {
 	if group["id"] != 30 || group["name"] != "Engineering Admins" {
 		t.Errorf("ProjectRecordsAndVerify(zia/users standard) groups = %#v, want id/name reference", group)
 	}
-	if _, ok := group["comments"]; ok {
-		t.Errorf("ProjectRecordsAndVerify(zia/users standard) group reference includes comments, want id/name only")
+	groupComments, ok := group["comments"].(string)
+	if !ok || strings.Contains(groupComments, freeTextCanary) {
+		t.Errorf("ProjectRecordsAndVerify(zia/users standard) group comments = %#v, want present with canary redacted", group["comments"])
 	}
 	userDepartment, ok := userGot["department"].(map[string]any)
 	if !ok {
@@ -5936,13 +5945,8 @@ func TestReaderListZidentityResourceServersProjectsSDKShapeThroughAllowList(t *t
 	if service["id"] != "svc-1" || service["name"] != "Identity service" || service["displayName"] != "Identity service display" {
 		t.Errorf("projected resource-server service = %v, want id/name/displayName reference", service)
 	}
-	for _, field := range []string{"cloudName", "orgName"} {
-		if _, ok := service[field]; ok {
-			t.Errorf("projected resource-server service includes %s, want dropped", field)
-		}
-	}
-	if strings.Contains(fmt.Sprint(got), nestedCanary) {
-		t.Errorf("projected resource-server = %v, want nested canary absent", got)
+	if service["cloudName"] != "cloud-"+nestedCanary || service["orgName"] != "org-"+nestedCanary {
+		t.Errorf("projected resource-server service = %v, want cloudName/orgName visible in standard mode", service)
 	}
 	if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, got); err != nil {
 		t.Errorf("AssertRenderedSubset(projected resource-server standard) error = %v, want nil", err)
@@ -5965,6 +5969,9 @@ func TestReaderListZidentityResourceServersProjectsSDKShapeThroughAllowList(t *t
 		if _, ok := shareGot[field]; ok {
 			t.Errorf("share-mode projected resource-server includes %s, want dropped", field)
 		}
+	}
+	if strings.Contains(fmt.Sprint(shareGot), nestedCanary) {
+		t.Errorf("share-mode projected resource-server = %v, want nested canary absent", shareGot)
 	}
 }
 
