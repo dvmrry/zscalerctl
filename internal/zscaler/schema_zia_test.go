@@ -675,10 +675,10 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"ipRangesRetainingParentCategory",
 				"regexPatterns",
 				"regexPatternsRetainingParentCategory",
+				"scopes",
 			},
 			ignoredFields: ignoredBecause(
-				"scope and opaque SDK helper fields are mapped then dropped until separately classified",
-				"scopes",
+				"opaque SDK helper field is mapped then dropped until separately classified",
 				"val",
 			),
 		},
@@ -694,14 +694,15 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			),
 		},
 		{
-			name: "urlcategories.Scopes",
-			typ:  reflect.TypeOf(urlcategories.Scopes{}),
-			ignoredFields: ignoredBecause(
-				"covered by dropped scopes parent",
+			name:         "urlcategories.Scopes",
+			resource:     resources.ProductZIA,
+			resourceName: resourceURLCategories,
+			typ:          reflect.TypeOf(urlcategories.Scopes{}),
+			catalogFields: []string{
 				"scopeGroupMemberEntities",
 				"Type",
 				"ScopeEntities",
-			),
+			},
 		},
 		{
 			name:         "urlfilteringpolicies.URLFilteringRule",
@@ -1306,11 +1307,11 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			catalogFields: []string{
 				"id",
 				"name",
+				"comments",
 			},
 			ignoredFields: ignoredBecause(
-				"user group references under zia/users render id/name only; query zia/groups for group metadata",
+				"user group references under zia/users render id/name/comments only; query zia/groups for group metadata",
 				"idp_id",
-				"comments",
 				"isSystemDefined",
 			),
 		},
@@ -1322,11 +1323,11 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			catalogFields: []string{
 				"id",
 				"name",
+				"comments",
 			},
 			ignoredFields: ignoredBecause(
-				"user department reference under zia/users renders id/name only; query zia/departments for department metadata",
+				"user department reference under zia/users renders id/name/comments only; query zia/departments for department metadata",
 				"idp_id",
-				"comments",
 				"deleted",
 			),
 		},
