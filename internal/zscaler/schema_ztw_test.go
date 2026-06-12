@@ -38,12 +38,9 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			catalogFields: []string{
 				"orgEditStatus",
 				"orgLastActivateStatus",
+				"adminStatusMap",
 				"adminActivateStatus",
 			},
-			ignoredFields: ignoredBecause(
-				"admin-by-name activation status map is unmodeled tenant-identifying detail; the scalar org/admin status fields are projected instead",
-				"adminStatusMap",
-			),
 		},
 		{
 			name:         "ztwworkloadgroups.WorkloadGroup",
