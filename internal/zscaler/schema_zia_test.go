@@ -202,11 +202,8 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"locations",
 				"lastModTime",
 				"predefined",
-			},
-			ignoredFields: ignoredBecause(
-				"deferred: admin reference is mapped then dropped by projection",
 				"lastModUser",
-			),
+			},
 		},
 		{
 			name:         "locationgroups.DynamicLocationGroupCriteria",
@@ -262,7 +259,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name: "locationgroups.LastModUser",
 			typ:  reflect.TypeOf(locationgroups.LastModUser{}),
 			ignoredFields: ignoredBecause(
-				"deliberate: covered by dropped lastModUser parent; exposure is decided at the parent field",
+				"deliberate: covered by secret lastModUser parent; exposure is decided at the parent field",
 				"id",
 				"name",
 				"extensions",
@@ -279,12 +276,9 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"description",
 				"lastModifiedTime",
 				"referencedRuleCount",
-			},
-			ignoredFields: ignoredBecause(
-				"deferred: admin references are mapped then dropped by projection",
 				"createdBy",
 				"lastModifiedBy",
-			),
+			},
 		},
 		{
 			name:         "authsettings.AuthenticationSettings",
@@ -356,12 +350,9 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"city",
 				"lastModificationTime",
 				"comment",
-			},
-			ignoredFields: ignoredBecause(
-				"deferred: nested admin references are mapped then dropped by projection",
 				"managedBy",
 				"lastModifiedBy",
-			),
+			},
 		},
 		{
 			name: "staticips.City",
@@ -376,7 +367,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name: "staticips.ManagedBy",
 			typ:  reflect.TypeOf(staticips.ManagedBy{}),
 			ignoredFields: ignoredBecause(
-				"deliberate: covered by dropped managedBy parent; exposure is decided at the parent field",
+				"deliberate: covered by secret managedBy parent; exposure is decided at the parent field",
 				"id",
 				"name",
 				"extensions",
@@ -386,7 +377,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name: "staticips.LastModifiedBy",
 			typ:  reflect.TypeOf(staticips.LastModifiedBy{}),
 			ignoredFields: ignoredBecause(
-				"deliberate: covered by dropped lastModifiedBy parent; exposure is decided at the parent field",
+				"deliberate: covered by secret lastModifiedBy parent; exposure is decided at the parent field",
 				"id",
 				"name",
 				"extensions",
@@ -408,18 +399,15 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"subcloud",
 				"primaryDestVip",
 				"secondaryDestVip",
-			},
-			ignoredFields: ignoredBecause(
-				"deferred: nested admin identity references are mapped then dropped by projection",
 				"managedBy",
 				"lastModifiedBy",
-			),
+			},
 		},
 		{
 			name: "gretunnels.ManagedBy",
 			typ:  reflect.TypeOf(gretunnels.ManagedBy{}),
 			ignoredFields: ignoredBecause(
-				"deliberate: covered by dropped managedBy parent; exposure is decided at the parent field",
+				"deliberate: covered by secret managedBy parent; exposure is decided at the parent field",
 				"id",
 				"name",
 				"extensions",
@@ -429,7 +417,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name: "gretunnels.LastModifiedBy",
 			typ:  reflect.TypeOf(gretunnels.LastModifiedBy{}),
 			ignoredFields: ignoredBecause(
-				"deliberate: covered by dropped lastModifiedBy parent; exposure is decided at the parent field",
+				"deliberate: covered by secret lastModifiedBy parent; exposure is decided at the parent field",
 				"id",
 				"name",
 				"extensions",
@@ -582,11 +570,8 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"proxyGateways",
 				"zpaAppSegments",
 				"workloadGroups",
-			},
-			ignoredFields: ignoredBecause(
-				"deferred: admin RBA access metadata is mapped then dropped until separately modeled",
 				"accessControl",
-			),
+			},
 		},
 		{
 			name: "sslinspection.Action",
@@ -741,12 +726,9 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"overrideUsers",
 				"overrideGroups",
 				"workloadGroups",
-			},
-			ignoredFields: ignoredBecause(
-				"deferred: admin modifier identity and device trust levels are mapped then dropped until separately modeled",
 				"deviceTrustLevels",
 				"lastModifiedBy",
-			),
+			},
 		},
 		{
 			name:         "filteringrules.FirewallFilteringRules",
@@ -792,11 +774,8 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"devices",
 				"zpaAppSegments",
 				"workloadGroups",
-			},
-			ignoredFields: ignoredBecause(
-				"deferred: admin references are mapped then dropped by projection",
 				"lastModifiedBy",
-			),
+			},
 		},
 		{
 			name:         "forwardingrules.ForwardingRules",
@@ -1349,16 +1328,11 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"description",
 				"expression",
 				"lastModifiedTime",
+				"lastModifiedBy",
 			},
-			ignoredFields: mergeIgnoredFields(
-				ignoredBecause(
-					"deliberate: JSON twin of the already-classified expression string; modeling the tree would duplicate (or widen) the standard-only expression exposure",
-					"expressionJson",
-				),
-				ignoredBecause(
-					"deferred: admin identity reference is mapped then dropped by projection",
-					"lastModifiedBy",
-				),
+			ignoredFields: ignoredBecause(
+				"deliberate: JSON twin of the already-classified expression string; modeling the tree would duplicate (or widen) the standard-only expression exposure",
+				"expressionJson",
 			),
 		},
 		{
