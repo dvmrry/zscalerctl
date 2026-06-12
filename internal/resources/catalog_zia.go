@@ -2158,6 +2158,37 @@ func catalogZIA() ResourceCatalog {
 				idNameExtensionsField("locations", standardOnlyMode()),
 				idNameExtensionsField("locationGroups", standardOnlyMode()),
 				idNameExtensionsField("tenancyProfileIds", standardOnlyMode()),
+				idNameExtensionsField("departments", standardOnlyMode()),
+				idNameExtensionsField("groups", standardOnlyMode()),
+				idNameExtensionsField("users", standardOnlyMode()),
+				idNameExtensionsField("deviceGroups", standardOnlyMode()),
+				idNameExtensionsField("devices", standardOnlyMode()),
+				idNameField("cloudAppRiskProfile", standardOnlyMode()),
+				{
+					Name:           "cloudAppInstances",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						tenantConfigField("name", standardShareModes()),
+						operationalField("type", allModes()),
+					},
+				},
+				{
+					Name:           "cbiProfile",
+					Classification: ClassTenantConfig,
+					AllowedModes:   standardOnlyMode(),
+					Fields: []FieldSpec{
+						operationalField("id", allModes()),
+						tenantConfigField("name", standardShareModes()),
+						secretField("url"),
+						operationalField("profileSeq", allModes()),
+						operationalField("defaultProfile", allModes()),
+						// Reveals the isolation profile's security posture;
+						// kept out of paranoid like other posture flags.
+						tenantConfigField("sandboxMode", standardShareModes()),
+					},
+				},
 			},
 		},
 		{

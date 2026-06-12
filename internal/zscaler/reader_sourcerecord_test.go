@@ -852,13 +852,11 @@ func TestCloudAppControlSourceRecordProjectsThroughAllowList(t *testing.T) {
 		Labels:               []ziacommon.IDNameExtensions{{ID: 121, Name: "Label"}},
 		TimeWindows:          []ziacommon.IDNameExtensions{{ID: 122, Name: "Work hours"}},
 		TenancyProfileIDs:    []ziacommon.IDNameExtensions{{ID: 123, Name: "Tenancy"}},
-		// Unmapped by cloudAppControlSourceRecord: must never reach the record.
-		CloudAppRiskProfile: &ziacommon.IDCustom{ID: 124, Name: canary},
+		CloudAppRiskProfile:  &ziacommon.IDCustom{ID: 124, Name: "Risk profile"},
 	}
 
 	got := projectOneRecord(t, resources.ProductZIA, resourceCloudAppControl, []resources.SourceRecord{cloudAppControlSourceRecord(rule)})
 	assertNoCanaries(t, "cloud-app-control", got, canary)
-	assertFieldsAbsent(t, "cloud-app-control", got, "cloudAppRiskProfile")
 	if got["name"] != "Cloud app rule" {
 		t.Errorf("projected cloud-app-control name = %v, want Cloud app rule", got["name"])
 	}
