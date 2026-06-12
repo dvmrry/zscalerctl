@@ -836,9 +836,6 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"proxyGateway",
 				"dedicatedIPGateway",
 				"zpaGateway",
-			},
-			ignoredFields: ignoredBecause(
-				"admin/user/device references and ZPA segment details are mapped then dropped until separately modeled",
 				"departments",
 				"deviceGroups",
 				"groups",
@@ -847,7 +844,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"zpaAppSegments",
 				"zpaApplicationSegments",
 				"zpaApplicationSegmentGroups",
-			),
+			},
 		},
 		{
 			name: "ziacommon.CBIProfile",
@@ -864,7 +861,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name: "forwardingrules.ZPAApplicationSegments",
 			typ:  reflect.TypeOf(forwardingrules.ZPAApplicationSegments{}),
 			ignoredFields: ignoredBecause(
-				"covered by dropped zpaApplicationSegments parent",
+				"covered by zia/forwarding-rules zpaApplicationSegments nested field",
 				"id",
 				"name",
 				"description",
@@ -876,7 +873,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name: "forwardingrules.ZPAApplicationSegmentGroups",
 			typ:  reflect.TypeOf(forwardingrules.ZPAApplicationSegmentGroups{}),
 			ignoredFields: ignoredBecause(
-				"covered by dropped zpaApplicationSegmentGroups parent",
+				"covered by zia/forwarding-rules zpaApplicationSegmentGroups nested field",
 				"id",
 				"name",
 				"zpaId",

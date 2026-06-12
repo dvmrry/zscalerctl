@@ -1630,8 +1630,8 @@ func TestReaderListForwardingRulesProjectsSDKShapeThroughAllowList(t *testing.T)
 		t.Fatalf("SDKReader.List(zia, forwarding-rules) error = %v, want nil", err)
 	}
 	got := projectOneRecord(t, resources.ProductZIA, "forwarding-rules", records)
-	assertNoCanaries(t, "forwarding-rules", got, canary, bareFreeTextToken, adminCanary, userCanary, zpaCanary)
-	for _, field := range []string{"lastModifiedBy", "users", "zpaApplicationSegments", "zpaApplicationSegmentGroups"} {
+	assertNoCanaries(t, "forwarding-rules", got, canary, bareFreeTextToken, adminCanary)
+	for _, field := range []string{"lastModifiedBy"} {
 		if _, ok := got[field]; ok {
 			t.Errorf("projected forwarding-rules = %#v, want no %s", got, field)
 		}
