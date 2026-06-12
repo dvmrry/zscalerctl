@@ -127,4 +127,11 @@ make check        # full gate: tests, vet, vuln, staticcheck, semgrep, secret sc
 make live-smoke   # validate the live-smoke resource manifest (artifacts to a temp dir)
 ```
 
+## Contributing
+
+Open an issue to discuss a change first, then submit a pull request against
+`main`. Every PR must pass `make check` and carry exactly one `semver:*` label;
+new functionality must include tests. Security-sensitive reports go through
+[SECURITY.md](SECURITY.md), not the public tracker.
+
 License: [Apache-2.0](LICENSE).
