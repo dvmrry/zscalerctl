@@ -9,6 +9,7 @@ func catalogZTW() ResourceCatalog {
 			Fields: []FieldSpec{
 				operationalField("orgEditStatus", standardShareModes()),
 				operationalField("orgLastActivateStatus", standardShareModes()),
+				secretField("adminStatusMap"),
 				operationalField("adminActivateStatus", standardShareModes()),
 			},
 		},

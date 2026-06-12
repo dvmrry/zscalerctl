@@ -1067,12 +1067,9 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"insertXauHeader",
 				"base64EncodeXauHeader",
 				"cert",
+				"lastModifiedBy",
 				"lastModifiedTime",
 			},
-			ignoredFields: ignoredBecause(
-				"admin references are mapped then dropped by projection",
-				"lastModifiedBy",
-			),
 		},
 		{
 			name:         "proxygateways.ProxyGateways",
@@ -1087,12 +1084,9 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"type",
 				"primaryProxy",
 				"secondaryProxy",
+				"lastModifiedBy",
 				"lastModifiedTime",
 			},
-			ignoredFields: ignoredBecause(
-				"admin references are mapped then dropped by projection",
-				"lastModifiedBy",
-			),
 		},
 		{
 			name:         "proxies.DedicatedIPGateways",
@@ -1107,12 +1101,9 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"secondaryDataCenter",
 				"createTime",
 				"lastModifiedTime",
+				"lastModifiedBy",
 				"default",
 			},
-			ignoredFields: ignoredBecause(
-				"admin references are mapped then dropped by projection",
-				"lastModifiedBy",
-			),
 		},
 		{
 			name:         "timeintervals.TimeInterval",
@@ -1167,6 +1158,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"defaultRule",
 				"protocols",
 				"deviceTrustLevels",
+				"lastModifiedBy",
 				"bandwidthClasses",
 				"locationGroups",
 				"labels",
@@ -1175,10 +1167,6 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"locations",
 				"timeWindows",
 			},
-			ignoredFields: ignoredBecause(
-				"admin references are mapped then dropped by projection",
-				"lastModifiedBy",
-			),
 		},
 		{
 			name:         "dnsgateways.DNSGateways",
@@ -1196,14 +1184,11 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"protocols",
 				"failureBehavior",
 				"lastModifiedTime",
+				"lastModifiedBy",
 				"autoCreated",
 				"natZtrGateway",
 				"dnsGatewayProtocols",
 			},
-			ignoredFields: ignoredBecause(
-				"admin references are mapped then dropped by projection",
-				"lastModifiedBy",
-			),
 		},
 		{
 			name:         "natcontrol.NatControlPolicies",
@@ -1243,14 +1228,11 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"destIpv6Groups",
 				"nwServices",
 				"nwServiceGroups",
+				"lastModifiedBy",
 				"devices",
 				"deviceGroups",
 				"labels",
 			},
-			ignoredFields: ignoredBecause(
-				"admin references are mapped then dropped by projection",
-				"lastModifiedBy",
-			),
 		},
 		{
 			name:         "usergroups.Groups",
