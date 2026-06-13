@@ -1,6 +1,6 @@
 ---
 name: zscalerctl
-description: Use when asked about Zscaler tenant configuration, inventory, or audit — ZIA/ZPA/ZTW/ZCC/Zidentity locations, rules, policies, app segments, connectors, groups — or to export Zscaler config, and the zscalerctl CLI is installed.
+description: Use when asked about Zscaler tenant configuration, inventory, or audit — ZIA/ZPA/ZTW/ZCC/Zidentity locations, rules, policies, app segments, connectors, groups — or to export Zscaler config, when `zscalerctl` is available or should be checked.
 ---
 
 # zscalerctl
@@ -10,15 +10,19 @@ can modify tenant state.
 
 ## Cold start
 
-1. **Never guess resource names.** Enumerate first:
+1. **CLI missing?** If `zscalerctl` is not on `PATH`, ask the operator to
+   install it — do not fall back to raw Zscaler APIs or SDK environment
+   variables.
+2. **Never guess resource names.** Enumerate first:
    `zscalerctl --format json schema list` (full catalog: products, resources,
    operations, fields) or `zscalerctl <product> --help` (one product's list).
-2. **Credentials:** `zscalerctl doctor` reports which `ZSCALERCTL_*`
+3. **Credentials:** `zscalerctl doctor` reports which `ZSCALERCTL_*`
    variables are set or missing without contacting Zscaler. If any are
    missing, ask the operator to set them — values are environment-specific;
    do not invent them or hunt through shell config.
-3. **Read:** `zscalerctl <product> <resource> list | get <id> | show`
-   e.g. `zscalerctl zia locations list`
+4. **Read:** `zscalerctl --format json <product> <resource> list | get <id> | show`,
+   e.g. `zscalerctl --format json zia locations list`. Pass `--format json`
+   explicitly rather than relying on piped auto-JSON.
 
 ## Contract
 
@@ -38,11 +42,11 @@ Output is deterministic JSON, so filter with `jq` — field names come from
 
 ```sh
 # rules whose name matches a pattern (case-insensitive)
-zscalerctl zia url-filtering-rules list | jq '[.[] | select(.name | test("(?i)social"))]'
+zscalerctl --format json zia url-filtering-rules list | jq '[.[] | select(.name | test("(?i)social"))]'
 # rules that reference a URL category
-zscalerctl zia url-filtering-rules list | jq '[.[] | select(.urlCategories // [] | index("SOCIAL_NETWORKING"))]'
+zscalerctl --format json zia url-filtering-rules list | jq '[.[] | select(.urlCategories // [] | index("SOCIAL_NETWORKING"))]'
 # fuzzy-ish: match a term anywhere in any field
-zscalerctl zia locations list | jq --arg q "branch" '[.[] | select(tostring | test($q; "i"))]'
+zscalerctl --format json zia locations list | jq --arg q "branch" '[.[] | select(tostring | test($q; "i"))]'
 ```
 
 For policy questions ("would this URL be blocked for this user?"), do not
@@ -50,4 +54,5 @@ guess evaluation semantics: fetch the relevant rules with this tool, then
 apply the zscaler-skill (policy precedence, wildcard and SSL-inspection
 semantics) if it is installed.
 
-Full guide: `AGENTS.md` in the zscalerctl repository.
+Full guide: `AGENTS.md` in the repo checkout, or
+https://github.com/dvmrry/zscalerctl/blob/main/AGENTS.md.
