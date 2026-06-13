@@ -1,6 +1,5 @@
-<!-- GENERATED from skills/zscalerctl/ - do not edit directly. Run scripts/sync-agents-skill.sh. -->
-
 ---
+# GENERATED from skills/zscalerctl/ - do not edit directly. Run scripts/sync-agents-skill.sh.
 name: zscalerctl
 description: Use when asked about Zscaler tenant configuration, inventory, or audit — ZIA/ZPA/ZTW/ZCC/Zidentity locations, rules, policies, app segments, connectors, groups — or to export Zscaler config, when `zscalerctl` is available or should be checked.
 ---

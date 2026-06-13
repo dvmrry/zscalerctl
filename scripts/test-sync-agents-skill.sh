@@ -30,6 +30,14 @@ if [[ ! -f "$generated/SKILL.md" ]]; then
 	echo "sync-agents-skill did not create generated SKILL.md" >&2
 	exit 1
 fi
+if [[ "$(sed -n '1p' "$generated/SKILL.md")" != "---" ]]; then
+	echo "generated SKILL.md first line must remain YAML frontmatter delimiter" >&2
+	exit 1
+fi
+if ! sed -n '2p' "$generated/SKILL.md" | grep -q "GENERATED from skills/zscalerctl/"; then
+	echo "generated SKILL.md line 2 is missing generated-copy marker" >&2
+	exit 1
+fi
 if ! grep -q "GENERATED from skills/zscalerctl/" "$generated/SKILL.md"; then
 	echo "generated SKILL.md is missing generated-copy marker" >&2
 	exit 1

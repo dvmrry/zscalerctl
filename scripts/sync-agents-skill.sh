@@ -16,7 +16,7 @@ fi
 
 canonical="${ZSCALERCTL_CANONICAL_SKILL_DIR:-skills/zscalerctl}"
 generated="${ZSCALERCTL_AGENTS_SKILL_DIR:-.agents/skills/zscalerctl}"
-marker="<!-- GENERATED from skills/zscalerctl/ - do not edit directly. Run scripts/sync-agents-skill.sh. -->"
+marker="# GENERATED from skills/zscalerctl/ - do not edit directly. Run scripts/sync-agents-skill.sh."
 
 if [[ ! -d "$canonical" ]]; then
 	echo "canonical skill directory not found: $canonical" >&2
@@ -33,10 +33,16 @@ trap 'rm -rf "$tmpdir"' EXIT
 expected="$tmpdir/zscalerctl"
 mkdir -p "$expected"
 cp -R "$canonical/." "$expected/"
+first_line="$(sed -n '1p' "$expected/SKILL.md")"
+if [[ "$first_line" != "---" ]]; then
+	echo "$canonical/SKILL.md: first line must be YAML frontmatter delimiter '---'" >&2
+	exit 1
+fi
 tmp_skill="$expected/SKILL.md.marked"
 {
-	printf '%s\n\n' "$marker"
-	cat "$expected/SKILL.md"
+	printf '%s\n' "$first_line"
+	printf '%s\n' "$marker"
+	tail -n +2 "$expected/SKILL.md"
 } >"$tmp_skill"
 mv "$tmp_skill" "$expected/SKILL.md"
 
