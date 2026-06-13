@@ -107,7 +107,10 @@ func sanitizeLookupURL(raw string) string {
 	value := strings.TrimSpace(raw)
 	parsed, err := url.Parse(value)
 	if err != nil {
-		return value
+		// Can't reliably strip secrets from an unparseable value, so reject it
+		// (empty → caller emits a value-free usage error) rather than forward the
+		// raw query/fragment/userinfo to the API or the rendered output.
+		return ""
 	}
 	// Drop everything that can carry secrets or PII before the URL reaches the
 	// API or the rendered output: userinfo credentials (user:pass@), the query

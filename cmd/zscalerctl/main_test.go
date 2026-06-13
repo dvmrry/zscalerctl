@@ -491,6 +491,22 @@ func TestRunDoesNotEchoInvalidAuthModeValue(t *testing.T) {
 	}
 }
 
+func TestErrorDetailsRedactsBareHighEntropyTokenInJSONMessage(t *testing.T) {
+	t.Parallel()
+
+	// A bare high-entropy token is caught by the text path's ScanRenderedString
+	// entropy pass but not by the JSON path's Renderer.Bytes (ScanString), so the
+	// envelope message must be pre-scanned. (Token is gitleaks-allowlisted.)
+	const canary = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S2t4U6v"
+	body := errorDetails(errors.New("zscaler request failed: " + canary))
+	if strings.Contains(body.Message, canary) {
+		t.Errorf("errorDetails Message = %q, want bare high-entropy token redacted", body.Message)
+	}
+	if !strings.Contains(body.Message, "<REDACTED:SECRET>") {
+		t.Errorf("errorDetails Message = %q, want secret marker", body.Message)
+	}
+}
+
 func TestErrorFormatFollowsDataPathForAuto(t *testing.T) {
 	t.Parallel()
 

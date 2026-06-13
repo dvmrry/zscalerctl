@@ -173,6 +173,28 @@ func TestURLLookupStripsUserinfoCredentials(t *testing.T) {
 	}
 }
 
+func TestURLLookupRejectsUnparseableURLWithoutForwardingValue(t *testing.T) {
+	t.Parallel()
+
+	reader := &fakeURLLookupReader{}
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+
+	// A control character makes url.Parse fail; the sanitizer must reject it with
+	// a value-free usage error rather than forward the raw query to the API.
+	const secret = "topsecrettoken"
+	err := app.Run(context.Background(), []string{"--format", "json", "zia", "url-lookup", "https://example.com/x?token=" + secret + "\x7f"})
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(malformed url) error = %v, want ErrUsage", err)
+	}
+	if len(reader.calls) != 0 {
+		t.Errorf("URLLookup calls = %v, want none — a malformed URL must not be forwarded", reader.calls)
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(out.String(), secret) || strings.Contains(errOut.String(), secret) {
+		t.Errorf("malformed-URL handling leaked the query secret")
+	}
+}
+
 func TestURLLookupRequiresAtLeastOneURL(t *testing.T) {
 	t.Parallel()
 

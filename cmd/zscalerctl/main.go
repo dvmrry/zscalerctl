@@ -108,9 +108,14 @@ func writeError(w io.Writer, format output.Format, err error) {
 }
 
 func errorDetails(err error) errorBody {
+	// JSON envelopes render via Renderer.Bytes (ScanString), which lacks the
+	// bare high-entropy-token check the text path gets from ScanRenderedString.
+	// Scan the message here so a token embedded in an error string is redacted
+	// in --format json / piped output too, not only in text mode.
+	message, _ := redact.New(redact.ModeStandard).ScanRenderedString(err.Error())
 	body := errorBody{
 		Kind:    errorKind(err),
-		Message: err.Error(),
+		Message: message,
 	}
 	var notFound cli.ResourceNotFoundError
 	if errors.As(err, &notFound) {
