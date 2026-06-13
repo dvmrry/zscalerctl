@@ -103,14 +103,19 @@ func writeError(w io.Writer, format output.Format, err error) {
 		_ = output.NewRenderer(redact.New(redact.ModeStandard)).WriteJSON(w, envelope)
 		return
 	}
-	message := redact.New(redact.ModeStandard).String(err.Error())
+	message, _ := redact.New(redact.ModeStandard).ScanRenderedString(err.Error())
 	fmt.Fprintf(w, "zscalerctl: %s\n", message)
 }
 
 func errorDetails(err error) errorBody {
+	// JSON envelopes render via Renderer.Bytes (ScanString), which lacks the
+	// bare high-entropy-token check the text path gets from ScanRenderedString.
+	// Scan the message here so a token embedded in an error string is redacted
+	// in --format json / piped output too, not only in text mode.
+	message, _ := redact.New(redact.ModeStandard).ScanRenderedString(err.Error())
 	body := errorBody{
 		Kind:    errorKind(err),
-		Message: err.Error(),
+		Message: message,
 	}
 	var notFound cli.ResourceNotFoundError
 	if errors.As(err, &notFound) {
@@ -197,12 +202,18 @@ func muteProcessOutput() (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("open null output sink: %w", err)
 	}
+	// Best-effort: swapping the os.Stdout/os.Stderr variables only mutes Go code
+	// that resolves them at write time. Writes straight to fd 1/2 (cgo, child
+	// processes) or via references captured before this call are unaffected.
 	previousStdout := os.Stdout
+	previousStderr := os.Stderr
 	log.SetOutput(io.Discard)
 	os.Stdout = devNull
+	os.Stderr = devNull
 
 	return func() {
 		os.Stdout = previousStdout
+		os.Stderr = previousStderr
 		log.SetOutput(previousLogWriter)
 		_ = devNull.Close()
 	}, nil

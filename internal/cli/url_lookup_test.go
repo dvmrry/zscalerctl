@@ -117,6 +117,84 @@ func TestURLLookupPassesMultipleURLsAndRendersEmptyArrays(t *testing.T) {
 	}
 }
 
+func TestURLLookupStripsQueryAndFragmentBeforeLookupAndOutput(t *testing.T) {
+	t.Parallel()
+
+	reader := &fakeURLLookupReader{
+		results: []zscaler.URLClassification{
+			{URL: "https://example.com/callback", Classifications: []string{"TECHNOLOGY"}},
+		},
+	}
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+
+	err := app.Run(context.Background(), []string{"--format", "json", "zia", "url-lookup", "https://example.com/callback?code=abc123#token"})
+	if err != nil {
+		t.Fatalf("App.Run(zia url-lookup query) error = %v, want nil", err)
+	}
+	if len(reader.calls) != 1 || len(reader.calls[0]) != 1 || reader.calls[0][0] != "https://example.com/callback" {
+		t.Errorf("URLLookup calls = %v, want sanitized URL only", reader.calls)
+	}
+	for _, forbidden := range []string{"abc123", "#token", "?code"} {
+		if strings.Contains(out.String(), forbidden) {
+			t.Errorf("App.Run(zia url-lookup query) stdout = %q, want no %q", out.String(), forbidden)
+		}
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(zia url-lookup query) stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestURLLookupStripsUserinfoCredentials(t *testing.T) {
+	t.Parallel()
+
+	reader := &fakeURLLookupReader{
+		results: []zscaler.URLClassification{
+			{URL: "https://internal.example.com/app", Classifications: []string{"CORPORATE_MARKETING"}},
+		},
+	}
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+
+	err := app.Run(context.Background(), []string{"--format", "json", "zia", "url-lookup", "https://user:s3cr3t@internal.example.com/app?token=abc#frag"})
+	if err != nil {
+		t.Fatalf("App.Run(zia url-lookup userinfo) error = %v, want nil", err)
+	}
+	if len(reader.calls) != 1 || len(reader.calls[0]) != 1 || reader.calls[0][0] != "https://internal.example.com/app" {
+		t.Errorf("URLLookup calls = %v, want userinfo/query/fragment stripped", reader.calls)
+	}
+	for _, forbidden := range []string{"user:", "s3cr3t", "token=abc", "#frag"} {
+		if strings.Contains(out.String(), forbidden) {
+			t.Errorf("App.Run(zia url-lookup userinfo) stdout = %q, want no %q", out.String(), forbidden)
+		}
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(zia url-lookup userinfo) stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestURLLookupRejectsUnparseableURLWithoutForwardingValue(t *testing.T) {
+	t.Parallel()
+
+	reader := &fakeURLLookupReader{}
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+
+	// A control character makes url.Parse fail; the sanitizer must reject it with
+	// a value-free usage error rather than forward the raw query to the API.
+	const secret = "topsecrettoken"
+	err := app.Run(context.Background(), []string{"--format", "json", "zia", "url-lookup", "https://example.com/x?token=" + secret + "\x7f"})
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(malformed url) error = %v, want ErrUsage", err)
+	}
+	if len(reader.calls) != 0 {
+		t.Errorf("URLLookup calls = %v, want none — a malformed URL must not be forwarded", reader.calls)
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(out.String(), secret) || strings.Contains(errOut.String(), secret) {
+		t.Errorf("malformed-URL handling leaked the query secret")
+	}
+}
+
 func TestURLLookupRequiresAtLeastOneURL(t *testing.T) {
 	t.Parallel()
 
