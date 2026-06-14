@@ -34,7 +34,7 @@ The floor is only meaningful if the battery actually discriminates. A battery so
 Field-coverage is a property of Go source: derivable, committable, drift-gated in milliseconds. Agentic coverage is a property of a *running language model*: non-deterministic, slow, keyed, token-costing. **You cannot gate a build on "the LLM scored ≥ X."** The design splits cleanly and the split is enforced structurally:
 
 - **(a) DETERMINISTIC + CI-GATED:** the scorer, the battery logic, the ground-truth oracle, the traceability and posture gates — all pure Go, unit-tested against *recorded transcripts*. Runs under plain `go test`. This is where "grading cannot silently break" lives. It is the exact analogue of `TestFieldCoverageReportIsCurrent`.
-- **(b) NON-DETERMINISTIC + TRACKED:** the live multi-agent run (`make agent-eval`, build-tagged, on-demand/scheduled). Emits a **score + report**, never a build pass/fail. A single cheap agent MAY run as an *advisory, non-blocking* PR smoke (§6.4, deferred per decision 2), enforced to exit 0 always so it can never become a de-facto gate.
+- **(b) NON-DETERMINISTIC + TRACKED:** the live multi-agent run (`make agent-eval`, on-demand/scheduled). Emits a **score + report**, never a build pass/fail. A single cheap agent MAY run as an *advisory, non-blocking* PR smoke (§6.4, deferred per decision 2), enforced to exit 0 always so it can never become a de-facto gate.
 
 The line between the two halves is the most important invariant in this document. Three leaks across it (LLM-authored ground truth frozen as the gate's oracle; grader-version drift not forcing regeneration; auto-committed verdicts) are closed in §5.
 
@@ -83,6 +83,8 @@ error_kind    : enum{usage,partial_dump,not_found,missing_credentials,invalid_re
 **The `error_kind` enum is the EXACT set of strings `errorKind()` emits** (`cmd/zscalerctl/main.go`), copied verbatim — `missing_credentials` (not `credentials`), `live_access_failed` (not `live_api`), and the full set including `invalid_proxy_config` / `invalid_config`. **There is no translation layer:** the grader compares against the literal envelope `kind` string. A normalized/renamed enum would be a second place the vocabulary could drift from the binary, so the design forbids it — `TestErrorKindEnumMatchesBinary` asserts this enum equals the set produced by `errorKind()` and reds the build if a new kind is added without updating the eval.
 
 Normalization is a shared, total, deterministic pipeline: trim → collapse whitespace → NFC → optional case-fold (declared per field) → optional id-canonicalization. **No fuzzy/Levenshtein matching** — if a question needs "approximately," it is the wrong question; rewrite it as a `set` or `string_enum`. `set` is the workhorse and the only kind eligible for partial credit (§4.3).
+
+**Dual-assertion questions (C6):** an error question (Q9) may assert **both** `exit_code` *and* `error_kind` on the same observed command. This is modeled as **two typed assertions on one question**, not a new compound scalar kind — each is graded independently on the observable channel and **both** must pass. A question therefore carries a list of `{kind, expected}` assertions (length 1 for the common case, 2 for C6 exit+kind); the `Finding`'s `Expected`/`Got` serialize the failing assertion.
 
 ### 2.3 The one fixture-binary spec
 
@@ -226,7 +228,7 @@ The corpus was built to test the *validator*, not agent cognition. Concrete mand
 | Q5 | T1/C2/FM-02 | "What country is location id {first_id} in?" | string_enum | projected `country` of that record |
 | Q6 | T2/C3/FM-03 | "How many `zia locations` are in country `US`?" | count | count after real `--filter country=US` |
 | Q7 | T2/C5/FM-08 | "Does `zia locations` ever expose `preSharedKey` in any mode?" | bool | `false` (`ClassSecret`); two-channel: agent must run `--fields preSharedKey` and report absence |
-| Q8 | T2/C5/FM-05 | "Run `zia locations get {id}` narrowed to `id,name,preSharedKey`. Which appear?" | set | `{id,name}` (preSharedKey dropped) |
+| Q8 | T2/C5/FM-08 | "Run `zia locations get {id}` narrowed to `id,name,preSharedKey`. Which appear?" | set | `{id,name}` (preSharedKey dropped) |
 | Q9 | T1/C6/FM-04 | "Fetch `zia locations get 999999` (nonexistent). What exit code and error kind?" | exit_code + error_kind | `4` / `not_found` (both graded) |
 | Q10 | T1/C6/FM-04 | "Read `zia foobars` (no such resource). What error kind?" | error_kind | `unsupported_resource` (exit 4, distinct remediation) |
 | Q11 | T3/C4/FM-02 | "Which app segment uses server group `web-tier`?" | set | id-join: segment whose `serverGroupId` resolves to `web-tier` (second call required) |
@@ -284,7 +286,9 @@ Scalars/bools/enums/ids are **binary** — there is no "half a boolean." Only `s
 
 ### 4.4 Calibration gate (resolve Gap C — floor must be falsifiable)
 
-A committed set of questions known from recorded runs to fail `devin -p`. A **deterministic** CI check (run against the *recorded* devin transcripts, so it stays in the gated half) asserts the battery still contains discriminating questions — if a regeneration makes the battery so easy the calibration agent passes everything, the battery fails its own self-test. Plus per-question `Difficulty` tag ("floor"/"haiku"/"codex"); a surprise pass below the declared tier is a WARN against the *question*, not the surface.
+A committed set of questions known to fail `devin -p`. A **deterministic** CI check (run against *recorded* devin transcripts, so it stays in the gated half) asserts the battery still contains discriminating questions — if a regeneration makes the battery so easy the calibration agent passes everything, the battery fails its own self-test. Plus per-question `Difficulty` tag ("floor"/"haiku"/"codex"); a surprise pass below the declared tier is a WARN against the *question*, not the surface.
+
+**Bootstrap (no Phase-1 circularity):** the calibration corpus is seeded in Phase 1 with **hand-crafted minimal failing transcripts** — e.g. a transcript that answers `aws,azure,gcp` to the product-set question — so the gate is non-vacuous *before* any live run exists. Real failing transcripts from the first Phase-2 live run supplement (not replace) the hand-seeded set. The gate infrastructure **and** a working corpus both land in Phase 1; they never depend on Phase 2.
 
 ### 4.5 FM-03 false-positive fix (jq-WARN)
 
@@ -357,7 +361,8 @@ The fixture binary lives at `internal/agenteval/cmd/zscalerctl-fixture` — deli
 `posture_test.go`, part of the gate, asserts over every committed fixture/transcript/verdict artifact:
 - **No secret-shaped strings** (regex for hex-byte runs, long base64, PSK-shaped) — `TestFixturesContainNoRealLookingSecrets`. Value-free becomes a measured zero, not a prose claim.
 - **No canary token in any binary-output channel.**
-- **`BuildSandboxEnv` emits no *real* `ZSCALERCTL_*` credential values** — the only `ZSCALERCTL_*` creds it may set are the obviously-synthetic, value-free fixture placeholders (§2.3), asserted synthetic by the secret-shaped-string check above; a real-looking credential value here fails the gate. And **no `ANTHROPIC_*`/`OPENAI_*`/`DEVIN_*` token survives into a serialized transcript** (folding multi-backend critique 3a — scrub before write).
+- **`BuildSandboxEnv` emits no *real* `ZSCALERCTL_*` credential values** — the only `ZSCALERCTL_*` creds it may set are the obviously-synthetic, value-free fixture placeholders (§2.3), asserted synthetic by the secret-shaped-string check above; a real-looking credential value here fails the gate.
+- **No provider API token in any committed artifact.** Two layers: (1) the *runtime* scrub strips `ANTHROPIC_*`/`OPENAI_*`/`DEVIN_*` before a transcript is written (the runner's job, Phase 2 — folding multi-backend critique 3a); (2) a *static* Phase-1 gate, `TestArtifactsContainNoAPITokens`, scans **every committed file under `internal/agenteval/`** (fixtures, goldens, verdicts, `battery.json`) for provider-token-shaped strings as the backstop, so anything that slips past the scrub still reds the build.
 
 Runner pre-flight (belongs to the live half but is the same posture): **abort hard if `ZSCALERCTL_FIXTURE_DIR` is unset** so `make agent-eval`/`agent-eval-record` can never hit a live tenant and commit real data (folding ci-metric critique Hole 7).
 
@@ -391,7 +396,7 @@ Runner pre-flight (belongs to the live half but is the same posture): **abort ha
 - **Fresh `WorkDir`** per `(agent, question)` with verbatim `AGENTS.md` + `skills/zscalerctl/SKILL.md` and nothing else (no examples, no fixture JSON). `buildWorkDir` is not configurable — no "add file" API.
 - **Prompt uses `zscalerctl` (on PATH)**, not the absolute `BinPath` (folding multi-backend critique 3b — don't leak the runner's tmp layout into committed transcripts).
 - **Dump path-traversal guard:** fixture `dump --out` validated to resolve inside `WorkDir` (folding multi-backend critique 3c).
-- **`RecordDir` defaults to a `.gitignore`'d path** (`scratch/agent-eval-records/`); the runner warns if it's inside the tracked tree (folding multi-backend critique 5b) — committed transcripts must never become a future training signal that lets an agent answer from memory.
+- **`RecordDir` defaults to `scratch/agent-eval-records/`, which Phase 2 adds to `.gitignore`** (the entry does not exist today — verified — so it is an explicit Phase-2 task, not a present-tense guarantee). The runner hard-refuses to write if its resolved `RecordDir` is inside the tracked tree (folding multi-backend critique 5b) — committed transcripts must never become a future training signal that lets an agent answer from memory. (Same applies to `scratch/agent-eval-report.json` and the `scratch/zscalerctl-fixture` binary.)
 
 ### 6.4 make targets + advisory smoke
 
@@ -453,11 +458,11 @@ The deterministic spine lands first; nothing non-deterministic masquerades as a 
 
 **Phase 1 — DETERMINISTIC / CI-GATED (the spine).**
 1. Promote the fixture corpus to importable `internal/agenteval/fixtures`; extend for N>1, pagination, real id-join, `get <id>` semantics, no-fixture empty-list (§3.5).
-2. `internal/agenteval/cmd/zscalerctl-fixture/main.go` (cred-validation-first, synthetic-cred injection for normal scenarios, `ZSCALERCTL_FIXTURE_DIR`-gated, observed-command sidecar + `jq` wrapper) + `TestShimBinaryBehavior`.
+2. Export `validateReaderConfig` → `zscaler.ValidateReaderConfig` (`internal/zscaler/reader.go`, currently unexported) so the fixture main can run it. Then `internal/agenteval/cmd/zscalerctl-fixture/main.go` (cred-validation-first, synthetic-cred injection for normal scenarios, `ZSCALERCTL_FIXTURE_DIR`-gated, observed-command sidecar + `jq` wrapper) + `TestShimBinaryBehavior`.
 3. `derive.go` + `oracle.go` (lazy derivation, allow-list self-check) + `TestOracleMatchesFixtures`.
 4. `battery.go` templates + `agent-eval-gen` + `TestAgentEvalBatteryIsCurrent` + `TestBatteryCoversSurface` + `TestEveryAgentSurfacePromiseHasAnFM`.
 5. `scorer.go` (pure) + `transcript.go` envelope parser + the full golden suite (§5.2) + `TestEnvelopeParserGoldens`.
-6. `posture_test.go` (value-free as a measured number) + calibration gate (§4.4).
+6. `posture_test.go` (value-free as a measured number) + calibration gate (§4.4), **seeded with hand-crafted minimal failing transcripts** so it is non-vacuous without any live run.
 7. Wire all of the above into `go test ./...` (the existing `check` target). **This is the agentic analogue of the field-coverage gate and it lands complete before any live agent runs.**
 
 **Phase 2 — NON-DETERMINISTIC / TRACKED (the live half).**
@@ -518,4 +523,4 @@ This composes cleanly with the eval: a future battery question ("what changed be
 
 ---
 
-Key repo facts grounding this design (verified): exit codes are `0/1/2/3/4/5/6` with `invalid_resource_id`→exit 2 and both `not_found`+`unsupported_resource`→exit 4 (`cmd/zscalerctl/main.go:172-197`, constants at `:22-28`); the `ResourceReader` seam is `internal/cli/app.go:122/134/138`, live reader at `:864`; the drift-gate pattern is `FIELD_COVERAGE_WRITE=1` + `t.Fatalf("…run make field-coverage")` (`internal/zscaler/field_coverage_test.go`, `Makefile:105`); the fixture corpus to promote is `internal/livesmoke/fake_runner_test.go`; the shell-out precedent is the `pwsh` smoke in `internal/cli/app_test.go`; no `internal/agenteval` package exists yet.
+Key repo facts grounding this design (verified): exit codes are `0/1/2/3/4/5/6` with `invalid_resource_id`→exit 2 and both `not_found`+`unsupported_resource`→exit 4 (`cmd/zscalerctl/main.go` — `errorKind()`:145-170, `exitCodeForError()`:172-197, constants at `:22-28`); the `ResourceReader` seam is `internal/cli/app.go:122/134/138`, live reader at `:864`; `validateReaderConfig` is unexported at `internal/zscaler/reader.go:1327`; the drift-gate pattern is `FIELD_COVERAGE_WRITE=1` + `t.Fatalf("…run make field-coverage")` (`internal/zscaler/field_coverage_test.go`, `Makefile:101`); the fixture corpus to promote is `internal/livesmoke/fake_runner_test.go`; the shell-out precedent is the `pwsh` smoke in `internal/cli/app_test.go`; no `internal/agenteval` package exists yet. (Line numbers are pinned as of this commit; they drift — treat the symbol names as canonical.)
