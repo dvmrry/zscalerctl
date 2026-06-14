@@ -259,10 +259,14 @@ func resolveFixtureBinary(supplied string) (path string, cleanup func(), err err
 	build.Stderr = os.Stderr
 	build.Stdout = os.Stderr
 	if buildErr := build.Run(); buildErr != nil {
-		os.RemoveAll(tmp)
+		if cleanupErr := os.RemoveAll(tmp); cleanupErr != nil {
+			return "", noop, fmt.Errorf("go build %s: %w; cleanup temp dir %q: %v", fixturePkg, buildErr, tmp, cleanupErr)
+		}
 		return "", noop, fmt.Errorf("go build %s: %w", fixturePkg, buildErr)
 	}
-	return out, func() { os.RemoveAll(tmp) }, nil
+	return out, func() {
+		_ = os.RemoveAll(tmp) // Best-effort cleanup after a successful run; callers cannot act on cleanup errors here.
+	}, nil
 }
 
 // writeArtifacts writes <stem>.md and <stem>.json, creating the parent directory

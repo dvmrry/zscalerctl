@@ -209,6 +209,9 @@ func TestRender(t *testing.T) {
 	if !strings.Contains(md, "TRACKED, NOT GATED") {
 		t.Fatalf("Markdown missing the tracked-not-gated header:\n%s", md)
 	}
+	if !strings.Contains(md, "self-describability signal") || !strings.Contains(md, "read the findings") {
+		t.Fatalf("Markdown missing the live-floor interpretation caveat:\n%s", md)
+	}
 	// Floor line leads.
 	if !strings.Contains(md, "The floor is **mid**") {
 		t.Fatalf("Markdown missing the floor line:\n%s", md)

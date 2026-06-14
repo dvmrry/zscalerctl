@@ -300,6 +300,10 @@ func renderMarkdown(ordered []AgentRun, date, floorAgent string, firstViolation 
 	b.WriteString("> multi-agent run. The battery + scorer drift gates are CI-gated under\n")
 	b.WriteString("> `go test`; the live score below is tracked, never a build pass/fail\n")
 	b.WriteString("> (docs/AGENTIC_COVERAGE_PLAN.md §1.3, §7).\n\n")
+	b.WriteString("> Treat the floor as a self-describability signal, not a precise model\n")
+	b.WriteString("> ranking. A `none` floor can come from strict method-proof requirements or\n")
+	b.WriteString("> free-form answer shape, so read the findings before drawing product\n")
+	b.WriteString("> conclusions.\n\n")
 	b.WriteString("Run date: " + date + "\n\n")
 
 	// Lead with the FLOOR (§1.2), not the ceiling.

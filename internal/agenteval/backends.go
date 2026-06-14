@@ -36,6 +36,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // codexBackend drives an OpenAI codex sub-agent via `codex exec --json` (§6.1
@@ -261,8 +262,10 @@ type BackendFactoryConfig struct {
 //   - capture == "codex-transcript"  -> codexBackend (the FS-sandboxed codex
 //     stream is parsed via ParseCodexJSON). entry.Model selects the model; ""
 //     means codex default.
-//   - capture == "host-sidecar"      -> claudeBackend (tool calls go through the
-//     PATH-interposed fixture binary to the host sidecar, parsed via ParseSidecar).
+//   - capture == "host-sidecar"      -> claudeBackend when the row declares a
+//     Claude model (tool calls go through the PATH-interposed fixture binary to
+//     the host sidecar, parsed via ParseSidecar). Other host-sidecar products
+//     need their own adapter and must fail closed until one exists.
 //
 // An unrecognized capture is an error (a new capture mechanism is a deliberate
 // code change, never a silent default to the wrong adapter).
@@ -276,6 +279,10 @@ func BackendForRosterEntry(entry RosterEntry, cfg BackendFactoryConfig) (LiveBac
 			bin:   cfg.CodexBin,
 		}, nil
 	case captureHostSidecar:
+		if !strings.HasPrefix(entry.Model, "claude-") {
+			return nil, fmt.Errorf("agenteval: roster entry %q uses %q capture but has no Claude model; add a dedicated adapter before enabling it",
+				entry.Agent, entry.Capture)
+		}
 		return claudeBackend{
 			name:  entry.Agent,
 			rank:  entry.Rank,

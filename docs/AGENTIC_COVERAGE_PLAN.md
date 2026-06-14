@@ -42,6 +42,8 @@ The line between the two halves is the most important invariant in this document
 
 The eval runs against **fixtures, never a live tenant** — deterministic, CI-able, value-free, no real tenant data or secrets ever. That makes it reproducible but it also bounds what it proves. A committed **"realism deltas register"** (§3.5) lists what the fixtures deliberately do not model (rate-limit/backoff, real auth-handshake latency, tenant-scale redaction CPU cost, the full ~165-resource catalog's long tail). The floor number is a self-describability measurement, not a live-tenant guarantee — stated as plainly as `FIELD_COVERAGE.md` bounds its own claim.
 
+The live floor is also a noisy signal, not a precise model ranking. A `none` floor can reflect strict method-proof requirements, FM-07-style free-form answer shape, or a deliberately weak agent failing the protocol even when the CLI surface is discoverable. The report must therefore lead with findings and interpretation, not just the floor headline.
+
 ---
 
 ## 2. The Shared Substrate (resolve Gap A before any code)
@@ -424,7 +426,7 @@ agent-eval-record: ## refresh verdict goldens from a live run; shows diff, requi
 
 ## 7. The Report & Feedback Loop
 
-`docs/agentic-coverage.md` + `.json`, mirroring `FIELD_COVERAGE.md` in tone, generated, leads with the FLOOR not the ceiling, and **explicitly labeled "tracked, not gated."** Header states what's gated (battery + scorer drift) vs. tracked (live scores).
+`docs/agentic-coverage.md` + `.json`, mirroring `FIELD_COVERAGE.md` in tone, generated, leads with the FLOOR not the ceiling, and **explicitly labeled "tracked, not gated."** Header states what's gated (battery + scorer drift) vs. tracked (live scores), plus the caveat that the floor is a self-describability signal whose failures must be read through the concrete findings.
 
 The loop is the anti-vanity machinery — the score exists *only* to produce `Finding`s; `Finding`s exist *only* to drive edits:
 

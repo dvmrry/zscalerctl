@@ -118,6 +118,29 @@ func TestSelectBackendsExplicitEnable(t *testing.T) {
 	}
 }
 
+// TestSelectBackendsRejectsHostSidecarWithoutAdapter asserts deferred rows can
+// only be opted in when their capture has a real local adapter. Devin/Gemini rows
+// are documented future host-sidecars, but they must not silently run Claude.
+func TestSelectBackendsRejectsHostSidecarWithoutAdapter(t *testing.T) {
+	t.Parallel()
+
+	entries, err := agenteval.ParseRoster([]byte(`[
+      {"rank":1,"agent":"codex-mini","capture":"codex-transcript","model":"gpt-5.4-mini","deferred":false},
+      {"rank":5,"agent":"devin","capture":"host-sidecar","model":"","deferred":true}
+    ]`))
+	if err != nil {
+		t.Fatalf("ParseRoster: %v", err)
+	}
+
+	_, err = agenteval.SelectBackends(entries, []string{"devin"}, agenteval.BackendFactoryConfig{})
+	if err == nil {
+		t.Fatalf("SelectBackends(devin) = nil error, want missing-adapter error")
+	}
+	if !strings.Contains(err.Error(), "dedicated adapter") {
+		t.Fatalf("SelectBackends(devin) error = %q, want dedicated-adapter guidance", err)
+	}
+}
+
 // TestBackendForRosterEntryClassifies asserts the factory maps capture to the
 // right adapter (by observable Name/Rank, and an unknown capture errors). Field
 // mapping (model/bin) is asserted in the internal test where the concrete struct
@@ -145,6 +168,13 @@ func TestBackendForRosterEntryClassifies(t *testing.T) {
 	}
 	if claude.Name() != "haiku" || claude.Rank() != 2 {
 		t.Fatalf("claude Name/Rank = %q/%d, want haiku/2", claude.Name(), claude.Rank())
+	}
+
+	if _, err := agenteval.BackendForRosterEntry(
+		agenteval.RosterEntry{Rank: 5, Agent: "gemini", Capture: "host-sidecar", Model: ""},
+		agenteval.BackendFactoryConfig{},
+	); err == nil {
+		t.Fatalf("host-sidecar without adapter = nil error, want an error")
 	}
 
 	if _, err := agenteval.BackendForRosterEntry(

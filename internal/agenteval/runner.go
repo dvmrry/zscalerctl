@@ -284,11 +284,18 @@ func confinedRel(rel string) bool {
 // copyExecutable copies the file at src to dst and marks dst executable. It is a
 // plain filesystem copy — no exec, no network.
 func copyExecutable(src, dst string) error {
+	cleanDst := filepath.Clean(dst)
+	if filepath.Base(cleanDst) != fixtureBinName {
+		return &SandboxError{Op: "copy fixture binary", Path: dst, Reason: "destination must be the sandbox fixture binary"}
+	}
 	data, err := os.ReadFile(src) // #nosec G304 -- runner-supplied fixture binary path, eval tooling
 	if err != nil {
 		return &SandboxError{Op: "copy fixture binary", Path: src, Reason: err.Error()}
 	}
-	if err := os.WriteFile(dst, data, 0o700); err != nil { // #nosec G302 -- the agent must be able to exec the copied-in fixture binary
+	if err := os.WriteFile(cleanDst, data, 0o600); err != nil { // #nosec G703 -- BuildSandbox constructs dst as sandbox/zscalerctl and the base name is checked above
+		return &SandboxError{Op: "copy fixture binary", Path: dst, Reason: err.Error()}
+	}
+	if err := os.Chmod(cleanDst, 0o700); err != nil { // #nosec G302 -- the copied-in fixture binary must be executable by the agent
 		return &SandboxError{Op: "copy fixture binary", Path: dst, Reason: err.Error()}
 	}
 	return nil
