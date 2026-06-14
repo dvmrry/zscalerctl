@@ -374,18 +374,23 @@ func batteryTemplates() []questionTemplate {
 			},
 		},
 
-		// Q9 — T1/C6/FM-04: the error-contract dual-assertion. Truth = exit 4 AND
-		// error_kind not_found for `get <unknown-id>` on a KNOWN resource. The
+		// Q9 — T1/C6/FM-04: the error-contract probe. Truth = error_kind not_found
+		// for `get <unknown-id>` on a KNOWN resource, graded from the envelope; the
+		// exit_code (4) is graded from the OBSERVED command, not the envelope (§2.2).
+		// The prompt asks ONLY for the error-envelope `kind` — the single typed value
+		// the envelope carries — because exit_code is observed automatically off the
+		// command the agent runs and is never something the agent must report. (The
+		// earlier two-value prompt produced a compound {exit_code,error_kind} answer
+		// that the error_kind assertion could not grade — a false negative.) The
 		// error_kind is DERIVED (DeriveErrorKindUnknownID, grounded in the live
 		// sentinel via errors.Is); the exit_code is a documented-contract pin (§3.4:
-		// C6 is graded against the verified repo exit-code map, and exit_code is
-		// read from the OBSERVED command, not the envelope). Both must pass.
+		// C6 is graded against the verified repo exit-code map). Both must pass.
 		{
 			id:       "Q-FM04-zia-loc-unknown-id",
 			fm:       "FM-04",
 			tier:     "T1",
 			category: "C6",
-			prompt:   "Fetch the zia location with id " + unknownLocationID + " (which does not exist). What process exit code and what error-envelope kind result?",
+			prompt:   "Fetch the zia location with id " + unknownLocationID + " (which does not exist). What is the error-envelope `kind` the tool returns?",
 			spec: QuestionSpec{
 				Derivation: DeriveErrorKindUnknownIDKind,
 				Product:    resources.ProductZIA,

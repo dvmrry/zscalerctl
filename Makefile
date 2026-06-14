@@ -123,7 +123,7 @@ agent-eval-gen:
 # artifact is reproducible. Do NOT add this to `check` or any CI workflow.
 AGENT_EVAL_DATE ?= $(shell date +%F)
 agent-eval:
-	go run ./internal/agenteval/cmd/run --out scratch/agent-eval --date $(AGENT_EVAL_DATE) $(AGENT_EVAL_FLAGS)
+	go run ./internal/agenteval/cmd/run --out scratch/agent-eval --date $(AGENT_EVAL_DATE) --transcripts scratch/agent-eval-transcripts $(AGENT_EVAL_FLAGS)
 
 live-smoke:
 	go run ./scripts/live-smoke.go $(LIVE_SMOKE_FLAGS) $(if $(LIVE_SMOKE_BIN),--bin "$(LIVE_SMOKE_BIN)") $(if $(LIVE_SMOKE_RESOURCES),--resources "$(LIVE_SMOKE_RESOURCES)") $(if $(LIVE_SMOKE_MANIFEST),--manifest "$(LIVE_SMOKE_MANIFEST)") $(if $(LIVE_SMOKE_OUT),--out "$(LIVE_SMOKE_OUT)")

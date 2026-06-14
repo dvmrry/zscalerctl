@@ -321,8 +321,25 @@ func assertionPasses(a Assertion, env AnswerEnvelope, t Transcript) bool {
 		// error_kind compares the envelope's typed answer (a string) to the
 		// expected kind; the value must be one of the contract's ErrorKind set, so
 		// a typo'd kind is a miss, not a charitable match.
-		got := normalizeElement(jsonStringValue(env.Answer), false)
+		//
+		// Defense-in-depth (§2.2: error_kind is graded from the envelope, exit_code
+		// from the observed command): an agent prompted loosely may wrap the kind in
+		// a compound object alongside other fields it observed, e.g.
+		// {"exit_code":4,"error_kind":"not_found"}. When the answer is a JSON object
+		// we accept a matching value found under an "error_kind"/"errorKind"/"kind"
+		// field before falling back to the scalar compare, so a correct kind inside a
+		// compound answer is not a false negative. The scalar string remains the
+		// preferred form (what the prompt asks for); the object form is a tolerant
+		// fallback, never a charitable parse of a wrong value.
 		want := normalizeElement(a.Expected, false)
+		if field, ok := jsonObjectStringField(env.Answer, "error_kind", "errorKind", "kind"); ok {
+			got := normalizeElement(field, false)
+			if !validErrorKind(got) {
+				return false
+			}
+			return got == want
+		}
+		got := normalizeElement(jsonStringValue(env.Answer), false)
 		if !validErrorKind(got) {
 			return false
 		}

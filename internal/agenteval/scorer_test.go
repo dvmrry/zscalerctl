@@ -230,6 +230,60 @@ func TestScorerGradesRecordedTranscripts(t *testing.T) {
 			wantVerd: agenteval.VerdictPass,
 		},
 		{
+			name: "error_kind compound answer (exit_code+error_kind object) -> PASS",
+			// Defense-in-depth: an agent that answers the FM-04 question with the
+			// compound object {"exit_code":4,"error_kind":"not_found"} (the correct
+			// CONTENT, just over-reported) must still grade the error_kind assertion
+			// from the object's error_kind field. exit_code is graded off the observed
+			// command (exit 4); both assertions pass.
+			q: agenteval.Question{
+				ID:          "Q-FM04-compound-001",
+				FailureMode: "FM-04",
+				Assertions: []agenteval.Assertion{
+					{Kind: agenteval.KindErrorKind, Expected: "not_found"},
+					{Kind: agenteval.KindExitCode, Expected: "4"},
+				},
+				MustRunAny: []string{"zia locations get"},
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"exit_code":4,"error_kind":"not_found"}`),
+				Commands:  []agenteval.ObservedCommand{cmd(4, "zscalerctl", "zia", "locations", "get", "999999")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
+		{
+			name: "error_kind compound answer alt key (kind) -> PASS",
+			// The fallback also accepts a bare {"kind":"not_found"} object.
+			q: agenteval.Question{
+				ID:          "Q-FM04-compound-002",
+				FailureMode: "FM-04",
+				Assertions:  []agenteval.Assertion{{Kind: agenteval.KindErrorKind, Expected: "not_found"}},
+				MustRunAny:  []string{"zia locations get"},
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"kind":"not_found"}`),
+				Commands:  []agenteval.ObservedCommand{cmd(4, "zscalerctl", "zia", "locations", "get", "999999")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
+		{
+			name: "error_kind compound answer wrong kind -> FAIL",
+			// A compound object carrying the WRONG kind is still a miss — the fallback
+			// extracts the field but does not soften the equality check.
+			q: agenteval.Question{
+				ID:          "Q-FM04-compound-003",
+				FailureMode: "FM-04",
+				Assertions:  []agenteval.Assertion{{Kind: agenteval.KindErrorKind, Expected: "not_found"}},
+				MustRunAny:  []string{"zia locations get"},
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"exit_code":4,"error_kind":"unsupported_resource"}`),
+				Commands:  []agenteval.ObservedCommand{cmd(4, "zscalerctl", "zia", "locations", "get", "999999")},
+			},
+			wantVerd:   agenteval.VerdictFail,
+			wantSignal: "wrong",
+		},
+		{
 			name: "exit_code + error_kind dual wrong kind -> FAIL",
 			q: agenteval.Question{
 				ID:          "Q-FM04-dual-002",

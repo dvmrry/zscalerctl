@@ -333,6 +333,35 @@ func jsonScalarText(raw json.RawMessage) string {
 	return ""
 }
 
+// jsonObjectStringField unwraps a raw answer that is a JSON object and returns
+// the first present string-valued field among keys, with ok=true. It is the
+// tolerant fallback for a compound answer (§2.2 defense-in-depth): an agent that
+// reports the error kind inside an object alongside other observed values, e.g.
+// {"exit_code":4,"error_kind":"not_found"}, still has its kind extracted. ok is
+// false when the answer is not a JSON object, or when none of the named keys is
+// present with a string value — so a non-object scalar falls through to the
+// normal scalar path and a wrong/absent field is never charitably matched.
+func jsonObjectStringField(raw json.RawMessage, keys ...string) (string, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return "", false
+	}
+	if obj == nil {
+		return "", false
+	}
+	for _, k := range keys {
+		v, present := obj[k]
+		if !present {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(v, &s); err == nil {
+			return s, true
+		}
+	}
+	return "", false
+}
+
 // jsonStringSlice unwraps a raw answer that is a JSON array of strings. A scalar
 // string is tolerated as a singleton array (an agent that answered one element
 // without bracketing it). Non-string array elements and other shapes yield nil —

@@ -23,6 +23,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -48,15 +49,16 @@ const fixturePkg = "./internal/agenteval/cmd/zscalerctl-fixture"
 
 // config is the parsed CLI configuration.
 type config struct {
-	rosterPath string
-	backends   string
-	fixtureBin string
-	out        string
-	agentsDoc  string
-	skillDoc   string
-	codexBin   string
-	claudeBin  string
-	reportDate string
+	rosterPath     string
+	backends       string
+	fixtureBin     string
+	out            string
+	agentsDoc      string
+	skillDoc       string
+	codexBin       string
+	claudeBin      string
+	reportDate     string
+	transcriptsDir string
 }
 
 func main() {
@@ -81,6 +83,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.codexBin, "codex-bin", "", "codex executable (default: codex on PATH)")
 	flag.StringVar(&cfg.claudeBin, "claude-bin", "", "REAL claude executable, NOT the nix-darwin fish wrapper (default: claude on PATH)")
 	flag.StringVar(&cfg.reportDate, "date", "", "report date (YYYY-MM-DD); required so the artifact is reproducible")
+	flag.StringVar(&cfg.transcriptsDir, "transcripts", "", "if set, write a per-(agent,question) transcript JSON under <dir>/<agent>/<questionID>.json for triage (default: off). Intended for gitignored scratch.")
 	flag.Parse()
 	return cfg
 }
@@ -117,6 +120,9 @@ func run(cfg config) error {
 
 	questions := agenteval.Battery()
 	fmt.Fprintf(os.Stderr, "agent-eval: %d backends × %d questions; fixture=%s\n", len(backends), len(questions), fixtureBin)
+	if cfg.transcriptsDir != "" {
+		fmt.Fprintf(os.Stderr, "agent-eval: writing per-(agent,question) transcripts under %s\n", cfg.transcriptsDir)
+	}
 
 	// Drive every (backend, question). Each run gets a FRESH sandbox.
 	ctx := context.Background()
@@ -124,8 +130,15 @@ func run(cfg config) error {
 	for _, backend := range backends {
 		ar := agenteval.AgentRun{Agent: backend.Name(), Rank: backend.Rank()}
 		for _, q := range questions {
-			result := runOne(ctx, backend, q, fixtureBin, docs)
+			prompt, transcript, result := runOne(ctx, backend, q, fixtureBin, docs)
 			ar.Results = append(ar.Results, result)
+			if cfg.transcriptsDir != "" {
+				if err := writeTranscript(cfg.transcriptsDir, backend.Name(), q, prompt, transcript, result); err != nil {
+					// Transcript persistence is a debugging/goldens aid, never load-bearing
+					// for the report — a write failure is logged, not fatal.
+					fmt.Fprintf(os.Stderr, "agent-eval: %s %s: write transcript: %v\n", backend.Name(), q.ID, err)
+				}
+			}
 		}
 		runs = append(runs, ar)
 		printAgentLine(ar)
@@ -142,32 +155,35 @@ func run(cfg config) error {
 }
 
 // runOne stages a fresh sandbox for one (backend, question), drives the agent,
-// and grades the transcript into a QuestionResult. A sandbox/exec error is NOT a
-// surface FAIL: it is logged and the question is scored against an empty
-// transcript, which the scorer treats as no_commands — a backend/infra problem
-// surfaces as a (rerunnable) low result, not a phantom surface gap. (Capability
-// smoke / BACKEND_UNFIT classification, §6.2, is a follow-up; here an exec error
-// is simply visible in the per-agent tally.)
-func runOne(ctx context.Context, backend agenteval.LiveBackend, q agenteval.Question, fixtureBin string, docs map[string]string) agenteval.QuestionResult {
+// and grades the transcript into a QuestionResult. It also returns the composed
+// prompt and the raw transcript so the caller can persist them for triage
+// (--transcripts). A sandbox/exec error is NOT a surface FAIL: it is logged and
+// the question is scored against an empty transcript, which the scorer treats as
+// no_commands — a backend/infra problem surfaces as a (rerunnable) low result,
+// not a phantom surface gap. (Capability smoke / BACKEND_UNFIT classification,
+// §6.2, is a follow-up; here an exec error is simply visible in the per-agent
+// tally.)
+func runOne(ctx context.Context, backend agenteval.LiveBackend, q agenteval.Question, fixtureBin string, docs map[string]string) (string, agenteval.Transcript, agenteval.QuestionResult) {
+	prompt := agenteval.ComposePrompt(q)
+
 	sandbox, err := os.MkdirTemp("", "agent-eval-sandbox-")
 	if err != nil {
-		return scoreTranscript(q, agenteval.Transcript{})
+		return prompt, agenteval.Transcript{}, scoreTranscript(q, agenteval.Transcript{})
 	}
 	defer os.RemoveAll(sandbox)
 
 	env, err := agenteval.BuildSandbox(sandbox, fixtureBin, docs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agent-eval: %s %s: build sandbox: %v\n", backend.Name(), q.ID, err)
-		return scoreTranscript(q, agenteval.Transcript{})
+		return prompt, agenteval.Transcript{}, scoreTranscript(q, agenteval.Transcript{})
 	}
 
-	prompt := agenteval.ComposePrompt(q)
 	t, err := backend.Run(ctx, sandbox, prompt, env)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agent-eval: %s %s: run: %v\n", backend.Name(), q.ID, err)
 		// Grade whatever transcript came back (may be empty -> no_commands).
 	}
-	return scoreTranscript(q, t)
+	return prompt, t, scoreTranscript(q, t)
 }
 
 // scoreTranscript grades one transcript against one question via the pure scorer
@@ -265,6 +281,92 @@ func writeArtifacts(stem, md string, jsonBytes []byte) error {
 	}
 	fmt.Fprintf(os.Stderr, "agent-eval: wrote %s.md and %s.json\n", stem, stem)
 	return nil
+}
+
+// transcriptRecord is the per-(agent,question) triage artifact written under
+// --transcripts (docs/AGENTIC_COVERAGE_PLAN.md §5.3: this makes every fail
+// inspectable and can later seed the verdict-goldens). It captures everything a
+// human (or a future golden-recorder) needs to replay and understand one run:
+// the question metadata, the EXACT composed prompt the agent saw, the agent's
+// raw text, the authoritative observed commands (argv + exit), the parsed answer
+// (when the envelope parsed), and the scorer's Verdict + Finding.
+//
+// It is debugging/goldens scaffolding only — never consumed by the report — so
+// it is written best-effort under gitignored scratch and a write failure is
+// non-fatal.
+type transcriptRecord struct {
+	QuestionID  string                      `json:"question_id"`
+	FailureMode string                      `json:"failure_mode"`
+	Tier        string                      `json:"tier"`
+	Agent       string                      `json:"agent"`
+	Prompt      string                      `json:"prompt"`
+	AgentText   string                      `json:"agent_text"`
+	Commands    []agenteval.ObservedCommand `json:"commands"`
+	AnswerOK    bool                        `json:"answer_ok"`
+	Answer      *agenteval.AnswerEnvelope   `json:"answer,omitempty"`
+	Verdict     agenteval.Verdict           `json:"verdict"`
+	Finding     agenteval.Finding           `json:"finding"`
+}
+
+// writeTranscript persists one run's transcriptRecord to
+// <dir>/<agent>/<questionID>.json (§5.3). It is pure os/file work — no exec, no
+// network — so it stays in policy anywhere. The agent and question id are
+// path-sanitized so a hostile/odd name can never escape the target dir, then the
+// per-agent subdir is created and the record is written 2-space-indented for
+// human triage. Returns an error (logged, non-fatal by the caller) on any I/O
+// failure.
+func writeTranscript(dir, agent string, q agenteval.Question, prompt string, t agenteval.Transcript, result agenteval.QuestionResult) error {
+	rec := transcriptRecord{
+		QuestionID:  q.ID,
+		FailureMode: q.FailureMode,
+		Tier:        q.Tier,
+		Agent:       agent,
+		Prompt:      prompt,
+		AgentText:   t.AgentText,
+		Commands:    t.Commands,
+		Verdict:     result.Verdict,
+		Finding:     result.Finding,
+	}
+	if env, ok := agenteval.ParseAnswer(t.AgentText); ok {
+		rec.AnswerOK = true
+		rec.Answer = &env
+	}
+
+	data, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal transcript: %w", err)
+	}
+	data = append(data, '\n')
+
+	agentDir := filepath.Join(dir, sanitizePathComponent(agent))
+	if mkErr := os.MkdirAll(agentDir, 0o755); mkErr != nil { // #nosec G301 -- ordinary scratch dir
+		return fmt.Errorf("create transcript dir %q: %w", agentDir, mkErr)
+	}
+	path := filepath.Join(agentDir, sanitizePathComponent(q.ID)+".json")
+	if wErr := os.WriteFile(path, data, 0o644); wErr != nil { // #nosec G306 -- non-secret triage artifact
+		return fmt.Errorf("write transcript %q: %w", path, wErr)
+	}
+	return nil
+}
+
+// sanitizePathComponent reduces an agent/question name to a safe single path
+// component: a path separator or `..` could otherwise let a name escape the
+// target dir. Any os.PathSeparator (and the forward slash) collapses to '_', and
+// a result of "." / ".." / "" is replaced with a safe placeholder. Agent and
+// question ids are well-formed in practice; this is defense-in-depth so the
+// env/flag-controlled output tree can never write outside <dir>.
+func sanitizePathComponent(s string) string {
+	mapped := strings.Map(func(r rune) rune {
+		if r == '/' || r == os.PathSeparator {
+			return '_'
+		}
+		return r
+	}, s)
+	switch mapped {
+	case "", ".", "..":
+		return "_"
+	}
+	return mapped
 }
 
 // printAgentLine prints one per-agent pass/warn/fail tally + clears bit to stdout

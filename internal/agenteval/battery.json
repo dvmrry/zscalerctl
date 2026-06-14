@@ -197,7 +197,7 @@
       "FailureMode": "FM-04",
       "Tier": "T1",
       "Category": "C6",
-      "Prompt": "Fetch the zia location with id 999999 (which does not exist). What process exit code and what error-envelope kind result?",
+      "Prompt": "Fetch the zia location with id 999999 (which does not exist). What is the error-envelope `kind` the tool returns?",
       "Assertions": [
         {
           "kind": "error_kind",
