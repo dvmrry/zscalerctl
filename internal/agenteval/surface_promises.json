@@ -1,0 +1,68 @@
+[
+  {
+    "promise_id": "discover-dont-guess",
+    "anchor": "Resource names are not guessable. Enumerate them first",
+    "fm": "FM-01",
+    "doc": "AGENTS.md"
+  },
+  {
+    "promise_id": "discover-dont-guess-skill",
+    "anchor": "Never guess resource names.",
+    "fm": "FM-01",
+    "doc": "SKILL.md"
+  },
+  {
+    "promise_id": "parse-output-not-prose",
+    "anchor": "Parse output, not prose",
+    "fm": "FM-02",
+    "doc": "AGENTS.md"
+  },
+  {
+    "promise_id": "narrow-never-widen",
+    "anchor": "narrow only, never widen",
+    "fm": "FM-03",
+    "doc": "AGENTS.md"
+  },
+  {
+    "promise_id": "exit-code-contract",
+    "anchor": "Exit codes are a stable contract",
+    "fm": "FM-04",
+    "doc": "AGENTS.md"
+  },
+  {
+    "promise_id": "json-error-envelope",
+    "anchor": "Failures emit a JSON envelope on stderr",
+    "fm": "FM-04",
+    "doc": "AGENTS.md"
+  },
+  {
+    "promise_id": "fields-narrowing",
+    "anchor": "--fields a,b,c",
+    "fm": "FM-05",
+    "doc": "AGENTS.md"
+  },
+  {
+    "promise_id": "explicit-format-json",
+    "anchor": "Pass `--format json`",
+    "fm": "FM-06",
+    "doc": "SKILL.md"
+  },
+  {
+    "promise_id": "credentials-env-only",
+    "anchor": "Configuration is environment-only",
+    "fm": "FM-07",
+    "doc": "AGENTS.md"
+  },
+  {
+    "promise_id": "fail-closed-boundary",
+    "anchor": "fail-closed allow-list",
+    "fm": "FM-08",
+    "doc": "AGENTS.md"
+  },
+  {
+    "promise_id": "absent-fields-deliberate",
+    "anchor": "Absent fields are deliberately excluded by a fail-closed allow-list",
+    "fm": "FM-08",
+    "doc": "SKILL.md"
+  }
+]

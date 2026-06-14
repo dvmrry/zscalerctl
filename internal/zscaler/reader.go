@@ -1367,6 +1367,11 @@ func validateReaderConfig(cfg ReaderConfig) error {
 	}
 }
 
+// ValidateReaderConfig exposes credential validation for callers that inject a
+// ResourceReader via cli.Options.Reader (which bypasses NewReader), so the agent-eval
+// fixture binary can still exercise the real missing-credentials path.
+func ValidateReaderConfig(cfg ReaderConfig) error { return validateReaderConfig(cfg) }
+
 func validateProductConfig(cfg ReaderConfig, product resources.Product) error {
 	if effectiveAuthMode(cfg.AuthMode) != AuthModeOneAPI {
 		return nil
