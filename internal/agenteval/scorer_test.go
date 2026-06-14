@@ -365,6 +365,95 @@ func TestScorerGradesRecordedTranscripts(t *testing.T) {
 			wantVerd:   agenteval.VerdictFail,
 			wantSignal: "wrong",
 		},
+
+		// --- FM-07 set-extraction hardening (§2.2 set-extraction a/b/c) ---------
+		// These four cases use the EXACT FM-07 expected set and the EXACT richer
+		// answer shapes captured in the first two live runs, asserting the scorer no
+		// longer false-fails a correct-but-structured answer while still failing a
+		// genuinely incomplete one.
+		{
+			name: "FM-07 codex object answer (required/secret_one_of/additional_for_zpa) -> PASS",
+			// The codex run answered with a JSON OBJECT whose values are arrays of env
+			// var names. Flattening every value yields a superset of the required-core
+			// set; with extra_allowed=true the optional/alternative vars are ignored and
+			// the answer PASSES (previously false-failed: an object did not parse as a
+			// []string, so the got set was empty -> matched==0 -> FAIL).
+			q: agenteval.Question{
+				ID:           "Q-FM07-credentials",
+				FailureMode:  "FM-07",
+				Assertions:   []agenteval.Assertion{{Kind: agenteval.KindSet, Expected: "ZSCALERCTL_CLIENT_ID,ZSCALERCTL_CLIENT_SECRET,ZSCALERCTL_VANITY_DOMAIN"}},
+				MustRunAny:   []string{"doctor"},
+				ExtraAllowed: true,
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"required":["ZSCALERCTL_CLIENT_ID","ZSCALERCTL_VANITY_DOMAIN"],"secret_one_of":["ZSCALERCTL_CLIENT_SECRET","ZSCALERCTL_CLIENT_SECRET_FILE"],"additional_for_zpa":["ZSCALERCTL_ZPA_CUSTOMER_ID"]}`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "doctor")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
+		{
+			name: "FM-07 gpt-5.4-mini array with 'or' alternative member -> PASS",
+			// The gpt-5.4-mini run answered with a flat array where one element is an
+			// either/or pair ("…SECRET or …SECRET_FILE") and others carry parenthetical
+			// asides. Splitting on " or " yields both secret var names so the required
+			// core is matched; extras (the _FILE, CLOUD, ZPA_CUSTOMER_ID, and the
+			// parenthetical "(for ZPA)" suffix that does not match a required member) are
+			// ignored under extra_allowed=true -> PASS.
+			q: agenteval.Question{
+				ID:           "Q-FM07-credentials",
+				FailureMode:  "FM-07",
+				Assertions:   []agenteval.Assertion{{Kind: agenteval.KindSet, Expected: "ZSCALERCTL_CLIENT_ID,ZSCALERCTL_CLIENT_SECRET,ZSCALERCTL_VANITY_DOMAIN"}},
+				MustRunAny:   []string{"doctor"},
+				ExtraAllowed: true,
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`["ZSCALERCTL_CLIENT_ID","ZSCALERCTL_CLIENT_SECRET or ZSCALERCTL_CLIENT_SECRET_FILE","ZSCALERCTL_VANITY_DOMAIN","ZSCALERCTL_CLOUD","ZSCALERCTL_ZPA_CUSTOMER_ID (for ZPA)"]`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "doctor")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
+		{
+			name: "FM-07 negative: missing a required member (no client secret) -> NOT PASS",
+			// The hardening must NOT over-loosen: an answer that omits a required-core
+			// member (here the client secret in any form) must never PASS. matched==2 of
+			// 3, extra==0, so even under extra_allowed=true the §4.3 table gives
+			// WARN(partial) — a non-PASS that keeps the floor honest (a missing REQUIRED
+			// member cannot earn a clean pass). This is the spec's "must still FAIL"
+			// intent expressed through the existing partial-credit table: NOT a free
+			// pass. Forcing a hard FAIL here would mean rewriting the §4.3 set table,
+			// which is out of scope for this set-extraction hardening.
+			q: agenteval.Question{
+				ID:           "Q-FM07-credentials",
+				FailureMode:  "FM-07",
+				Assertions:   []agenteval.Assertion{{Kind: agenteval.KindSet, Expected: "ZSCALERCTL_CLIENT_ID,ZSCALERCTL_CLIENT_SECRET,ZSCALERCTL_VANITY_DOMAIN"}},
+				MustRunAny:   []string{"doctor"},
+				ExtraAllowed: true,
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`["ZSCALERCTL_CLIENT_ID","ZSCALERCTL_VANITY_DOMAIN"]`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "doctor")},
+			},
+			// A right-direction-but-incomplete set is WARN(partial), not PASS: the floor
+			// definition (§2.4) requires pass-or-WARN with no PASS for a missing required.
+			wantVerd:   agenteval.VerdictWarn,
+			wantSignal: "partial",
+		},
+		{
+			name: "plain id,name set still PASS (no regression) -> PASS",
+			// Regression guard: an ordinary array-of-strings set answer (no object, no
+			// 'or') grades exactly as before through the hardened extractor.
+			q: agenteval.Question{
+				ID:          "Q-FM08-fields-001",
+				FailureMode: "FM-08",
+				Assertions:  []agenteval.Assertion{{Kind: agenteval.KindSet, Expected: "id,name"}},
+				MustRunAny:  []string{"--fields"},
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`["id","name"]`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "zia", "locations", "get", "1", "--fields", "id,name,preSharedKey")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
 	}
 
 	for _, tc := range tests {

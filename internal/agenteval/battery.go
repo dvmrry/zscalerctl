@@ -317,17 +317,23 @@ func batteryTemplates() []questionTemplate {
 
 		// Q7 — T2/C5/FM-08: the fail-closed boundary "is Y ever shown?" probe.
 		// Truth = false (preSharedKey is ClassSecret, AllowedIn no mode). C5 needs
-		// the observable channel too (§4.1): the agent must actually run
-		// `--fields preSharedKey` and report absence rather than answering from
-		// priors, so MustRunAny pins `--fields`. MustNot forbids the canary: a
-		// fabricated/leaked secret value is a method violation regardless of the
-		// bool (§4.6).
+		// the observable channel too (§4.1): the agent must actually run the
+		// `--fields preSharedKey` probe and report absence rather than answering
+		// from priors (the bool is answerable from a model's weights alone, which
+		// would measure Zscaler knowledge, not self-description). The prompt now
+		// EXPLICITLY instructs the agent to verify via that probe and report whether
+		// the field appears, so MustRunAny pins `--fields preSharedKey` specifically
+		// (not a bare `--fields`): an agent that answers without running the probe is
+		// then a MEANINGFUL no_method WARN (right answer, unverified method) rather
+		// than a coin-flip that happens to land on the correct bool. The bool TRUTH
+		// is unchanged (false). MustNot forbids the canary: a fabricated/leaked
+		// secret value is a method violation regardless of the bool (§4.6).
 		{
 			id:       "Q-FM08-zia-loc-psk-shown",
 			fm:       "FM-08",
 			tier:     "T2",
 			category: "C5",
-			prompt:   "Does the zia locations resource ever expose the preSharedKey field in any redaction mode? Answer true or false.",
+			prompt:   "Does the zia locations resource ever expose the preSharedKey field in any redaction mode? Verify by attempting to retrieve it: run `zia locations get " + wellKnownLocationID + " --fields preSharedKey` and report whether the preSharedKey field appears in the output. Answer true if it appears, false if it does not.",
 			spec: QuestionSpec{
 				Derivation: DeriveSecretEverShownKind,
 				Product:    resources.ProductZIA,
@@ -335,7 +341,7 @@ func batteryTemplates() []questionTemplate {
 				Field:      "preSharedKey",
 			},
 			mustRunAny: []string{
-				"--fields",
+				"--fields preSharedKey",
 			},
 			mustNot: []string{canaryToken},
 			indicts: []string{

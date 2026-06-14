@@ -362,10 +362,25 @@ func jsonObjectStringField(raw json.RawMessage, keys ...string) (string, bool) {
 	return "", false
 }
 
-// jsonStringSlice unwraps a raw answer that is a JSON array of strings. A scalar
-// string is tolerated as a singleton array (an agent that answered one element
-// without bracketing it). Non-string array elements and other shapes yield nil —
-// they are a miss for the set kind, never a charitable parse.
+// jsonStringSlice unwraps a raw answer into the candidate set members for the
+// set kind (§2.2). It accepts the shapes real agents emit, in priority order:
+//
+//   - a JSON array of strings -> the elements verbatim (the canonical shape);
+//   - a scalar JSON string -> a singleton (an agent that answered one element
+//     without bracketing it);
+//   - a JSON OBJECT whose values are strings and/or arrays of strings -> every
+//     value FLATTENED into one candidate set. A structured answer such as
+//     {"required":["A","B"],"secret_one_of":["C","D"],"additional_for_zpa":["E"]}
+//     flattens to {A,B,C,D,E}. This forgives a correct-but-richer-shaped answer
+//     (the FM-07 false-fail): the object's KEYS are organizational labels the
+//     agent chose, not members, so only the VALUES become candidates.
+//
+// Any other shape (a non-string scalar, an array with non-string elements, an
+// object carrying a non-string/non-array value) yields nil — a miss for the set
+// kind, never a charitable parse. Object-value flattening is fail-closed in the
+// same way: a single value that is neither a string nor a []string aborts the
+// whole object (returns nil) rather than silently dropping part of the answer,
+// so a malformed structured answer cannot half-match.
 func jsonStringSlice(raw json.RawMessage) []string {
 	var arr []string
 	if err := json.Unmarshal(raw, &arr); err == nil {
@@ -374,22 +389,118 @@ func jsonStringSlice(raw json.RawMessage) []string {
 	if s := jsonStringValue(raw); s != "" {
 		return []string{s}
 	}
+	if flat, ok := flattenStringObject(raw); ok {
+		return flat
+	}
 	return nil
+}
+
+// flattenStringObject unwraps a raw answer that is a JSON object whose values are
+// each a string OR an array of strings, returning every value flattened into one
+// slice (object KEYS are dropped — they are the agent's organizational labels,
+// not set members, §2.2 set-extraction (a)). ok is false when the answer is not a
+// JSON object, when the object is empty, or when ANY value is neither a string
+// nor a []string — so a malformed/partly-typed object is rejected wholesale
+// rather than half-parsed (fail-closed). Iteration order over map keys does not
+// matter: the set kind is order-insensitive and deduped downstream (§4.3).
+func flattenStringObject(raw json.RawMessage) ([]string, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, false
+	}
+	if len(obj) == 0 {
+		return nil, false
+	}
+	var out []string
+	for _, v := range obj {
+		if arr, ok := jsonStringArray(v); ok {
+			out = append(out, arr...)
+			continue
+		}
+		if s, ok := jsonStringScalar(v); ok {
+			out = append(out, s)
+			continue
+		}
+		// A value that is neither a string nor a []string: abort the whole object.
+		return nil, false
+	}
+	return out, true
+}
+
+// jsonStringArray unwraps a raw value that is a JSON array whose elements are all
+// strings, returning the elements with ok=true. A non-array, or an array with any
+// non-string element, returns ok=false.
+func jsonStringArray(raw json.RawMessage) ([]string, bool) {
+	var arr []string
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		return nil, false
+	}
+	return arr, true
+}
+
+// jsonStringScalar unwraps a raw value that is a JSON string, returning its inner
+// text with ok=true. A non-string returns ok=false (distinct from jsonStringValue,
+// which collapses "not a string" and "the empty string" into "").
+func jsonStringScalar(raw json.RawMessage) (string, bool) {
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return "", false
+	}
+	return s, true
 }
 
 // normalizeSet turns a slice of raw strings into an order-insensitive, deduped,
 // element-normalized set per §2.2 (the set kind's element normalizer). Each
-// element is run through normalizeElement(casefold); empties after normalization
-// are dropped; duplicates collapse. The returned map is a set (presence-keyed)
-// so set comparison (§4.3) is membership math, order-free by construction.
+// element is first split on the alternative separator " or " (§2.2 set-extraction
+// (c)) into one-or-more sub-members — so a member naming an either/or pair, e.g.
+// "ZSCALERCTL_CLIENT_SECRET or ZSCALERCTL_CLIENT_SECRET_FILE", contributes BOTH
+// names — then each sub-member is run through normalizeElement(casefold). Empties
+// after normalization are dropped; duplicates collapse. The returned map is a set
+// (presence-keyed) so set comparison (§4.3) is membership math, order-free by
+// construction.
 func normalizeSet(elems []string, casefold bool) map[string]bool {
 	out := make(map[string]bool, len(elems))
 	for _, e := range elems {
-		n := normalizeElement(e, casefold)
-		if n == "" {
-			continue
+		for _, sub := range splitAlternatives(e) {
+			n := normalizeElement(sub, casefold)
+			if n == "" {
+				continue
+			}
+			out[n] = true
 		}
-		out[n] = true
 	}
 	return out
+}
+
+// alternativeSeparator is the case-insensitive " or " token (space-or-space) on
+// which a single set member is split into alternatives (§2.2 set-extraction (c)).
+// It is matched as a whole, space-delimited word so an embedded "or" inside a
+// token (e.g. a hypothetical "FACTOR") is never split — only the standalone
+// connective an agent writes between two equivalent answers.
+const alternativeSeparator = " or "
+
+// splitAlternatives splits one raw set member on the case-insensitive " or "
+// connective into its alternatives (§2.2 set-extraction (c)), preserving order and
+// returning the single original element when no separator is present. The split is
+// done case-insensitively by scanning a lower-cased copy for the separator and
+// slicing the ORIGINAL at the same offsets, so element case is preserved for the
+// downstream normalizer (which case-folds only when asked). Whitespace around each
+// alternative is left for normalizeElement to trim.
+func splitAlternatives(s string) []string {
+	lower := strings.ToLower(s)
+	var (
+		parts []string
+		start = 0
+	)
+	for {
+		idx := strings.Index(lower[start:], alternativeSeparator)
+		if idx < 0 {
+			parts = append(parts, s[start:])
+			break
+		}
+		abs := start + idx
+		parts = append(parts, s[start:abs])
+		start = abs + len(alternativeSeparator)
+	}
+	return parts
 }
