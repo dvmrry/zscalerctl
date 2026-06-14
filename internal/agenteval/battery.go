@@ -117,7 +117,7 @@ func buildBattery() ([]Question, error) {
 // questionTemplate is the battery's per-question authoring record. It declares
 // the question's metadata (id, FM, tier, category, prompt), the derivation spec
 // the oracle turns into the DERIVED assertion(s), and the grading policy
-// (MustRunAny / MustNot / ExtraAllowed / Indicts). For the C6 dual-assertion
+// (MustRunAny / MustNot / ExtraAllowed / RequireAll / Indicts). For the C6 dual-assertion
 // question it also carries an extraAssertion (the observed exit_code, a
 // documented-contract pin, §3.4) that is appended to the derived error_kind
 // assertion — the one place a question grades two channels (§2.2).
@@ -131,6 +131,7 @@ type questionTemplate struct {
 	mustRunAny  []string
 	mustNot     []string
 	extraAllow  bool
+	requireAll  bool
 	indicts     []string
 	extraAssert []Assertion
 }
@@ -154,6 +155,7 @@ func (tpl questionTemplate) instantiate() (Question, error) {
 		Prompt:       tpl.prompt,
 		Assertions:   assertions,
 		ExtraAllowed: tpl.extraAllow,
+		RequireAll:   tpl.requireAll,
 		MustRunAny:   tpl.mustRunAny,
 		MustNot:      tpl.mustNot,
 		Indicts:      tpl.indicts,
@@ -510,8 +512,9 @@ func batteryTemplates() []questionTemplate {
 		// constants (DeriveRequiredCredentialEnvVars). ExtraAllowed is true so an
 		// agent that also lists optional/alternative vars (CLOUD, ZPA_CUSTOMER_ID,
 		// legacy-auth) is not penalized — only failing to name a required-core var is
-		// a miss. MustRunAny pins `doctor` (the diagnostic that reports credential
-		// configuration). No secret is ever an answer — these are var NAMES (F4).
+		// a hard miss via RequireAll. MustRunAny pins `doctor` (the diagnostic that
+		// reports credential configuration). No secret is ever an answer — these are
+		// var NAMES (F4).
 		{
 			id:         "Q-FM07-credentials",
 			fm:         "FM-07",
@@ -520,6 +523,7 @@ func batteryTemplates() []questionTemplate {
 			prompt:     "Which environment variables must be set to provide this tool's tenant credentials for live API access?",
 			spec:       QuestionSpec{Derivation: DeriveRequiredCredentialEnvVarsKind},
 			extraAllow: true,
+			requireAll: true,
 			mustRunAny: []string{
 				"doctor",
 			},
@@ -652,6 +656,7 @@ func computeInputsHash(questions []Question) (string, error) {
 		writeHashLine(h, "q.mustRunAny", q.ID+"|"+strconv.Itoa(len(q.MustRunAny)))
 		writeHashLine(h, "q.mustNot", q.ID+"|"+strconv.Itoa(len(q.MustNot)))
 		writeHashLine(h, "q.extraAllowed", q.ID+"|"+strconv.FormatBool(q.ExtraAllowed))
+		writeHashLine(h, "q.requireAll", q.ID+"|"+strconv.FormatBool(q.RequireAll))
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil

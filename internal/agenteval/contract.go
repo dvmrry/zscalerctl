@@ -65,7 +65,8 @@
 //     answer correct -> WARN-capped (never PASS); answer wrong -> FAIL
 //  7. method satisfied:
 //     answer correct -> PASS; set within tolerance -> WARN (partial);
-//     answer wrong -> FAIL
+//     answer wrong -> FAIL. Closed required sets may opt into RequireAll,
+//     which upgrades a missing expected member from WARN(partial) to FAIL.
 package agenteval
 
 // Envelope delimiters for the one answer protocol (§2.1). The grader scans for

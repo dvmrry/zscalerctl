@@ -1,7 +1,7 @@
 {
   "schema": "zscalerctl/agent-eval-battery/v1",
   "grader_version": "agenteval-grader-v1",
-  "inputs_hash": "b112cdcfc9114adbe69ed84d0eac1e11c5ca852beeec3ce1b7ca301a69cd3c5a",
+  "inputs_hash": "db958724856580d613772a83d2c5df785304bde7b7a8180ccefa72dbd3356b53",
   "question_count": 13,
   "questions": [
     {
@@ -306,6 +306,7 @@
         }
       ],
       "ExtraAllowed": true,
+      "RequireAll": true,
       "MustRunAny": [
         "doctor"
       ],

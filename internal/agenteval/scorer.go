@@ -83,6 +83,12 @@ type Question struct {
 	// ExtraAllowed is the set-kind partial-credit policy (§4.3, default false):
 	// when true, extra elements beyond the expected set do not cap the verdict.
 	ExtraAllowed bool
+	// RequireAll is a stricter set-kind policy for closed, all-or-nothing sets:
+	// when true, missing any expected set member is a FAIL instead of the generic
+	// partial-set WARN. Extras are still governed by ExtraAllowed. This is for
+	// questions like FM-07 credentials, where omitting a required env var is not a
+	// useful partial success.
+	RequireAll bool `json:",omitempty"`
 	// MustRunAny is the method requirement (§2.4/§4.2 step 4): a set of argv
 	// substrings. Satisfied if ANY observed command's joined argv contains ANY of
 	// them. An empty MustRunAny is auto-satisfied (the question makes no method
@@ -112,7 +118,7 @@ type Question struct {
 //  4. MustRunAny NOT satisfied:
 //     answer correct -> WARN (no_method); answer wrong -> FAIL (wrong_no_method)
 //  5. method satisfied:
-//     answer correct -> PASS; set partial -> WARN (partial);
+//     answer correct -> PASS; set partial -> WARN (partial) unless RequireAll;
 //     set over-claim w/o extra_allowed -> WARN (capped); else -> FAIL (wrong)
 func Score(q Question, t Transcript) (Verdict, Finding) {
 	// Step 1: no observed commands at all -> FAIL. A zero-command transcript that
@@ -140,7 +146,7 @@ func Score(q Question, t Transcript) (Verdict, Finding) {
 	// Evaluate correctness once: ALL assertions must pass (dual-assertion C6
 	// requires both exit_code AND error_kind, §2.2). setResult is non-nil only
 	// when the (single) assertion is the set kind, carrying partial-credit math.
-	correct, setResult, failed := evaluateAssertions(q.Assertions, env, t, q.ExtraAllowed)
+	correct, setResult, failed := evaluateAssertions(q.Assertions, env, t, q.ExtraAllowed, q.RequireAll)
 
 	// Step 4: method requirement. Empty MustRunAny is auto-satisfied (§2.4).
 	if !methodSatisfied(q.MustRunAny, t.Commands) {
@@ -240,13 +246,13 @@ type setGrade struct {
 //   - failed: the first failing assertion (for Finding.Expected/Got); the zero
 //     Assertion if all passed.
 //
-// extraAllowed is the question's §4.3 policy, threaded only to the set path.
-func evaluateAssertions(assertions []Assertion, env AnswerEnvelope, t Transcript, extraAllowed bool) (correct bool, setResult *setGrade, failed Assertion) {
+// extraAllowed and requireAll are question policies threaded only to the set path.
+func evaluateAssertions(assertions []Assertion, env AnswerEnvelope, t Transcript, extraAllowed, requireAll bool) (correct bool, setResult *setGrade, failed Assertion) {
 	// Single set-kind assertion: grade via the partial-credit table so step 5 can
 	// distinguish PASS / WARN(partial) / WARN(capped) / FAIL.
 	if len(assertions) == 1 && assertions[0].Kind == KindSet {
 		a := assertions[0]
-		grade := gradeSet(a, env, extraAllowed)
+		grade := gradeSet(a, env, extraAllowed, requireAll)
 		if grade.verdict == VerdictPass {
 			return true, &grade, Assertion{}
 		}
@@ -359,7 +365,9 @@ func assertionPasses(a Assertion, env AnswerEnvelope, t Transcript) bool {
 
 // gradeSet computes (matched, missing, extra) for a set assertion and maps it to
 // a verdict per the §4.3 table. extraAllowed selects the right column.
-func gradeSet(a Assertion, env AnswerEnvelope, extraAllowed bool) setGrade {
+// requireAll upgrades missing expected members from WARN(partial) to FAIL for
+// closed sets where every expected element is required.
+func gradeSet(a Assertion, env AnswerEnvelope, extraAllowed, requireAll bool) setGrade {
 	expected := normalizeSet(splitSetExpected(a.Expected), true)
 	got := normalizeSet(jsonStringSlice(env.Answer), true)
 
@@ -383,6 +391,8 @@ func gradeSet(a Assertion, env AnswerEnvelope, extraAllowed bool) setGrade {
 		return setGrade{verdict: VerdictPass}
 	case matched == 0:
 		return setGrade{verdict: VerdictFail, signal: signalWrong, expected: exp, got: gotStr}
+	case requireAll && matched < len(expected):
+		return setGrade{verdict: VerdictFail, signal: signalWrong, expected: exp, got: gotStr}
 	case extra > 0:
 		// Over-claim: PASS only if extras are allowed; else WARN-capped (§4.3).
 		if extraAllowed {
@@ -398,7 +408,7 @@ func gradeSet(a Assertion, env AnswerEnvelope, extraAllowed bool) setGrade {
 // gradeSetExact grades a set assertion with extra_allowed forced false, for the
 // multi-assertion binary path (the only PASS is a perfect match).
 func gradeSetExact(a Assertion, env AnswerEnvelope) setGrade {
-	return gradeSet(a, env, false)
+	return gradeSet(a, env, false, true)
 }
 
 // expectedOf returns a failing assertion's Expected for the Finding, or "" for a
