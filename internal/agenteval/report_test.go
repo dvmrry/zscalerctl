@@ -272,3 +272,81 @@ func TestRender(t *testing.T) {
 		t.Fatalf("JSON agents not weakest-first: %+v", rep.Agents)
 	}
 }
+
+// TestRenderSurfacesSampling asserts that when a run carries multi-sampled
+// results (Samples>1), Render surfaces N in the header, lists non-unanimous
+// questions with their M/N pass rate, and mirrors both into the JSON
+// (IMPROVEMENT #1). A single-sample run must NOT emit the sampling section.
+func TestRenderSurfacesSampling(t *testing.T) {
+	t.Parallel()
+
+	const date = "2026-06-14"
+
+	// A run where one question is flaky (passes 2/3 -> aggregated pass) and one is
+	// unanimous pass (3/3). Both T0 so the agent still clears (the flaky one
+	// aggregated to pass).
+	flakyResult := agenteval.QuestionResult{
+		Question: agenteval.Question{ID: "Q-flaky", Tier: "T0"},
+		Verdict:  agenteval.VerdictPass,
+		Samples:  3,
+		Passes:   2,
+	}
+	steadyResult := agenteval.QuestionResult{
+		Question: agenteval.Question{ID: "Q-steady", Tier: "T0"},
+		Verdict:  agenteval.VerdictPass,
+		Samples:  3,
+		Passes:   3,
+	}
+	runs := []agenteval.AgentRun{
+		{Agent: "only", Rank: 1, Results: []agenteval.QuestionResult{flakyResult, steadyResult}},
+	}
+
+	md, jsonBytes := agenteval.Render(runs, date)
+
+	if !strings.Contains(md, "Samples per question: **3**") {
+		t.Fatalf("Markdown missing the samples-per-question header:\n%s", md)
+	}
+	if !strings.Contains(md, "## Sampling consistency") {
+		t.Fatalf("Markdown missing the sampling-consistency section:\n%s", md)
+	}
+	if !strings.Contains(md, "Q-flaky") || !strings.Contains(md, "passes 2/3") {
+		t.Fatalf("Markdown missing the flaky question M/N line:\n%s", md)
+	}
+	if strings.Contains(md, "Q-steady") {
+		t.Fatalf("Markdown listed a unanimous question as flaky:\n%s", md)
+	}
+
+	var rep struct {
+		Samples  int `json:"samples"`
+		Sampling []struct {
+			Agent      string `json:"agent"`
+			QuestionID string `json:"question_id"`
+			Passes     int    `json:"passes"`
+			Samples    int    `json:"samples"`
+		} `json:"sampling"`
+	}
+	if err := json.Unmarshal(jsonBytes, &rep); err != nil {
+		t.Fatalf("report JSON did not parse: %v\n%s", err, jsonBytes)
+	}
+	if rep.Samples != 3 {
+		t.Fatalf("JSON samples = %d, want 3", rep.Samples)
+	}
+	if len(rep.Sampling) != 1 || rep.Sampling[0].QuestionID != "Q-flaky" || rep.Sampling[0].Passes != 2 || rep.Sampling[0].Samples != 3 {
+		t.Fatalf("JSON sampling = %+v, want one Q-flaky 2/3 entry", rep.Sampling)
+	}
+}
+
+// TestRenderSingleSampleNoSamplingSection asserts a single-sample run (the
+// default) does NOT emit the sampling header or section — sampling surfacing is
+// only for N>1.
+func TestRenderSingleSampleNoSamplingSection(t *testing.T) {
+	t.Parallel()
+
+	md, jsonBytes := agenteval.Render(syntheticRoster(), "2026-06-14")
+	if strings.Contains(md, "Samples per question") || strings.Contains(md, "## Sampling consistency") {
+		t.Fatalf("single-sample run should not surface sampling:\n%s", md)
+	}
+	if strings.Contains(string(jsonBytes), "\"samples\"") || strings.Contains(string(jsonBytes), "\"sampling\"") {
+		t.Fatalf("single-sample JSON should omit samples/sampling:\n%s", jsonBytes)
+	}
+}

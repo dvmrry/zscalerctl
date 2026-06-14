@@ -122,8 +122,17 @@ agent-eval-gen:
 # by this target. AGENT_EVAL_DATE pins the report date (defaults to today) so the
 # artifact is reproducible. Do NOT add this to `check` or any CI workflow.
 AGENT_EVAL_DATE ?= $(shell date +%F)
+# Default to the currently-runnable codex pair so a bare `make agent-eval` works
+# out of the box. The default roster also includes `haiku`, whose `claude -p`
+# adapter is classifier-blocked in-session, so selecting all non-deferred roster
+# entries would error; the codex backends run unattended. Override with
+# AGENT_EVAL_BACKENDS=... (e.g. to add `haiku` once a claude allow-rule is in
+# place) or by passing --backends in AGENT_EVAL_FLAGS (flag last-wins). roster.json
+# stays honest — `haiku` is a real intended backend, not deferred; this only sets
+# the make target's default selection.
+AGENT_EVAL_BACKENDS ?= codex-gpt5.4-mini,codex-exec
 agent-eval:
-	go run ./internal/agenteval/cmd/run --out scratch/agent-eval --date $(AGENT_EVAL_DATE) --transcripts scratch/agent-eval-transcripts $(AGENT_EVAL_FLAGS)
+	go run ./internal/agenteval/cmd/run --out scratch/agent-eval --date $(AGENT_EVAL_DATE) --backends $(AGENT_EVAL_BACKENDS) --transcripts scratch/agent-eval-transcripts $(AGENT_EVAL_FLAGS)
 
 live-smoke:
 	go run ./scripts/live-smoke.go $(LIVE_SMOKE_FLAGS) $(if $(LIVE_SMOKE_BIN),--bin "$(LIVE_SMOKE_BIN)") $(if $(LIVE_SMOKE_RESOURCES),--resources "$(LIVE_SMOKE_RESOURCES)") $(if $(LIVE_SMOKE_MANIFEST),--manifest "$(LIVE_SMOKE_MANIFEST)") $(if $(LIVE_SMOKE_OUT),--out "$(LIVE_SMOKE_OUT)")

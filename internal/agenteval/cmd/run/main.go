@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/dvmrry/zscalerctl/internal/agenteval"
@@ -59,6 +60,7 @@ type config struct {
 	claudeBin      string
 	reportDate     string
 	transcriptsDir string
+	samples        int
 }
 
 func main() {
@@ -83,7 +85,8 @@ func parseFlags() config {
 	flag.StringVar(&cfg.codexBin, "codex-bin", "", "codex executable (default: codex on PATH)")
 	flag.StringVar(&cfg.claudeBin, "claude-bin", "", "REAL claude executable, NOT the nix-darwin fish wrapper (default: claude on PATH)")
 	flag.StringVar(&cfg.reportDate, "date", "", "report date (YYYY-MM-DD); required so the artifact is reproducible")
-	flag.StringVar(&cfg.transcriptsDir, "transcripts", "", "if set, write a per-(agent,question) transcript JSON under <dir>/<agent>/<questionID>.json for triage (default: off). Intended for gitignored scratch.")
+	flag.StringVar(&cfg.transcriptsDir, "transcripts", "", "if set, write a per-(agent,question) transcript JSON under <dir>/<agent>/<questionID>.json for triage (default: off). Intended for gitignored scratch. With --samples N>1 each sample is written to <dir>/<agent>/<questionID>.sample<k>.json.")
+	flag.IntVar(&cfg.samples, "samples", 1, "number of times to run+grade each (backend,question); the per-question verdict is the majority of N (ties resolved to the worse verdict), de-noising the floor. Default 1.")
 	flag.Parse()
 	return cfg
 }
@@ -92,6 +95,9 @@ func parseFlags() config {
 func run(cfg config) error {
 	if cfg.reportDate == "" {
 		return fmt.Errorf("--date is required (the report date is a parameter, never time.Now, so the artifact is reproducible)")
+	}
+	if cfg.samples < 1 {
+		return fmt.Errorf("--samples must be >= 1 (got %d)", cfg.samples)
 	}
 
 	// Load + validate the roster, then resolve the enabled backends.
@@ -119,26 +125,32 @@ func run(cfg config) error {
 	defer cleanup()
 
 	questions := agenteval.Battery()
-	fmt.Fprintf(os.Stderr, "agent-eval: %d backends × %d questions; fixture=%s\n", len(backends), len(questions), fixtureBin)
+	fmt.Fprintf(os.Stderr, "agent-eval: %d backends × %d questions × %d samples; fixture=%s\n", len(backends), len(questions), cfg.samples, fixtureBin)
 	if cfg.transcriptsDir != "" {
 		fmt.Fprintf(os.Stderr, "agent-eval: writing per-(agent,question) transcripts under %s\n", cfg.transcriptsDir)
 	}
 
-	// Drive every (backend, question). Each run gets a FRESH sandbox.
+	// Drive every (backend, question). Each sample gets a FRESH sandbox; the N
+	// per-question samples are aggregated (majority, worse-on-tie) into one
+	// QuestionResult so the floor is de-noised (IMPROVEMENT #1).
 	ctx := context.Background()
 	var runs []agenteval.AgentRun
 	for _, backend := range backends {
 		ar := agenteval.AgentRun{Agent: backend.Name(), Rank: backend.Rank()}
 		for _, q := range questions {
-			prompt, transcript, result := runOne(ctx, backend, q, fixtureBin, docs)
-			ar.Results = append(ar.Results, result)
-			if cfg.transcriptsDir != "" {
-				if err := writeTranscript(cfg.transcriptsDir, backend.Name(), q, prompt, transcript, result); err != nil {
-					// Transcript persistence is a debugging/goldens aid, never load-bearing
-					// for the report — a write failure is logged, not fatal.
-					fmt.Fprintf(os.Stderr, "agent-eval: %s %s: write transcript: %v\n", backend.Name(), q.ID, err)
+			samples := make([]agenteval.QuestionResult, 0, cfg.samples)
+			for k := 0; k < cfg.samples; k++ {
+				prompt, transcript, result := runOne(ctx, backend, q, fixtureBin, docs)
+				samples = append(samples, result)
+				if cfg.transcriptsDir != "" {
+					if err := writeTranscript(cfg.transcriptsDir, backend.Name(), q, cfg.samples, k, prompt, transcript, result); err != nil {
+						// Transcript persistence is a debugging/goldens aid, never load-bearing
+						// for the report — a write failure is logged, not fatal.
+						fmt.Fprintf(os.Stderr, "agent-eval: %s %s sample %d: write transcript: %v\n", backend.Name(), q.ID, k, err)
+					}
 				}
 			}
+			ar.Results = append(ar.Results, agenteval.AggregateVerdicts(samples))
 		}
 		runs = append(runs, ar)
 		printAgentLine(ar)
@@ -312,14 +324,17 @@ type transcriptRecord struct {
 	Finding     agenteval.Finding           `json:"finding"`
 }
 
-// writeTranscript persists one run's transcriptRecord to
-// <dir>/<agent>/<questionID>.json (§5.3). It is pure os/file work — no exec, no
+// writeTranscript persists one SAMPLE's transcriptRecord under <dir>/<agent>/
+// (§5.3). With a single sample (samples<=1) it writes <questionID>.json — the
+// original layout. With multi-sampling (samples>1, IMPROVEMENT #1) it writes
+// <questionID>.sample<k>.json (k is the zero-based sample index), so all N
+// samples are inspectable side by side. It is pure os/file work — no exec, no
 // network — so it stays in policy anywhere. The agent and question id are
 // path-sanitized so a hostile/odd name can never escape the target dir, then the
 // per-agent subdir is created and the record is written 2-space-indented for
 // human triage. Returns an error (logged, non-fatal by the caller) on any I/O
 // failure.
-func writeTranscript(dir, agent string, q agenteval.Question, prompt string, t agenteval.Transcript, result agenteval.QuestionResult) error {
+func writeTranscript(dir, agent string, q agenteval.Question, samples, sampleIdx int, prompt string, t agenteval.Transcript, result agenteval.QuestionResult) error {
 	rec := transcriptRecord{
 		QuestionID:  q.ID,
 		FailureMode: q.FailureMode,
@@ -346,7 +361,13 @@ func writeTranscript(dir, agent string, q agenteval.Question, prompt string, t a
 	if mkErr := os.MkdirAll(agentDir, 0o755); mkErr != nil { // #nosec G301 -- ordinary scratch dir
 		return fmt.Errorf("create transcript dir %q: %w", agentDir, mkErr)
 	}
-	path := filepath.Join(agentDir, sanitizePathComponent(q.ID)+".json")
+	// Single-sample: <questionID>.json (the original layout). Multi-sample:
+	// <questionID>.sample<k>.json so every sample is inspectable (IMPROVEMENT #1).
+	name := sanitizePathComponent(q.ID)
+	if samples > 1 {
+		name += ".sample" + strconv.Itoa(sampleIdx)
+	}
+	path := filepath.Join(agentDir, name+".json")
 	if wErr := os.WriteFile(path, data, 0o644); wErr != nil { // #nosec G306 -- non-secret triage artifact
 		return fmt.Errorf("write transcript %q: %w", path, wErr)
 	}

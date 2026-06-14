@@ -26,14 +26,33 @@ import (
 // asked, the scorer's Verdict, and the Finding (the zero Finding on a clean
 // PASS, a populated Finding on any WARN/FAIL — §2.5). It is the unit Clears and
 // the report aggregate over.
+//
+// When the runner multi-samples (--samples N, IMPROVEMENT #1: de-noise the
+// floor), the QuestionResult fed to Clears/Floor/Render is the AGGREGATE of the
+// N per-sample results: Verdict is the §aggregate.go majority/worse-on-tie mode,
+// Finding is a representative sample matching that verdict, and Samples/Passes
+// record the consistency so flakiness is visible in the report (not hidden
+// behind a single de-noised verdict). A single-sample run leaves Samples=1,
+// Passes∈{0,1} — the passthrough case.
 type QuestionResult struct {
 	// Question is the instantiated question that was graded.
 	Question Question
-	// Verdict is the scorer's per-question outcome (§4.2).
+	// Verdict is the scorer's per-question outcome (§4.2). After aggregation this
+	// is the mode (majority, worse-on-tie) of the sample verdicts.
 	Verdict Verdict
 	// Finding is the scorer's Finding: zero value on a clean PASS, populated on
-	// any WARN or FAIL (§2.5).
+	// any WARN or FAIL (§2.5). After aggregation it is a representative sample's
+	// Finding matching the aggregated Verdict.
 	Finding Finding
+	// Samples is the number of times this (agent, question) was run and graded
+	// (--samples N). Zero or one means a single-sample run; >1 means the Verdict
+	// above is an aggregate. It is reporting metadata only — Clears/Floor read
+	// Verdict, not this.
+	Samples int `json:",omitempty"`
+	// Passes is how many of the Samples runs graded VerdictPass — the M in the
+	// "passes M/N" consistency surfaced for non-unanimous questions (IMPROVEMENT
+	// #1). Reporting metadata only.
+	Passes int `json:",omitempty"`
 }
 
 // AgentRun is one roster agent's full battery result: its name, its §1.2 floor
@@ -235,6 +254,70 @@ func openFindings(runs []AgentRun) []Finding {
 	return out
 }
 
+// SampleConsistency is one non-unanimous (flaky) per-(agent, question) entry the
+// report surfaces when the runner multi-samples (IMPROVEMENT #1). It records how
+// many of the N samples passed, so flakiness is VISIBLE rather than hidden behind
+// the single de-noised aggregate verdict. A question is "non-unanimous" when its
+// pass count is strictly between 0 and Samples (it neither always passed nor
+// always failed across the N runs).
+type SampleConsistency struct {
+	// Agent is the roster agent the samples ran under.
+	Agent string `json:"agent"`
+	// QuestionID is the instantiated question that flaked.
+	QuestionID string `json:"question_id"`
+	// Verdict is the aggregated (de-noised) verdict the question resolved to.
+	Verdict Verdict `json:"verdict"`
+	// Passes is the number of samples that graded PASS (the M).
+	Passes int `json:"passes"`
+	// Samples is the total number of samples for this question (the N).
+	Samples int `json:"samples"`
+}
+
+// maxSamples returns the largest Samples count seen across every result — the
+// run's effective N (the runner samples uniformly, so this is the --samples
+// value). It returns 0 when nothing was sampled (no results) and 1 for an
+// ordinary single-sample run, so renderers can decide whether to surface
+// sampling at all (only N>1 is worth a callout).
+func maxSamples(runs []AgentRun) int {
+	n := 0
+	for _, run := range runs {
+		for _, r := range run.Results {
+			if r.Samples > n {
+				n = r.Samples
+			}
+		}
+	}
+	return n
+}
+
+// flakyConsistencies collects every non-unanimous (0 < Passes < Samples)
+// per-(agent, question) result across all runs, agent-stamped, in (agent-rank,
+// battery) order — the report's flakiness enumeration (IMPROVEMENT #1: surface
+// the M/N pass rate so de-noising never hides instability). A unanimous result
+// (always pass or always fail) is omitted; a single-sample result (Samples<=1)
+// is never flaky by definition.
+func flakyConsistencies(runs []AgentRun) []SampleConsistency {
+	var out []SampleConsistency
+	for _, run := range byRankAscending(runs) {
+		for _, r := range run.Results {
+			if r.Samples <= 1 {
+				continue
+			}
+			if r.Passes <= 0 || r.Passes >= r.Samples {
+				continue // unanimous: not flaky.
+			}
+			out = append(out, SampleConsistency{
+				Agent:      run.Agent,
+				QuestionID: r.Question.ID,
+				Verdict:    r.Verdict,
+				Passes:     r.Passes,
+				Samples:    r.Samples,
+			})
+		}
+	}
+	return out
+}
+
 // --- report rendering (§7) --------------------------------------------------
 
 // reportJSON is the machine-readable docs/agentic-coverage.json shape. It leads
@@ -255,6 +338,14 @@ type reportJSON struct {
 	// FirstViolation is the named actionable gap (the weakest non-clearing agent's
 	// first violation), or null when everybody clears.
 	FirstViolation *Finding `json:"first_violation"`
+	// Samples is the run's per-question sample count N (--samples; IMPROVEMENT #1).
+	// 1 for an ordinary single-sample run; >1 when the floor was de-noised by
+	// majority-of-N aggregation. Omitted (0) when there were no results.
+	Samples int `json:"samples,omitempty"`
+	// Sampling is the list of non-unanimous (flaky) per-(agent, question) results
+	// with their M/N pass rate, surfaced so multi-sampling never hides instability.
+	// Empty/omitted on a single-sample run or when every question was unanimous.
+	Sampling []SampleConsistency `json:"sampling,omitempty"`
 	// Agents is the per-agent summary in weakest-first order.
 	Agents []agentSummaryJSON `json:"agents"`
 	// Findings is every open WARN/FAIL Finding (§2.5).
@@ -285,14 +376,18 @@ func Render(runs []AgentRun, date string) (md string, jsonBytes []byte) {
 	ordered := byRankAscending(runs)
 	floorAgent, firstViolation := Floor(runs)
 	findings := openFindings(runs)
+	samples := maxSamples(runs)
+	flaky := flakyConsistencies(runs)
 
-	md = renderMarkdown(ordered, date, floorAgent, firstViolation, findings)
-	jsonBytes = renderReportJSON(ordered, date, floorAgent, firstViolation, findings)
+	md = renderMarkdown(ordered, date, floorAgent, firstViolation, findings, samples, flaky)
+	jsonBytes = renderReportJSON(ordered, date, floorAgent, firstViolation, findings, samples, flaky)
 	return md, jsonBytes
 }
 
-// renderMarkdown builds the Markdown report body (§7).
-func renderMarkdown(ordered []AgentRun, date, floorAgent string, firstViolation *Finding, findings []Finding) string {
+// renderMarkdown builds the Markdown report body (§7). samples is the run's
+// per-question sample count N (1 = single-sample); flaky lists the non-unanimous
+// (M/N) results surfaced when N>1 (IMPROVEMENT #1).
+func renderMarkdown(ordered []AgentRun, date, floorAgent string, firstViolation *Finding, findings []Finding, samples int, flaky []SampleConsistency) string {
 	var b strings.Builder
 
 	b.WriteString("# Agentic Coverage\n\n")
@@ -305,6 +400,16 @@ func renderMarkdown(ordered []AgentRun, date, floorAgent string, firstViolation 
 	b.WriteString("> free-form answer shape, so read the findings before drawing product\n")
 	b.WriteString("> conclusions.\n\n")
 	b.WriteString("Run date: " + date + "\n\n")
+
+	// Surface the sampling regime (IMPROVEMENT #1): when N>1 the per-question
+	// verdict is a majority-of-N aggregate (worse-on-tie), so the floor is
+	// de-noised; state N so the report is not read as a single-shot result.
+	if samples > 1 {
+		b.WriteString("Samples per question: **" + strconv.Itoa(samples) + "** — each verdict below is the\n")
+		b.WriteString("majority of " + strconv.Itoa(samples) + " runs (ties resolved to the worse verdict, so a flaky\n")
+		b.WriteString("question is not credited as a clean pass). Non-unanimous questions and their\n")
+		b.WriteString("pass rate are listed under \"Sampling consistency\".\n\n")
+	}
 
 	// Lead with the FLOOR (§1.2), not the ceiling.
 	b.WriteString("## Floor\n\n")
@@ -331,6 +436,24 @@ func renderMarkdown(ordered []AgentRun, date, floorAgent string, firstViolation 
 			" | " + strconv.Itoa(s.Pass) + " | " + strconv.Itoa(s.Warn) + " | " + strconv.Itoa(s.Fail) + " |\n")
 	}
 	b.WriteString("\n")
+
+	// Sampling consistency (IMPROVEMENT #1): list every non-unanimous question with
+	// its M/N pass rate, so de-noising never hides which questions are flaky. Only
+	// rendered when multi-sampling is in effect.
+	if samples > 1 {
+		b.WriteString("## Sampling consistency\n\n")
+		if len(flaky) == 0 {
+			b.WriteString("Every question was unanimous across all " + strconv.Itoa(samples) + " samples.\n\n")
+		} else {
+			b.WriteString("Non-unanimous questions (passed only some of the " + strconv.Itoa(samples) + " samples):\n\n")
+			for _, c := range flaky {
+				b.WriteString("- agent=" + c.Agent + " — " + c.QuestionID +
+					" — passes " + strconv.Itoa(c.Passes) + "/" + strconv.Itoa(c.Samples) +
+					" — aggregated " + string(c.Verdict) + "\n")
+			}
+			b.WriteString("\n")
+		}
+	}
 
 	// Open findings (§2.5: no score without findings).
 	b.WriteString("## Open findings\n\n")
@@ -376,7 +499,7 @@ func renderFindingLine(f Finding) string {
 // renderReportJSON builds the machine-readable report (§7), the JSON mirror of
 // the Markdown. It encodes deterministically: a stable schema, the parameterized
 // date, and the tracked/gated posture flags.
-func renderReportJSON(ordered []AgentRun, date, floorAgent string, firstViolation *Finding, findings []Finding) []byte {
+func renderReportJSON(ordered []AgentRun, date, floorAgent string, firstViolation *Finding, findings []Finding, samples int, flaky []SampleConsistency) []byte {
 	rep := reportJSON{
 		Schema:         reportSchema,
 		Date:           date,
@@ -384,6 +507,8 @@ func renderReportJSON(ordered []AgentRun, date, floorAgent string, firstViolatio
 		Gated:          false,
 		FloorAgent:     floorAgent,
 		FirstViolation: firstViolation,
+		Samples:        samples,
+		Sampling:       flaky,
 		Findings:       findings,
 	}
 	for _, run := range ordered {
