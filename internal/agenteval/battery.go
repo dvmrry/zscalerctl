@@ -30,7 +30,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -609,13 +608,14 @@ func computeInputsHash(questions []Question) (string, error) {
 		writeHashLine(h, "resource_count", p+"="+strconv.Itoa(DeriveResourceCount(resources.Product(p))))
 	}
 
-	// (2) fixture corpus signature, via the projected record set the binary would
-	// emit for the pinned bucket. Counting projected records + naming projected
-	// fields captures a fixture change (added/removed record, reclassified field)
-	// without baking raw values. We read it through the same derive path.
+	// (2) fixture corpus signature: the projected record COUNT plus the count of
+	// never-shown (secret-classified) fields — both value-free integers that flag a
+	// fixture/catalog change (added/removed record, reclassified field). We do NOT
+	// hash the surviving field NAMES: that drift is already caught by the --fields
+	// question's derived Expected (via the full battery.json byte comparison), and
+	// enumerating spec.Fields to name them would route secret-field metadata into
+	// the hash (CodeQL go/weak-sensitive-data-hashing).
 	writeHashLine(h, "fixture_record_count", "zia/locations="+strconv.Itoa(DeriveRecordCount(resources.ProductZIA, "locations")))
-	projectedFields := projectedFieldNamesSorted(resources.ProductZIA, "locations", wellKnownLocationID)
-	writeHashLine(h, "fixture_projected_fields", "zia/locations#"+wellKnownLocationID+"="+strings.Join(projectedFields, ","))
 	writeHashLine(h, "fixture_never_shown_field_count", "zia/locations="+strconv.Itoa(neverShownFieldCount(resources.ProductZIA, "locations")))
 	writeHashLine(h, "error_kind_unknown_id", string(DeriveErrorKindUnknownID()))
 
@@ -653,24 +653,6 @@ func computeInputsHash(questions []Question) (string, error) {
 func writeHashLine(h interface{ Write([]byte) (int, error) }, label, value string) {
 	// length-prefix both fields so "ab"+"c" can't collide with "a"+"bc".
 	fmt.Fprintf(h, "%d:%s\x1e%d:%s\n", len(label), label, len(value), value)
-}
-
-// projectedFieldNamesSorted returns the sorted set of field names that survive
-// projection for (product, resource, id) in standard mode — a stable fixture
-// signature for the inputs-hash. It asks the oracle for every modeled field and
-// keeps those that survive, then sorts for determinism.
-func projectedFieldNamesSorted(product resources.Product, resource, id string) []string {
-	spec, ok := resources.FindSpec(product, resource)
-	if !ok {
-		return nil
-	}
-	all := make([]string, 0, len(spec.Fields))
-	for _, fs := range spec.Fields {
-		all = append(all, fs.JSONField())
-	}
-	present := DeriveProjectedFields(product, resource, id, all, redact.ModeStandard)
-	sort.Strings(present)
-	return present
 }
 
 // neverShownFieldCount returns how many of a spec's fields are never exposed in
