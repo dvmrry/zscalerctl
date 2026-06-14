@@ -107,10 +107,12 @@ var corpus = map[corpusKey][]corpusRecord{
 // the cli.ResourceReader signature ever drifts, this package stops compiling.
 type fixtureReader struct{}
 
-// NewReader returns a fixtureReader serving the value-free corpus. The return
-// type is the concrete *fixtureReader; callers wire it into Options.Reader,
-// whose field type (cli.ResourceReader) it satisfies.
-func NewReader() *fixtureReader {
+// NewReader returns a fixtureReader serving the value-free corpus, typed as the
+// production cli.ResourceReader seam so the fixture binary
+// (internal/agenteval/cmd/zscalerctl-fixture) can hand it straight to
+// cli.Options.Reader. The concrete type stays unexported; callers only ever see
+// the interface.
+func NewReader() cli.ResourceReader {
 	return &fixtureReader{}
 }
 
