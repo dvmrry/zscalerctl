@@ -64,58 +64,100 @@ func TestParseSidecarRejectsMalformed(t *testing.T) {
 	}
 }
 
-// TestParseCodexCommandsGolden pins the codex-transcript parse (§2.3): a
-// representative run+completed snippet with two commands and exits pairs each run
-// with its completion BY THE COMMAND STRING and recovers the exit code.
-func TestParseCodexCommandsGolden(t *testing.T) {
+// TestParseCodexJSONGolden pins the `codex exec --json` stream parse (§2.3). The
+// stream is JSONL — one JSON object per line — derived from a VERIFIED real codex
+// run (the probe sample in the task brief): a thread/turn preamble, an
+// agent_message, an item.started + item.completed pair for the PROBE command
+// (exit 0), and a final agent_message carrying the answer. A SECOND
+// command_execution with a NON-ZERO exit_code is appended to prove exit capture.
+// The parser must collect both completed command_executions (skipping the
+// in_progress item.started) and take the LAST agent_message as AgentText.
+func TestParseCodexJSONGolden(t *testing.T) {
 	t.Parallel()
 
-	transcript := strings.Join([]string{
-		"thinking about the discovery surface...",
-		"[codex] Running command: /usr/bin/zsh -lc 'zscalerctl --format json schema list'",
-		"[codex] (streamed output elided)",
-		"[codex] Command completed: /usr/bin/zsh -lc 'zscalerctl --format json schema list' (exit 0)",
-		"now fetch a missing id",
-		"[codex] Running command: /usr/bin/zsh -lc 'zscalerctl zia locations get 999999'",
-		"[codex] Command completed: /usr/bin/zsh -lc 'zscalerctl zia locations get 999999' (exit 4)",
-	}, "\n")
+	stream := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"abc"}`,
+		`{"type":"turn.started"}`,
+		`{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Running the requested shell command and returning only its output."}}`,
+		`{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/etc/profiles/per-user/dm/bin/zsh -lc 'zscalerctl --format json schema list'","aggregated_output":"","exit_code":null,"status":"in_progress"}}`,
+		`{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/etc/profiles/per-user/dm/bin/zsh -lc 'zscalerctl --format json schema list'","aggregated_output":"...\n","exit_code":0,"status":"completed"}}`,
+		`{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"/etc/profiles/per-user/dm/bin/zsh -lc 'zscalerctl zia locations get 999999'","aggregated_output":"err\n","exit_code":4,"status":"completed"}}`,
+		`{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"<<<ZSCTL_ANSWER\n{\"answer\":5,\"evidence\":[]}\nZSCTL_ANSWER"}}`,
+		`{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":10}}`,
+	}, "\n") + "\n"
 
-	got := agenteval.ParseCodexCommands(transcript)
-	want := []agenteval.ObservedCommand{
+	got, err := agenteval.ParseCodexJSON([]byte(stream))
+	if err != nil {
+		t.Fatalf("ParseCodexJSON: %v", err)
+	}
+
+	wantCommands := []agenteval.ObservedCommand{
 		{Argv: []string{"zscalerctl", "--format", "json", "schema", "list"}, Exit: 0},
 		{Argv: []string{"zscalerctl", "zia", "locations", "get", "999999"}, Exit: 4},
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("ParseCodexCommands golden mismatch:\n got: %#v\nwant: %#v", got, want)
+	if !reflect.DeepEqual(got.Commands, wantCommands) {
+		t.Fatalf("ParseCodexJSON commands mismatch:\n got: %#v\nwant: %#v", got.Commands, wantCommands)
+	}
+	wantText := "<<<ZSCTL_ANSWER\n{\"answer\":5,\"evidence\":[]}\nZSCTL_ANSWER"
+	if got.AgentText != wantText {
+		t.Fatalf("ParseCodexJSON AgentText = %q, want last agent_message %q", got.AgentText, wantText)
 	}
 }
 
-// TestParseCodexCommandsNoCompletion asserts a run with no completion line
-// defaults to exit 0 (observed to start; no failure invented).
-func TestParseCodexCommandsNoCompletion(t *testing.T) {
+// TestParseCodexJSONProbe pins the exact verified probe stream from the task
+// brief (PROBE_OK_42): the single command_execution and the final agent_message
+// decode correctly. This is the literal stream the user ran codex against, so it
+// is the most direct regression anchor.
+func TestParseCodexJSONProbe(t *testing.T) {
 	t.Parallel()
 
-	transcript := "[codex] Running command: /usr/bin/zsh -lc 'zscalerctl doctor'"
-	got := agenteval.ParseCodexCommands(transcript)
-	want := []agenteval.ObservedCommand{{Argv: []string{"zscalerctl", "doctor"}, Exit: 0}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("no-completion default mismatch:\n got: %#v\nwant: %#v", got, want)
-	}
-}
-
-// TestParseCodexCommandsQuotedArg asserts the shell-ish splitter keeps a quoted
-// argument intact as one field (the jq predicate the battery may grade).
-func TestParseCodexCommandsQuotedArg(t *testing.T) {
-	t.Parallel()
-
-	transcript := strings.Join([]string{
-		`[codex] Running command: /usr/bin/zsh -lc 'jq ".[] | .name"'`,
-		`[codex] Command completed: /usr/bin/zsh -lc 'jq ".[] | .name"' (exit 0)`,
+	stream := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"..."}`,
+		`{"type":"turn.started"}`,
+		`{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Running the requested shell command and returning only its output."}}`,
+		`{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/etc/profiles/per-user/dm/bin/zsh -lc 'echo PROBE_OK_42'","aggregated_output":"","exit_code":null,"status":"in_progress"}}`,
+		`{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/etc/profiles/per-user/dm/bin/zsh -lc 'echo PROBE_OK_42'","aggregated_output":"PROBE_OK_42\n","exit_code":0,"status":"completed"}}`,
+		`{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"PROBE_OK_42"}}`,
+		`{"type":"turn.completed","usage":{"input_tokens":26507,"output_tokens":343}}`,
 	}, "\n")
-	got := agenteval.ParseCodexCommands(transcript)
-	want := []agenteval.ObservedCommand{{Argv: []string{"jq", ".[] | .name"}, Exit: 0}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("quoted-arg mismatch:\n got: %#v\nwant: %#v", got, want)
+
+	got, err := agenteval.ParseCodexJSON([]byte(stream))
+	if err != nil {
+		t.Fatalf("ParseCodexJSON: %v", err)
+	}
+	wantCommands := []agenteval.ObservedCommand{{Argv: []string{"echo", "PROBE_OK_42"}, Exit: 0}}
+	if !reflect.DeepEqual(got.Commands, wantCommands) {
+		t.Fatalf("probe commands mismatch:\n got: %#v\nwant: %#v", got.Commands, wantCommands)
+	}
+	if got.AgentText != "PROBE_OK_42" {
+		t.Fatalf("probe AgentText = %q, want %q", got.AgentText, "PROBE_OK_42")
+	}
+}
+
+// TestParseCodexJSONToleratesGarbage asserts non-JSON lines and unknown event
+// types are skipped (§2.3), and a quoted argument is kept intact as one field by
+// the shell-ish splitter (the jq predicate the battery may grade).
+func TestParseCodexJSONToleratesGarbage(t *testing.T) {
+	t.Parallel()
+
+	stream := strings.Join([]string{
+		`a stray non-JSON banner line`,
+		`{"type":"some.future.event","item":{"type":"mystery"}}`,
+		`{"type":"item.completed","item":{"id":"i","type":"command_execution","command":"/usr/bin/zsh -lc 'jq \".[] | .name\"'","exit_code":0,"status":"completed"}}`,
+		``, // blank line tolerated
+		`{ this is not valid json`,
+	}, "\n")
+
+	got, err := agenteval.ParseCodexJSON([]byte(stream))
+	if err != nil {
+		t.Fatalf("ParseCodexJSON: %v", err)
+	}
+	wantCommands := []agenteval.ObservedCommand{{Argv: []string{"jq", ".[] | .name"}, Exit: 0}}
+	if !reflect.DeepEqual(got.Commands, wantCommands) {
+		t.Fatalf("garbage-tolerance mismatch:\n got: %#v\nwant: %#v", got.Commands, wantCommands)
+	}
+	if got.AgentText != "" {
+		t.Fatalf("AgentText = %q, want empty (no agent_message in stream)", got.AgentText)
 	}
 }
 

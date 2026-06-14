@@ -10,7 +10,7 @@ LIVE_SMOKE_OUT ?=
 LIVE_SMOKE_FLAGS ?= --require-credentials
 LIVE_SMOKE_MANIFEST ?=
 
-.PHONY: fmt-check test race vet vuln staticcheck docs-check semgrep-check secret-scan vendor verify-vendor verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-release-automation verify-release-artifacts verify-catalog-draft verify-resource-scaffold verify-sdk-surface-inventory verify-script-registry verify-agents-skill scaffold-resource sdk-surface-inventory field-coverage agent-eval-gen live-smoke fuzz-smoke check release-check
+.PHONY: fmt-check test race vet vuln staticcheck docs-check semgrep-check secret-scan vendor verify-vendor verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-release-automation verify-release-artifacts verify-catalog-draft verify-resource-scaffold verify-sdk-surface-inventory verify-script-registry verify-agents-skill scaffold-resource sdk-surface-inventory field-coverage agent-eval-gen agent-eval live-smoke fuzz-smoke check release-check
 
 fmt-check:
 	@files="$$(git ls-files -co --exclude-standard '*.go' ':!:vendor/**' | xargs gofmt -l)"; \
@@ -112,6 +112,18 @@ field-coverage:
 # reclassification, a fixture change, or a grader-version bump moves the battery.
 agent-eval-gen:
 	AGENT_EVAL_BATTERY_WRITE=1 go test -mod=vendor ./internal/agenteval -run TestAgentEvalBatteryIsCurrent
+
+# NON-DETERMINISTIC, ON-DEMAND, NEVER A CI GATE (docs/AGENTIC_COVERAGE_PLAN.md
+# §6.4). Drives the live multi-agent roster against the fixture binary and writes
+# the floor report to gitignored scratch/. It shells out to real agent CLIs
+# (codex/claude), so its result varies run-to-run; the deterministic battery +
+# scorer drift gates (under `go test`) are the only CI gates. The committed
+# docs/agentic-coverage.{md,json} are produced separately, by a reviewed run, not
+# by this target. AGENT_EVAL_DATE pins the report date (defaults to today) so the
+# artifact is reproducible. Do NOT add this to `check` or any CI workflow.
+AGENT_EVAL_DATE ?= $(shell date +%F)
+agent-eval:
+	go run ./internal/agenteval/cmd/run --out scratch/agent-eval --date $(AGENT_EVAL_DATE) $(AGENT_EVAL_FLAGS)
 
 live-smoke:
 	go run ./scripts/live-smoke.go $(LIVE_SMOKE_FLAGS) $(if $(LIVE_SMOKE_BIN),--bin "$(LIVE_SMOKE_BIN)") $(if $(LIVE_SMOKE_RESOURCES),--resources "$(LIVE_SMOKE_RESOURCES)") $(if $(LIVE_SMOKE_MANIFEST),--manifest "$(LIVE_SMOKE_MANIFEST)") $(if $(LIVE_SMOKE_OUT),--out "$(LIVE_SMOKE_OUT)")

@@ -1,7 +1,7 @@
 package agenteval
 
 // runner.go is the DETERMINISTIC runner core (docs/AGENTIC_COVERAGE_PLAN.md §6,
-// esp. §6.3) — the pure, testable scaffolding the live half plugs into next.
+// esp. §6.3) — the pure, testable scaffolding the live half plugs into.
 //
 // CRITICAL SCOPE BOUNDARY: nothing in this file execs a live agent, dials a
 // network, calls an LLM, reads the clock, or calls rand. It is the same gated
@@ -9,10 +9,10 @@ package agenteval
 // transform of its arguments, with the single exception of BuildSandbox, which
 // writes a hermetic working directory and reads the parent process environment
 // (filesystem + os.Environ only — no exec, no net, no clock). The LIVE exec
-// adapters that implement Backend.Run via os/exec land in the NEXT slice; here a
-// Backend is only an interface, and the only implementation is FakeBackend,
-// which returns a canned Transcript so the runner core can be unit-tested
-// without an agent.
+// adapters that implement the live Backend via os/exec live in backends.go (the
+// only impure file besides cmd/run/main.go); here a Backend is only an interface,
+// and the only implementation is FakeBackend, which returns a canned Transcript
+// so the runner core can be unit-tested without an agent.
 
 import (
 	"context"
@@ -376,80 +376,107 @@ func (e *SidecarError) Error() string {
 	return "agenteval sidecar: line " + strconv.Itoa(e.Line) + ": " + e.Reason
 }
 
-// ParseCodexCommands parses codex's streamed log into []ObservedCommand (§2.3),
-// the capture path for an FS-SANDBOXED codex sub-agent whose HOST sidecar file is
-// invisible to the runner (the pilot's correction). Codex narrates each shell
-// invocation on two lines:
-//
-//	[codex] Running command: /path/to/zsh -lc '<cmd>'
-//	[codex] Command completed: /path/to/zsh -lc '<cmd>' (exit N)
-//
-// The parser:
-//
-//   - extracts the single-quoted <cmd> from each "Running command:" line (the
-//     command codex actually ran inside `zsh -lc '…'`);
-//   - pairs that run with its matching "Command completed:" line BY THE COMMAND
-//     STRING to recover the exit code; if no completion line is seen for a run,
-//     the exit defaults to 0 (the command was observed to start; absent a
-//     completion we record success rather than inventing a failure);
-//   - splits <cmd> into Argv with a simple, documented shell-ish tokenizer (see
-//     splitShellish): whitespace-separated fields, with single- and double-quoted
-//     runs kept intact and the quotes removed. This is deliberately NOT a full
-//     POSIX shell parser — it handles the flat `zscalerctl … --filter k=v` /
-//     `jq '...'` commands the battery grades, and the method check (§4.5) only
-//     ever substring-matches the joined argv, so exact tokenization of exotic
-//     quoting is not load-bearing.
-//
-// Commands appear in the order their "Running command:" lines appear. A line that
-// is neither a run nor a completion is ignored, so interleaved agent prose never
-// produces a phantom command.
-func ParseCodexCommands(transcript string) []ObservedCommand {
-	const (
-		runMarker  = "Running command:"
-		doneMarker = "Command completed:"
-	)
-
-	// First pass: collect every completion's exit code keyed by command string, so
-	// a run can be paired with its completion regardless of intervening output.
-	exitByCmd := map[string]int{}
-	for _, line := range strings.Split(transcript, "\n") {
-		idx := strings.Index(line, doneMarker)
-		if idx < 0 {
-			continue
-		}
-		rest := line[idx+len(doneMarker):]
-		cmd, ok := extractQuotedCommand(rest)
-		if !ok {
-			continue
-		}
-		exitByCmd[cmd] = extractExitCode(rest)
-	}
-
-	// Second pass: emit one ObservedCommand per "Running command:" line, in order.
-	var out []ObservedCommand
-	for _, line := range strings.Split(transcript, "\n") {
-		idx := strings.Index(line, runMarker)
-		if idx < 0 {
-			continue
-		}
-		rest := line[idx+len(runMarker):]
-		cmd, ok := extractQuotedCommand(rest)
-		if !ok {
-			continue
-		}
-		exit := 0 // no completion seen -> default 0 (observed to start; no failure invented)
-		if e, found := exitByCmd[cmd]; found {
-			exit = e
-		}
-		out = append(out, ObservedCommand{Argv: splitShellish(cmd), Exit: exit})
-	}
-	return out
+// codexEvent is one line of the `codex exec --json` event stream (§2.3). The
+// stream is JSONL — one JSON object per line — and the only events this parser
+// cares about are item.completed events whose item is a command_execution (the
+// observed-command stream) or an agent_message (the answer text). Every other
+// event type and any non-JSON line is tolerated and skipped, so a future codex
+// schema addition never breaks the parse.
+type codexEvent struct {
+	// Type is the event tag, e.g. "item.completed".
+	Type string `json:"type"`
+	// Item is the event payload (present on item.started/item.completed events).
+	Item codexItem `json:"item"`
 }
 
-// extractQuotedCommand pulls the single-quoted command body out of a codex log
-// tail like ` /path/zsh -lc '<cmd>' (exit N)`. Codex wraps the agent command in
+// codexItem is the payload of a codex item.* event. A command_execution carries
+// the shell command and its exit_code; an agent_message carries the model's
+// text. exit_code is a *int so a still-in-progress command (exit_code: null) is
+// distinguishable from a genuine exit 0 — only completed command_executions
+// (with a non-null exit_code) become ObservedCommands.
+type codexItem struct {
+	// Type is the item kind: "command_execution", "agent_message", ….
+	Type string `json:"type"`
+	// Command is the shell command for a command_execution, like
+	// `/path/zsh -lc '<cmd>'`.
+	Command string `json:"command"`
+	// ExitCode is the command's exit code; null while in_progress, set on
+	// completion.
+	ExitCode *int `json:"exit_code"`
+	// Text is the agent_message text.
+	Text string `json:"text"`
+}
+
+// ParseCodexJSON parses the `codex exec --json` event stream into a Transcript
+// (§2.3), the capture path for an FS-SANDBOXED codex sub-agent whose HOST sidecar
+// file is invisible to the runner. The stream is JSONL — one JSON object per
+// line. The parser:
+//
+//   - collects every item.completed whose item.type == "command_execution" into
+//     an ObservedCommand, in stream order. The codex command field wraps the
+//     agent command in `/path/zsh -lc '<cmd>'`, so the inner single-quoted <cmd>
+//     is extracted and tokenized with the same documented shell-ish tokenizer the
+//     sidecar path never needs but the codex path does (see splitShellish):
+//     whitespace-separated fields, single-/double-quoted runs kept intact and the
+//     quotes removed. This is deliberately NOT a full POSIX parser — the method
+//     check (§4.5) only substring-matches the joined argv, so exotic quoting is
+//     not load-bearing. The completed event's exit_code becomes ObservedCommand.Exit
+//     (a still-in-progress command_execution, exit_code == null, is skipped — it
+//     has no observed outcome yet; the matching completed event carries the exit);
+//   - sets Transcript.AgentText to the Text of the LAST item.completed whose
+//     item.type == "agent_message" (last-message-wins, mirroring the §2.1
+//     last-envelope-wins rule — the final agent_message is the one carrying the
+//     answer block).
+//
+// Unknown event types and non-JSON lines are skipped (tolerated), so interleaved
+// or future events never produce a phantom command or abort the parse. It returns
+// an error only if the stream is structurally unusable in a way worth surfacing;
+// in practice it is total over the verified codex stream and returns nil.
+func ParseCodexJSON(stream []byte) (Transcript, error) {
+	var (
+		commands  []ObservedCommand
+		agentText string
+	)
+	for _, raw := range strings.Split(string(stream), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		var ev codexEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			// Non-JSON line (e.g. a stray banner): tolerate and skip (§2.3).
+			continue
+		}
+		if ev.Type != "item.completed" {
+			continue
+		}
+		switch ev.Item.Type {
+		case "command_execution":
+			// Skip a still-in-progress entry (exit_code null) — only completed
+			// command_executions, which carry the exit code, become observed commands.
+			if ev.Item.ExitCode == nil {
+				continue
+			}
+			cmd, ok := extractQuotedCommand(ev.Item.Command)
+			if !ok {
+				// No inner `zsh -lc '<cmd>'` body: fall back to tokenizing the raw
+				// command field so the invocation is still observed rather than dropped.
+				cmd = ev.Item.Command
+			}
+			commands = append(commands, ObservedCommand{Argv: splitShellish(cmd), Exit: *ev.Item.ExitCode})
+		case "agent_message":
+			// Last-message-wins: the final agent_message carries the answer envelope.
+			agentText = ev.Item.Text
+		}
+	}
+	return Transcript{AgentText: agentText, Commands: commands}, nil
+}
+
+// extractQuotedCommand pulls the single-quoted command body out of a codex
+// command field like `/path/zsh -lc '<cmd>'`. Codex wraps the agent command in
 // `zsh -lc '<cmd>'`, so the command is the text between the FIRST and LAST single
-// quote on the line. Returns false if there is no quoted body.
+// quote. Returns false if there is no quoted body (the caller then tokenizes the
+// raw field).
 func extractQuotedCommand(s string) (string, bool) {
 	first := strings.IndexByte(s, '\'')
 	if first < 0 {
@@ -462,28 +489,7 @@ func extractQuotedCommand(s string) (string, bool) {
 	return s[first+1 : last], true
 }
 
-// extractExitCode reads the trailing "(exit N)" from a completion line tail and
-// returns N, or 0 if absent/unparseable (a completion without a parseable exit
-// is treated as success, consistent with the no-completion default).
-func extractExitCode(s string) int {
-	const marker = "(exit "
-	idx := strings.LastIndex(s, marker)
-	if idx < 0 {
-		return 0
-	}
-	rest := s[idx+len(marker):]
-	end := strings.IndexByte(rest, ')')
-	if end < 0 {
-		return 0
-	}
-	n, ok := parseDecimalInt(strings.TrimSpace(rest[:end]))
-	if !ok {
-		return 0
-	}
-	return n
-}
-
-// splitShellish is the simple, documented shell-ish tokenizer ParseCodexCommands
+// splitShellish is the simple, documented shell-ish tokenizer ParseCodexJSON
 // uses (§2.3 "a simple shell-ish split is fine; document it"). Rules:
 //
 //   - fields are separated by ASCII whitespace runs;
@@ -538,8 +544,8 @@ func splitShellish(s string) []string {
 // AssembleTranscript is the small helper that builds a Transcript from an agent's
 // final text and the observed commands captured for the run (§2.3). It is pure;
 // it is the seam every backend's capture path funnels through (host sidecar via
-// ParseSidecar, or codex log via ParseCodexCommands) before handing the result
-// to the scorer.
+// ParseSidecar, or the codex --json stream via ParseCodexJSON) before handing the
+// result to the scorer.
 func AssembleTranscript(agentFinalText string, commands []ObservedCommand) Transcript {
 	return Transcript{AgentText: agentFinalText, Commands: commands}
 }

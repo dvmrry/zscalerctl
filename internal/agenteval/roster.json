@@ -2,55 +2,67 @@
   {
     "rank": 1,
     "agent": "codex-gpt5.4-mini",
-    "invocation": "codex exec --model gpt-5.4-mini (sub-agent) — CONFIRM exact flag",
-    "mode": "single-shot",
     "capture": "codex-transcript",
+    "model": "gpt-5.4-mini",
+    "deferred": false,
+    "invocation": "codex exec -m gpt-5.4-mini -s workspace-write --skip-git-repo-check -C <SANDBOX> --json <PROMPT>",
+    "mode": "single-shot",
     "readsLocalFiles": true,
-    "notes": "Deliberately-weak floor (the user-identified genuinely-weak end). GPT-5.4-mini run via a codex sub-agent; FS-sandboxed, so its host sidecar is invisible — capture observed commands via ParseCodexCommands over the codex transcript."
+    "notes": "Deliberately-weak floor (the user-identified genuinely-weak end). GPT-5.4-mini run via a codex sub-agent; FS-sandboxed, so its host sidecar is invisible — capture observed commands from the codex --json stream via ParseCodexJSON. Runs commands UNATTENDED in codex's own sandbox (no -a, no --dangerously)."
   },
   {
     "rank": 2,
     "agent": "haiku",
-    "invocation": "command claude -p --model … --allowedTools Bash",
-    "mode": "single-shot",
     "capture": "host-sidecar",
+    "model": "claude-haiku-4-5",
+    "deferred": false,
+    "invocation": "<claudePath> -p --model claude-haiku-4-5 --permission-mode bypassPermissions --allowedTools Bash --output-format text <PROMPT>",
+    "mode": "single-shot",
     "readsLocalFiles": "yes",
-    "notes": "Use `command claude`, NOT `claude` — the nix-darwin fish wrapper injects --remote-control, which disables features. Reads local files via Bash; tool calls go through the PATH-interposed fixture binary to the host sidecar, captured via ParseSidecar."
+    "notes": "Use the REAL claude binary path, NOT the nix-darwin fish wrapper named `claude` — the wrapper injects --remote-control, which disables features. Reads local files via Bash; tool calls go through the PATH-interposed fixture binary to the host sidecar, captured via ParseSidecar. GATED: may be classifier-blocked in-session; run on-demand."
   },
   {
     "rank": 3,
     "agent": "codex-exec",
-    "invocation": "codex exec -q …",
-    "mode": "single-shot",
     "capture": "codex-transcript",
+    "model": "",
+    "deferred": false,
+    "invocation": "codex exec -s workspace-write --skip-git-repo-check -C <SANDBOX> --json <PROMPT>",
+    "mode": "single-shot",
     "readsLocalFiles": "model-specific",
-    "notes": "Mid-tier, different provider. Top of the initial roster (ranks 1–3). FS-sandboxed codex; capture observed commands via ParseCodexCommands."
+    "notes": "Mid-tier, different provider. Top of the initial roster (ranks 1–3). Empty model omits -m so codex uses its default (the strong tier). FS-sandboxed codex; capture observed commands from the codex --json stream via ParseCodexJSON."
   },
   {
     "rank": 4,
     "agent": "sonnet",
-    "invocation": "command claude -p --model …",
-    "mode": "single-shot",
     "capture": "host-sidecar",
+    "model": "claude-sonnet-4-5",
+    "deferred": true,
+    "invocation": "<claudePath> -p --model claude-sonnet-4-5 --permission-mode bypassPermissions --allowedTools Bash --output-format text <PROMPT>",
+    "mode": "single-shot",
     "readsLocalFiles": "yes",
     "notes": "Ceiling. DEFERRED (decision 1): NOT in the initial roster. Added once the deterministic spine proves useful, to skip ceiling-validation cost up front."
   },
   {
     "rank": 5,
     "agent": "devin",
-    "invocation": "devin run --prompt … (cloud workspace)",
-    "mode": "session",
     "capture": "host-sidecar",
+    "model": "",
+    "deferred": true,
+    "invocation": "devin run --prompt <PROMPT> (cloud workspace)",
+    "mode": "session",
     "readsLocalFiles": "declared",
-    "notes": "DEFERRED. Cloud workspace (not a local exec): a local-kimi alternative, user-run. Session-based — returns a URL and needs session management."
+    "notes": "DEFERRED. Cloud workspace (not a local exec): a local-kimi alternative, user-run. Session-based — returns a URL and needs session management. No local exec adapter is wired in this phase."
   },
   {
     "rank": 6,
     "agent": "gemini",
+    "capture": "host-sidecar",
+    "model": "",
+    "deferred": true,
     "invocation": "gemini … --approval-mode … (CONFIRM exact flag)",
     "mode": "single-shot",
-    "capture": "host-sidecar",
     "readsLocalFiles": "model-specific",
-    "notes": "DEFERRED. Needs --approval-mode authorization before it can run tool calls non-interactively."
+    "notes": "DEFERRED. Needs --approval-mode authorization before it can run tool calls non-interactively. No local exec adapter is wired in this phase."
   }
 ]

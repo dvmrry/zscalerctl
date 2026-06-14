@@ -15,5 +15,8 @@ coverage.out
 /scratch-live-smoke-*/
 /scratch-live-dump/
 /scratch-live-dump-*/
-/scratch/resource-drafts/
+# Blanket scratch: agent-eval reports (`make agent-eval`), resource drafts, and
+# any on-demand build artifacts. The committed docs/agentic-coverage.{md,json}
+# live under docs/, NOT scratch/, so they are unaffected.
+/scratch/
 .playwright-mcp/
