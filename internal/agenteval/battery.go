@@ -616,7 +616,7 @@ func computeInputsHash(questions []Question) (string, error) {
 	writeHashLine(h, "fixture_record_count", "zia/locations="+strconv.Itoa(DeriveRecordCount(resources.ProductZIA, "locations")))
 	projectedFields := projectedFieldNamesSorted(resources.ProductZIA, "locations", wellKnownLocationID)
 	writeHashLine(h, "fixture_projected_fields", "zia/locations#"+wellKnownLocationID+"="+strings.Join(projectedFields, ","))
-	writeHashLine(h, "fixture_secret_ever_shown", "zia/locations.preSharedKey="+strconv.FormatBool(DeriveSecretEverShown(resources.ProductZIA, "locations", "preSharedKey")))
+	writeHashLine(h, "fixture_never_shown_field_count", "zia/locations="+strconv.Itoa(neverShownFieldCount(resources.ProductZIA, "locations")))
 	writeHashLine(h, "error_kind_unknown_id", string(DeriveErrorKindUnknownID()))
 
 	// (1b) the instantiated questions' assertions: id, kind, expected, plus the
@@ -628,11 +628,18 @@ func computeInputsHash(questions []Question) (string, error) {
 		writeHashLine(h, "q.fm", q.FailureMode)
 		writeHashLine(h, "q.tier", q.Tier)
 		writeHashLine(h, "q.category", q.Category)
+		// Assertion EXPECTED values and the method/forbidden VALUES are deliberately
+		// excluded from this signature: their drift is already caught byte-for-byte by
+		// the full battery.json comparison in TestAgentEvalBatteryIsCurrent, so binding
+		// them here is redundant — and excluding them keeps credential-named strings
+		// (env var names like ZSCALERCTL_CLIENT_SECRET, the secret canary, secret field
+		// names) out of the hash input (CodeQL go/weak-sensitive-data-hashing). We
+		// still bind each assertion's KIND and the COUNT of method/forbidden entries.
 		for _, a := range q.Assertions {
-			writeHashLine(h, "q.assert", q.ID+"|"+string(a.Kind)+"|"+a.Expected)
+			writeHashLine(h, "q.assert", q.ID+"|"+string(a.Kind))
 		}
-		writeHashLine(h, "q.mustRunAny", q.ID+"|"+strings.Join(q.MustRunAny, "\x1f"))
-		writeHashLine(h, "q.mustNot", q.ID+"|"+strings.Join(q.MustNot, "\x1f"))
+		writeHashLine(h, "q.mustRunAny", q.ID+"|"+strconv.Itoa(len(q.MustRunAny)))
+		writeHashLine(h, "q.mustNot", q.ID+"|"+strconv.Itoa(len(q.MustNot)))
 		writeHashLine(h, "q.extraAllowed", q.ID+"|"+strconv.FormatBool(q.ExtraAllowed))
 	}
 
@@ -664,4 +671,24 @@ func projectedFieldNamesSorted(product resources.Product, resource, id string) [
 	present := DeriveProjectedFields(product, resource, id, all, redact.ModeStandard)
 	sort.Strings(present)
 	return present
+}
+
+// neverShownFieldCount returns how many of a spec's fields are never exposed in
+// any redaction mode (DeriveSecretEverShown == false) — a neutral, value-free
+// drift signal for the inputs-hash. It replaces naming the secret field
+// directly, so the inputs-hash never carries a credential-shaped string while
+// still flagging a reclassification (the count changes if a dropped field
+// becomes shown, or vice versa).
+func neverShownFieldCount(product resources.Product, resource string) int {
+	spec, ok := resources.FindSpec(product, resource)
+	if !ok {
+		return 0
+	}
+	n := 0
+	for _, fs := range spec.Fields {
+		if !DeriveSecretEverShown(product, resource, fs.JSONField()) {
+			n++
+		}
+	}
+	return n
 }
