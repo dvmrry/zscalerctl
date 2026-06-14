@@ -449,7 +449,7 @@ Triage routes by *who* failed: a finding only `haiku` hits = high-priority surfa
 
 The deterministic spine lands first; nothing non-deterministic masquerades as a gate.
 
-**Phase 0 — Shared substrate (BLOCKS everything).** Write `contract.go`: the one answer protocol (§2.1), AnswerKinds (§2.2), the fixture-binary spec (§2.3), the definition of "clears" (§2.4), the `Finding` type (§2.5). Write `REALISM_DELTAS.md` and `roster.json`. No other code begins until this is reviewed. *This is the holistic critic's #1 action.*
+**Phase 0 — Shared substrate (BLOCKS everything).** Write `contract.go`: the one answer protocol (§2.1), AnswerKinds (§2.2), the fixture-binary spec (§2.3), the definition of "clears" (§2.4), the `Finding` type (§2.5). Write `surface_promises.json`, `REALISM_DELTAS.md`, and `roster.json`. No other code begins until this is reviewed. *This is the holistic critic's #1 action.*
 
 **Phase 1 — DETERMINISTIC / CI-GATED (the spine).**
 1. Promote the fixture corpus to importable `internal/agenteval/fixtures`; extend for N>1, pagination, real id-join, `get <id>` semantics, no-fixture empty-list (§3.5).
