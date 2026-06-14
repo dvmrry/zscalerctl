@@ -60,6 +60,23 @@ type Question struct {
 	// FailureMode is the attributed FM id, e.g. "FM-03" (§4.1), copied into
 	// Finding.FailureMode.
 	FailureMode string
+	// Tier is the §3.3 difficulty tier the question sits in: "T0" (FLOOR /
+	// discovery hard-gate), "T1" (single-surface single-command), "T2" (flag
+	// composition), or "T3" (multi-step / cross-resource). It is attribution
+	// metadata for the report and the coverage gates; the scorer does not branch
+	// on it (the §2.4 "clears" rule reads Tier to enforce the Tier-0 hard gate,
+	// but Score grades a single question identically regardless of tier).
+	Tier string
+	// Category is the §3.2 surface-feature category the question exercises:
+	// "C1".."C6" (or the empty output-discipline cross-cut, mirroring FM-06's
+	// empty FailureMode.Category). Used by TestBatteryCoversSurface to prove each
+	// category is exercised; not read by the scorer.
+	Category string
+	// Prompt is the human/agent-facing question text (§3.1 F1: self-contained
+	// from the provided surface, never naming the command to run). It is carried
+	// on the Question so the live runner can present it and so battery.json
+	// records exactly what was asked; the pure scorer ignores it.
+	Prompt string
 	// Assertions are the typed checks; length 1 in the common case, 2 for the C6
 	// exit_code+error_kind dual case (§2.2). ALL must pass for a correct answer.
 	Assertions []Assertion

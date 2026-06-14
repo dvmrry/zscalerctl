@@ -10,7 +10,7 @@ LIVE_SMOKE_OUT ?=
 LIVE_SMOKE_FLAGS ?= --require-credentials
 LIVE_SMOKE_MANIFEST ?=
 
-.PHONY: fmt-check test race vet vuln staticcheck docs-check semgrep-check secret-scan vendor verify-vendor verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-release-automation verify-release-artifacts verify-catalog-draft verify-resource-scaffold verify-sdk-surface-inventory verify-script-registry verify-agents-skill scaffold-resource sdk-surface-inventory field-coverage live-smoke fuzz-smoke check release-check
+.PHONY: fmt-check test race vet vuln staticcheck docs-check semgrep-check secret-scan vendor verify-vendor verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-release-automation verify-release-artifacts verify-catalog-draft verify-resource-scaffold verify-sdk-surface-inventory verify-script-registry verify-agents-skill scaffold-resource sdk-surface-inventory field-coverage agent-eval-gen live-smoke fuzz-smoke check release-check
 
 fmt-check:
 	@files="$$(git ls-files -co --exclude-standard '*.go' ':!:vendor/**' | xargs gofmt -l)"; \
@@ -104,6 +104,14 @@ sdk-surface-inventory:
 # needed after an SDK bump or a classification change moves the numbers.
 field-coverage:
 	FIELD_COVERAGE_WRITE=1 go test -mod=vendor ./internal/zscaler -run TestFieldCoverageReportIsCurrent
+
+# Regenerate internal/agenteval/battery.json (the instantiated agentic-coverage
+# question battery + its inputs-hash) from resources.Catalog() and the value-free
+# fixture corpus. TestAgentEvalBatteryIsCurrent asserts the committed artifact is
+# current under plain `go test`, so this target is only needed after a catalog
+# reclassification, a fixture change, or a grader-version bump moves the battery.
+agent-eval-gen:
+	AGENT_EVAL_BATTERY_WRITE=1 go test -mod=vendor ./internal/agenteval -run TestAgentEvalBatteryIsCurrent
 
 live-smoke:
 	go run ./scripts/live-smoke.go $(LIVE_SMOKE_FLAGS) $(if $(LIVE_SMOKE_BIN),--bin "$(LIVE_SMOKE_BIN)") $(if $(LIVE_SMOKE_RESOURCES),--resources "$(LIVE_SMOKE_RESOURCES)") $(if $(LIVE_SMOKE_MANIFEST),--manifest "$(LIVE_SMOKE_MANIFEST)") $(if $(LIVE_SMOKE_OUT),--out "$(LIVE_SMOKE_OUT)")

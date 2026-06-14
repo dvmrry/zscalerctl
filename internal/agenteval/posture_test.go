@@ -1,6 +1,7 @@
 package agenteval_test
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -64,9 +65,20 @@ var providerToken = regexp.MustCompile(`(?:ANTHROPIC|OPENAI|DEVIN)_[A-Za-z0-9_]*
 func TestFixturesContainNoRealLookingSecrets(t *testing.T) {
 	t.Parallel()
 
+	// The battery manifest declares a sha256 inputs-hash (§5.4) over PUBLIC
+	// catalog+fixture inputs — a regenerable, non-secret digest, not a key. It is
+	// a hex run by construction, so the gate exempts exactly that one declared
+	// value (read from the manifest's own field). Any OTHER hex run still reds the
+	// build, and a hand-edited hash that no longer matches the field is not
+	// exempted, so the exemption can't hide a real digest/key.
+	manifestHash := committedBatteryInputsHash(t)
+
 	forEachAgentevalArtifact(t, func(t *testing.T, rel, content string) {
 		for _, line := range strings.Split(content, "\n") {
 			scrubbed := stripAllowed(line)
+			if manifestHash != "" {
+				scrubbed = strings.ReplaceAll(scrubbed, manifestHash, "")
+			}
 
 			for _, tok := range secretShapedToken.FindAllString(scrubbed, -1) {
 				if looksLikeSecret(tok) {
@@ -78,6 +90,26 @@ func TestFixturesContainNoRealLookingSecrets(t *testing.T) {
 			}
 		}
 	})
+}
+
+// committedBatteryInputsHash reads the declared inputs_hash from the committed
+// battery.json so the secret scan can exempt that one regenerable digest. It
+// returns "" if the artifact is absent (the drift gate covers that case), so the
+// secret scan still runs over every other artifact.
+func committedBatteryInputsHash(t *testing.T) string {
+	t.Helper()
+	root := repoRoot(t)
+	raw, err := os.ReadFile(filepath.Join(root, "internal", "agenteval", "battery.json"))
+	if err != nil {
+		return ""
+	}
+	var m struct {
+		InputsHash string `json:"inputs_hash"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return ""
+	}
+	return m.InputsHash
 }
 
 // TestNoProviderTokensInArtifacts asserts no committed artifact under
