@@ -1,0 +1,34 @@
+[
+  {
+    "rank": 1,
+    "agent": "devin-p",
+    "invocation": "devin run --prompt …",
+    "mode": "session",
+    "readsLocalFiles": "declared",
+    "notes": "Deliberately-bad floor. Session-based: returns a URL and needs session management."
+  },
+  {
+    "rank": 2,
+    "agent": "haiku",
+    "invocation": "command claude -p --model … --allowedTools Bash",
+    "mode": "single-shot",
+    "readsLocalFiles": "yes",
+    "notes": "Use `command claude`, NOT `claude` — the nix-darwin fish wrapper injects --remote-control, which disables features. Reads local files via Bash."
+  },
+  {
+    "rank": 3,
+    "agent": "codex-exec",
+    "invocation": "codex exec -q …",
+    "mode": "single-shot",
+    "readsLocalFiles": "model-specific",
+    "notes": "Mid-tier, different provider. Top of the initial roster (ranks 1–3)."
+  },
+  {
+    "rank": 4,
+    "agent": "sonnet",
+    "invocation": "command claude -p --model …",
+    "mode": "single-shot",
+    "readsLocalFiles": "yes",
+    "notes": "Ceiling. DEFERRED (decision 1): NOT in the initial roster. Added once the deterministic spine proves useful, to skip ceiling-validation cost up front."
+  }
+]
