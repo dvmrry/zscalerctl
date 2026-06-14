@@ -363,90 +363,63 @@ func jsonObjectStringField(raw json.RawMessage, keys ...string) (string, bool) {
 }
 
 // jsonStringSlice unwraps a raw answer into the candidate set members for the
-// set kind (§2.2). It accepts the shapes real agents emit, in priority order:
+// set kind (§2.2 set-extraction (a)). It performs a RECURSIVE walk of the parsed
+// answer JSON and collects every STRING LEAF, at any nesting depth, into one
+// candidate set. The walk's three structural cases:
 //
-//   - a JSON array of strings -> the elements verbatim (the canonical shape);
-//   - a scalar JSON string -> a singleton (an agent that answered one element
-//     without bracketing it);
-//   - a JSON OBJECT whose values are strings and/or arrays of strings -> every
-//     value FLATTENED into one candidate set. A structured answer such as
-//     {"required":["A","B"],"secret_one_of":["C","D"],"additional_for_zpa":["E"]}
-//     flattens to {A,B,C,D,E}. This forgives a correct-but-richer-shaped answer
-//     (the FM-07 false-fail): the object's KEYS are organizational labels the
-//     agent chose, not members, so only the VALUES become candidates.
+//   - object -> recurse into every VALUE (object KEYS are dropped — they are the
+//     agent's organizational labels, not set members);
+//   - array  -> recurse into every ELEMENT;
+//   - string -> a leaf, collected.
 //
-// Any other shape (a non-string scalar, an array with non-string elements, an
-// object carrying a non-string/non-array value) yields nil — a miss for the set
-// kind, never a charitable parse. Object-value flattening is fail-closed in the
-// same way: a single value that is neither a string nor a []string aborts the
-// whole object (returns nil) rather than silently dropping part of the answer,
-// so a malformed structured answer cannot half-match.
+// A non-string scalar leaf (number, bool, null) is IGNORED, not an abort: a stray
+// numeric/boolean leaf must not nil out the whole set (robustness). This makes the
+// canonical shapes special cases of the one walk:
+//
+//   - a flat array of strings -> the elements verbatim;
+//   - a scalar JSON string    -> a singleton;
+//   - a one-level object whose values are strings/arrays-of-strings -> every value
+//     flattened, e.g. {"required":["A","B"],"secret_one_of":["C","D"]} -> {A,B,C,D};
+//   - AND arbitrarily deeper shapes real agents emit: an object nested inside an
+//     object value, or an object element inside an array — every string leaf is
+//     still collected (the FM-07 deeply-nested-credential false-fail).
+//
+// Returns nil only when the answer is not valid JSON at all, or when the walk
+// finds no string leaf anywhere (matched==0 downstream -> a miss, never a
+// charitable parse). The per-member " or " split (splitAlternatives) and the
+// trim/collapse/case-fold/dedup (normalizeSet) are applied downstream by the
+// caller, unchanged.
 func jsonStringSlice(raw json.RawMessage) []string {
-	var arr []string
-	if err := json.Unmarshal(raw, &arr); err == nil {
-		return arr
-	}
-	if s := jsonStringValue(raw); s != "" {
-		return []string{s}
-	}
-	if flat, ok := flattenStringObject(raw); ok {
-		return flat
-	}
-	return nil
-}
-
-// flattenStringObject unwraps a raw answer that is a JSON object whose values are
-// each a string OR an array of strings, returning every value flattened into one
-// slice (object KEYS are dropped — they are the agent's organizational labels,
-// not set members, §2.2 set-extraction (a)). ok is false when the answer is not a
-// JSON object, when the object is empty, or when ANY value is neither a string
-// nor a []string — so a malformed/partly-typed object is rejected wholesale
-// rather than half-parsed (fail-closed). Iteration order over map keys does not
-// matter: the set kind is order-insensitive and deduped downstream (§4.3).
-func flattenStringObject(raw json.RawMessage) ([]string, bool) {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return nil, false
-	}
-	if len(obj) == 0 {
-		return nil, false
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
 	}
 	var out []string
-	for _, v := range obj {
-		if arr, ok := jsonStringArray(v); ok {
-			out = append(out, arr...)
-			continue
-		}
-		if s, ok := jsonStringScalar(v); ok {
-			out = append(out, s)
-			continue
-		}
-		// A value that is neither a string nor a []string: abort the whole object.
-		return nil, false
-	}
-	return out, true
+	collectStringLeaves(v, &out)
+	return out
 }
 
-// jsonStringArray unwraps a raw value that is a JSON array whose elements are all
-// strings, returning the elements with ok=true. A non-array, or an array with any
-// non-string element, returns ok=false.
-func jsonStringArray(raw json.RawMessage) ([]string, bool) {
-	var arr []string
-	if err := json.Unmarshal(raw, &arr); err != nil {
-		return nil, false
+// collectStringLeaves recursively walks a decoded JSON value (the shape
+// encoding/json produces for any: map[string]any, []any, string, float64, bool,
+// nil) and appends every string leaf to out in document order. Objects recurse
+// into values only (keys are organizational labels, not members); arrays recurse
+// into elements; strings are leaves; every other leaf (number/bool/null) is
+// ignored so a non-string leaf cannot abort the whole set.
+func collectStringLeaves(v any, out *[]string) {
+	switch t := v.(type) {
+	case string:
+		*out = append(*out, t)
+	case []any:
+		for _, e := range t {
+			collectStringLeaves(e, out)
+		}
+	case map[string]any:
+		for _, val := range t {
+			collectStringLeaves(val, out)
+		}
+	default:
+		// number (float64), bool, or null: not a string leaf — ignore, do not abort.
 	}
-	return arr, true
-}
-
-// jsonStringScalar unwraps a raw value that is a JSON string, returning its inner
-// text with ok=true. A non-string returns ok=false (distinct from jsonStringValue,
-// which collapses "not a string" and "the empty string" into "").
-func jsonStringScalar(raw json.RawMessage) (string, bool) {
-	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return "", false
-	}
-	return s, true
 }
 
 // normalizeSet turns a slice of raw strings into an order-insensitive, deduped,

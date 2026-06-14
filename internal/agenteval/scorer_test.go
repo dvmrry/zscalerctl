@@ -437,6 +437,118 @@ func TestScorerGradesRecordedTranscripts(t *testing.T) {
 			wantSignal: "wrong",
 		},
 		{
+			name: "FM-07 codex nested object-in-object -> PASS",
+			// codex's EXACT live answer: the top-level "base_live_api_credentials" value
+			// is itself an OBJECT (object-in-object), and a sibling "note" is a prose
+			// string leaf that is not a required var token. The recursive walk collects
+			// every string leaf at any depth — including ZSCALERCTL_CLIENT_SECRET nested
+			// two levels down under base_live_api_credentials.secret_one_of — so the
+			// required core is matched. Extras (the _FILE secret, ZPA_CUSTOMER_ID, CLOUD,
+			// and the long prose note) are ignored under extra_allowed=true -> PASS. The
+			// old one-level flatten false-failed this: a value that was itself an object
+			// (not a string/[]string) aborted the whole object -> empty got -> FAIL.
+			q: agenteval.Question{
+				ID:           "Q-FM07-credentials",
+				FailureMode:  "FM-07",
+				Assertions:   []agenteval.Assertion{{Kind: agenteval.KindSet, Expected: "ZSCALERCTL_CLIENT_ID,ZSCALERCTL_CLIENT_SECRET,ZSCALERCTL_VANITY_DOMAIN"}},
+				MustRunAny:   []string{"doctor"},
+				ExtraAllowed: true,
+				RequireAll:   true,
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"base_live_api_credentials":{"required":["ZSCALERCTL_CLIENT_ID","ZSCALERCTL_VANITY_DOMAIN"],"secret_one_of":["ZSCALERCTL_CLIENT_SECRET","ZSCALERCTL_CLIENT_SECRET_FILE"]},"zpa_additional_required":["ZSCALERCTL_ZPA_CUSTOMER_ID"],"documented_canonical_configuration_also_lists":["ZSCALERCTL_CLOUD"],"note":"AGENTS.md lists ZSCALERCTL_CLOUD in the canonical set, but doctor did not require it."}`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "doctor")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
+		{
+			name: "FM-07 codex object element inside an array -> PASS",
+			// codex's EXACT live answer: "required_for_live_api" is an array whose middle
+			// ELEMENT is an OBJECT ({"one_of":[...]}) sitting between two string elements.
+			// The recursive walk descends into the array element object and collects both
+			// secret var names; ZSCALERCTL_CLIENT_ID and ZSCALERCTL_VANITY_DOMAIN are
+			// collected as plain array string leaves. Required core matched; extras ignored
+			// under extra_allowed=true -> PASS. The old extractor unmarshaled the array as
+			// []string, which fails on the object element, and the object-flatten fallback
+			// never fired (the answer is an array, not an object) -> empty got -> FAIL.
+			q: agenteval.Question{
+				ID:           "Q-FM07-credentials",
+				FailureMode:  "FM-07",
+				Assertions:   []agenteval.Assertion{{Kind: agenteval.KindSet, Expected: "ZSCALERCTL_CLIENT_ID,ZSCALERCTL_CLIENT_SECRET,ZSCALERCTL_VANITY_DOMAIN"}},
+				MustRunAny:   []string{"doctor"},
+				ExtraAllowed: true,
+				RequireAll:   true,
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"required_for_live_api":["ZSCALERCTL_CLIENT_ID",{"one_of":["ZSCALERCTL_CLIENT_SECRET","ZSCALERCTL_CLIENT_SECRET_FILE"]},"ZSCALERCTL_VANITY_DOMAIN"],"additional_for_zpa":["ZSCALERCTL_ZPA_CUSTOMER_ID"],"not_required_by_current_doctor":["ZSCALERCTL_CLOUD"]}`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "doctor")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
+		{
+			name: "FM-07 negative: nested-but-incomplete (no secret leaf anywhere) -> FAIL",
+			// The recursive walk must NOT manufacture a match: a genuinely incomplete
+			// answer that names only the client id and vanity domain — no client secret
+			// leaf at any depth — still FAILs under RequireAll (matched < expected). This
+			// guards that recursion adds reach, not charity.
+			q: agenteval.Question{
+				ID:           "Q-FM07-credentials",
+				FailureMode:  "FM-07",
+				Assertions:   []agenteval.Assertion{{Kind: agenteval.KindSet, Expected: "ZSCALERCTL_CLIENT_ID,ZSCALERCTL_CLIENT_SECRET,ZSCALERCTL_VANITY_DOMAIN"}},
+				MustRunAny:   []string{"doctor"},
+				ExtraAllowed: true,
+				RequireAll:   true,
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"required":["ZSCALERCTL_CLIENT_ID","ZSCALERCTL_VANITY_DOMAIN"]}`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "doctor")},
+			},
+			wantVerd:   agenteval.VerdictFail,
+			wantSignal: "wrong",
+		},
+		{
+			name: "FM-07 negative: prose leaf names vars only in sentence -> FAIL",
+			// A single prose string leaf that mentions "the client id and the client
+			// secret and the vanity domain" must NOT create a false match: the required
+			// var TOKENS (ZSCALERCTL_CLIENT_ID, …) never appear as exact, normalized
+			// leaves — the leaf is one long sentence, normalized whole — so matched==0 ->
+			// FAIL. The recursive walk collects the sentence as ONE leaf; it does not
+			// tokenize prose, so no required member is hit.
+			q: agenteval.Question{
+				ID:           "Q-FM07-credentials",
+				FailureMode:  "FM-07",
+				Assertions:   []agenteval.Assertion{{Kind: agenteval.KindSet, Expected: "ZSCALERCTL_CLIENT_ID,ZSCALERCTL_CLIENT_SECRET,ZSCALERCTL_VANITY_DOMAIN"}},
+				MustRunAny:   []string{"doctor"},
+				ExtraAllowed: true,
+				RequireAll:   true,
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"answer_note":"you need the client id and the client secret and the vanity domain"}`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "doctor")},
+			},
+			wantVerd:   agenteval.VerdictFail,
+			wantSignal: "wrong",
+		},
+		{
+			name: "FM-07 'A or B' alternative still PASS (no regression) -> PASS",
+			// Regression guard for set-extraction (c): a flat array with an either/or
+			// member still splits on " or " into both secret names through the recursive
+			// walk + unchanged splitAlternatives/normalizeSet.
+			q: agenteval.Question{
+				ID:           "Q-FM07-credentials",
+				FailureMode:  "FM-07",
+				Assertions:   []agenteval.Assertion{{Kind: agenteval.KindSet, Expected: "ZSCALERCTL_CLIENT_ID,ZSCALERCTL_CLIENT_SECRET,ZSCALERCTL_VANITY_DOMAIN"}},
+				MustRunAny:   []string{"doctor"},
+				ExtraAllowed: true,
+				RequireAll:   true,
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`["ZSCALERCTL_CLIENT_ID","ZSCALERCTL_CLIENT_SECRET or ZSCALERCTL_CLIENT_SECRET_FILE","ZSCALERCTL_VANITY_DOMAIN"]`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "doctor")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
+		{
 			name: "plain id,name set still PASS (no regression) -> PASS",
 			// Regression guard: an ordinary array-of-strings set answer (no object, no
 			// 'or') grades exactly as before through the hardened extractor.
