@@ -132,13 +132,17 @@ func TestShimBinaryBehavior(t *testing.T) {
 
 	t.Run("observed-command sidecar records argv and exit", func(t *testing.T) {
 		t.Parallel()
-		logPath := filepath.Join(t.TempDir(), "observed.ndjson")
-		env := append(withFixtureDir(fixtureDir, syntheticCreds), "ZSCALERCTL_FIXTURE_LOG="+logPath)
-		res := runFixture(t, bin, env, "--format", "json", "zia", "locations", "list")
+		// ZSCALERCTL_FIXTURE_LOG is a CONFINED relative filename, resolved against
+		// the process cwd (the runner sets cwd to the agent WorkDir). Run the binary
+		// with its cwd set to a temp dir and read the log back from there.
+		workDir := t.TempDir()
+		const logName = "observed.jsonl"
+		env := append(withFixtureDir(fixtureDir, syntheticCreds), "ZSCALERCTL_FIXTURE_LOG="+logName)
+		res := runFixtureInDir(t, bin, workDir, env, "--format", "json", "zia", "locations", "list")
 		if res.exit != 0 {
 			t.Fatalf("exit = %d, want 0\nstderr: %s", res.exit, res.stderr)
 		}
-		data, err := os.ReadFile(logPath)
+		data, err := os.ReadFile(filepath.Join(workDir, logName))
 		if err != nil {
 			t.Fatalf("read sidecar: %v", err)
 		}
@@ -181,10 +185,21 @@ type fixtureResult struct {
 
 // runFixture executes the fixture binary with a clean env (no inherited
 // ZSCALERCTL_* values — env hygiene per plan §6.3) plus the caller-supplied
-// vars, and reports stdout/stderr/exit.
+// vars, and reports stdout/stderr/exit. The process cwd is left to the test
+// harness default.
 func runFixture(t *testing.T, bin string, env []string, args ...string) fixtureResult {
 	t.Helper()
+	return runFixtureInDir(t, bin, "", env, args...)
+}
+
+// runFixtureInDir is runFixture with the process cwd pinned to dir (empty = the
+// harness default). The confined sidecar log path (ZSCALERCTL_FIXTURE_LOG, a
+// relative filename) resolves against this cwd, so a test exercising the log
+// sets dir to the directory it then reads the log back from.
+func runFixtureInDir(t *testing.T, bin, dir string, env []string, args ...string) fixtureResult {
+	t.Helper()
 	cmd := exec.Command(bin, args...)
+	cmd.Dir = dir
 	// Start from an explicitly minimal env so the test process's real
 	// credentials can never leak into a scenario and flip its outcome.
 	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, env...)

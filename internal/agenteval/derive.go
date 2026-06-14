@@ -11,9 +11,11 @@ package agenteval
 //
 //   - obtain fixture records through fixtures.NewReader() (the production
 //     cli.ResourceReader seam: List/Get), never a private copy of the corpus;
-//   - project through resources.ProjectRecords / resources.ProjectRecord with
-//     the same redaction mode the binary applies — so a dropped or secret field
-//     is genuinely absent, not merely assumed absent;
+//   - project through resources.ProjectRecordsAndVerify /
+//     resources.ProjectRecordAndVerify with the same redaction mode the binary
+//     applies — so a dropped or secret field is genuinely absent, not merely
+//     assumed absent (the verifying variants re-assert the rendered-subset
+//     invariant, the same project->verify guarantee the binary upholds);
 //   - read field classification straight from the catalog via
 //     FieldSpec.Classification + FieldSpec.AllowedIn(mode);
 //   - apply the SAME narrowing predicate the binary's --filter uses (a faithful
@@ -33,6 +35,7 @@ import (
 	"strings"
 
 	"github.com/dvmrry/zscalerctl/internal/agenteval/fixtures"
+	"github.com/dvmrry/zscalerctl/internal/config"
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/resources"
 	"github.com/dvmrry/zscalerctl/internal/zscaler"
@@ -107,7 +110,7 @@ func DeriveProjectedFields(product resources.Product, resource, id string, reque
 	if err != nil {
 		return nil
 	}
-	projected, _, err := resources.ProjectRecord(spec, mode, record)
+	projected, _, err := resources.ProjectRecordAndVerify(spec, mode, record)
 	if err != nil {
 		return nil
 	}
@@ -119,6 +122,62 @@ func DeriveProjectedFields(product resources.Product, resource, id string, reque
 		}
 	}
 	return out
+}
+
+// DeriveFieldValue returns the PROJECTED value of a single field for the record
+// with the given id, rendered as a string — the C2 "what is the <field> of
+// <resource> <id>" truth (§3.4). It is the engine behind a get-shaped fact such
+// as "what is the name of the zia location with id 1?". The record is fetched
+// through the production reader (fixtures.NewReader().Get) and projected with
+// resources.ProjectRecordAndVerify in the given mode, so the value an agent must
+// report is exactly what the binary emits after projection.
+//
+// A field that projection drops (secret/never-allowed) or that the record never
+// carried is absent post-projection, so the function returns "" — never the raw
+// pre-projection value. The value is rendered with the same renderTableValue
+// helper the filter derivation uses, so a scalar field reads back as its text.
+// An unknown (product, resource) or unknown id returns "".
+func DeriveFieldValue(product resources.Product, resource, id, field string, mode redact.Mode) string {
+	spec, ok := resources.FindSpec(product, resource)
+	if !ok {
+		return ""
+	}
+	record, err := fixtures.NewReader().Get(context.Background(), product, resource, id)
+	if err != nil {
+		return ""
+	}
+	projected, _, err := resources.ProjectRecordAndVerify(spec, mode, record)
+	if err != nil {
+		return ""
+	}
+	v, ok := projected.Fields()[field]
+	if !ok {
+		return ""
+	}
+	return renderTableValue(v)
+}
+
+// DeriveRequiredCredentialEnvVars returns the NAMES of the required-core
+// credential environment variables a caller must set to provide this tool's
+// tenant credentials for live API access (the FM-07 credential-mechanism truth,
+// §3.7). The names are sourced from the config package constants
+// (config.EnvClientID, config.EnvClientSecret, config.EnvVanityDomain) rather
+// than retyped, so a rename of any env var in internal/config flows through
+// automatically and the eval can never grade against a stale literal.
+//
+// The "required core" selection is a DOCUMENTED-CONTRACT pin, not a catalog
+// derivation: the catalog describes resources, not the credential mechanism, so
+// it cannot tell us which env vars are required. These three are the OneAPI
+// minimum the reader validation enforces (client id + secret + vanity domain);
+// optional/alternative vars (CLOUD, ZPA_CUSTOMER_ID, legacy-auth fields) are
+// deliberately excluded from the required-core set, which is why a question
+// grading this set allows extras (ExtraAllowed) so naming them too is fine.
+func DeriveRequiredCredentialEnvVars() []string {
+	return []string{
+		config.EnvClientID,
+		config.EnvClientSecret,
+		config.EnvVanityDomain,
+	}
 }
 
 // DeriveSecretEverShown reports whether a field is EVER exposed in any redaction
@@ -222,7 +281,7 @@ func projectedRecords(product resources.Product, resource string, mode redact.Mo
 	if err != nil {
 		return resources.ProjectedRecords{}, false
 	}
-	projected, _, err := resources.ProjectRecords(spec, mode, records)
+	projected, _, err := resources.ProjectRecordsAndVerify(spec, mode, records)
 	if err != nil {
 		return resources.ProjectedRecords{}, false
 	}

@@ -1,7 +1,7 @@
 {
   "schema": "zscalerctl/agent-eval-battery/v1",
   "grader_version": "agenteval-grader-v1",
-  "inputs_hash": "7f7574cac73cf296ffb9e20dd7c2353f4e7a34078da1a99c959f319180f2f16c",
+  "inputs_hash": "dd2d154ec6483dab003318df021729ac79749f08cd79204d309241cc90bca14a",
   "question_count": 13,
   "questions": [
     {
@@ -78,11 +78,11 @@
       "FailureMode": "FM-02",
       "Tier": "T1",
       "Category": "C2",
-      "Prompt": "Fetch the zia location with id 1 and report its name. Then state how many zia locations are configured in total.",
+      "Prompt": "What is the name of the zia location with id 1?",
       "Assertions": [
         {
-          "kind": "count",
-          "expected": "2"
+          "kind": "string_enum",
+          "expected": "HQ"
         }
       ],
       "ExtraAllowed": false,
@@ -298,18 +298,16 @@
       "FailureMode": "FM-07",
       "Tier": "T1",
       "Category": "C6",
-      "Prompt": "Confirm the tool is reachable by listing the products it can query, then state where this tool reads its tenant credentials from (e.g. environment variables vs a config file).",
+      "Prompt": "Which environment variables must be set to provide this tool's tenant credentials for live API access?",
       "Assertions": [
         {
           "kind": "set",
-          "expected": "zia,zpa,ztw,zcc,zidentity"
+          "expected": "ZSCALERCTL_CLIENT_ID,ZSCALERCTL_CLIENT_SECRET,ZSCALERCTL_VANITY_DOMAIN"
         }
       ],
-      "ExtraAllowed": false,
+      "ExtraAllowed": true,
       "MustRunAny": [
-        "schema list",
-        "--help",
-        "auth status"
+        "doctor"
       ],
       "MustNot": null,
       "Indicts": [

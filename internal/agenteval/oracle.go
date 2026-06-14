@@ -50,6 +50,15 @@ const (
 	// DeriveProjectedFieldsKind -> KindSet of requested fields that survive
 	// projection (C5/Q8, §3.4).
 	DeriveProjectedFieldsKind DerivationKind = "projected_fields"
+	// DeriveFieldValueKind -> KindStringEnum of a single projected field's value
+	// for a record id (a get-shaped fact, e.g. the name of zia/locations id 1,
+	// C2/§3.4). Graded case-fold+trim against the derived value.
+	DeriveFieldValueKind DerivationKind = "field_value"
+	// DeriveRequiredCredentialEnvVarsKind -> KindSet of the required-core
+	// credential env var NAMES (FM-07 credential mechanism, §3.7). Sourced from
+	// the config package constants, never retyped. Questions using it set
+	// ExtraAllowed so naming optional/alternative vars too is not penalized.
+	DeriveRequiredCredentialEnvVarsKind DerivationKind = "required_credential_env_vars"
 	// DeriveSecretEverShownKind -> KindBool "is field Y ever exposed" (C5/Q7,
 	// §3.4); the honest answer for a secret/never-allowed field is false.
 	DeriveSecretEverShownKind DerivationKind = "secret_ever_shown"
@@ -127,6 +136,23 @@ func (s QuestionSpec) BuildAssertions() ([]Assertion, error) {
 		return []Assertion{{
 			Kind:     KindSet,
 			Expected: strings.Join(fields, ","),
+		}}, nil
+
+	case DeriveFieldValueKind:
+		// A get-shaped fact: the projected value of one field for one record id,
+		// graded as a string (string_enum with the single derived value as the sole
+		// accept synonym). The value is derived through projection, so a dropped
+		// field yields "" — which would never be a sensible graded fact, caught by
+		// the oracle self-check.
+		return []Assertion{{
+			Kind:     KindStringEnum,
+			Expected: DeriveFieldValue(s.Product, s.Resource, s.ID, s.Field, s.Mode),
+		}}, nil
+
+	case DeriveRequiredCredentialEnvVarsKind:
+		return []Assertion{{
+			Kind:     KindSet,
+			Expected: strings.Join(DeriveRequiredCredentialEnvVars(), ","),
 		}}, nil
 
 	case DeriveSecretEverShownKind:
@@ -208,8 +234,22 @@ func (s QuestionSpec) CheckExpectedNotSecret() error {
 		// The ANSWER is a count, never the secret value, so nothing to reject.
 		return nil
 
+	case DeriveFieldValueKind:
+		// A get-shaped value fact must target a field the tool actually shows. The
+		// derivation projects the record, so a secret/dropped field yields "" — but
+		// reject that at construction rather than grading an empty fact: a question
+		// expecting a field value may only name a field that survives projection.
+		if !DeriveSecretEverShown(s.Product, s.Resource, s.Field) {
+			return fmt.Errorf(
+				"oracle self-check: question expects the value of field %q in %s/%s, but that field is never shown in any mode (secret/dropped)",
+				s.Field, s.Product, s.Resource,
+			)
+		}
+		return nil
+
 	default:
-		// Counts, product sets, and error kinds never reference a field value.
+		// Counts, product sets, error kinds, and the credential-env-var set never
+		// reference a tenant field value.
 		return nil
 	}
 }

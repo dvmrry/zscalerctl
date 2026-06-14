@@ -40,6 +40,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/dvmrry/zscalerctl/internal/agenteval/fixtures"
 	"github.com/dvmrry/zscalerctl/internal/cli"
@@ -304,8 +306,21 @@ type observedRecord struct {
 // ZSCALERCTL_FIXTURE_LOG, if set. Best-effort: a logging failure must never
 // change the process's exit code or contact a network. The file is opened
 // append-only so concurrent fixture invocations each contribute one line.
+//
+// The log path is CONFINED: ZSCALERCTL_FIXTURE_LOG is treated as a relative
+// filename only, resolved against the process cwd (which the runner sets to the
+// agent WorkDir). An absolute path or a ".." traversal element (after cleaning)
+// is rejected — the env-controlled value can never escape the working directory
+// to write an arbitrary file. Rejection is silent (best-effort logging), never
+// an exit-code or stream change.
 func logObserved(path string, argv []string, exit int) {
 	if path == "" {
+		return
+	}
+	clean := filepath.Clean(path)
+	// Reject an absolute path or any ".." traversal: the env value must be a
+	// confined relative filename under the process cwd.
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return
 	}
 	record := observedRecord{Argv: append([]string(nil), argv...), Exit: exit}
@@ -313,7 +328,8 @@ func logObserved(path string, argv []string, exit int) {
 	if err != nil {
 		return
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	// #nosec G304 -- relative filename, absolute/.. rejected; the fixture binary is internal eval tooling, never shipped
+	f, err := os.OpenFile(clean, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return
 	}

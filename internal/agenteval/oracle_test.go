@@ -18,10 +18,12 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/zscalerctl/internal/agenteval"
 	"github.com/dvmrry/zscalerctl/internal/agenteval/fixtures"
+	"github.com/dvmrry/zscalerctl/internal/config"
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/resources"
 )
@@ -139,6 +141,38 @@ func TestOracleMatchesFixtures(t *testing.T) {
 		// An exact name match selects the single record named HQ.
 		if got := agenteval.DeriveFilterCount(resources.ProductZIA, "locations", "name", "HQ"); got != 1 {
 			t.Errorf("DeriveFilterCount(zia,locations,name,HQ) = %d, want 1", got)
+		}
+	})
+
+	t.Run("FieldValue(zia,locations,1,name) == HQ", func(t *testing.T) {
+		t.Parallel()
+		if got := agenteval.DeriveFieldValue(resources.ProductZIA, "locations", "1", "name", redact.ModeStandard); got != "HQ" {
+			t.Fatalf("DeriveFieldValue(zia,locations,1,name,standard) = %q, want \"HQ\"", got)
+		}
+		// A secret/dropped field has no projected value -> "".
+		if got := agenteval.DeriveFieldValue(resources.ProductZIA, "locations", "1", "preSharedKey", redact.ModeStandard); got != "" {
+			t.Errorf("DeriveFieldValue on secret preSharedKey = %q, want \"\" (dropped by projection)", got)
+		}
+		// An unknown id has no record -> "".
+		if got := agenteval.DeriveFieldValue(resources.ProductZIA, "locations", "999999", "name", redact.ModeStandard); got != "" {
+			t.Errorf("DeriveFieldValue(unknown id) = %q, want \"\"", got)
+		}
+	})
+
+	t.Run("RequiredCredentialEnvVars contains the three core vars", func(t *testing.T) {
+		t.Parallel()
+		got := agenteval.DeriveRequiredCredentialEnvVars()
+		// The three required-core vars must be present, sourced from the config
+		// constants (not retyped) so a rename in internal/config flows through.
+		for _, want := range []string{
+			config.EnvClientID, config.EnvClientSecret, config.EnvVanityDomain,
+		} {
+			if !containsString(got, want) {
+				t.Errorf("DeriveRequiredCredentialEnvVars() = %v, missing required core var %q", got, want)
+			}
+		}
+		if len(got) != 3 {
+			t.Errorf("DeriveRequiredCredentialEnvVars() has %d vars, want exactly the 3 required-core vars", len(got))
 		}
 	})
 
@@ -269,7 +303,33 @@ func modeledSpecs() []modeledSpec {
 			wantKind:     agenteval.KindErrorKind,
 			wantExpected: "not_found",
 		},
+		{
+			name: "zia locations name field value",
+			spec: agenteval.QuestionSpec{
+				Derivation: agenteval.DeriveFieldValueKind,
+				Product:    resources.ProductZIA, Resource: "locations", ID: "1",
+				Field: "name", Mode: redact.ModeStandard,
+			},
+			wantKind:     agenteval.KindStringEnum,
+			wantExpected: "HQ",
+		},
+		{
+			name:         "required credential env vars",
+			spec:         agenteval.QuestionSpec{Derivation: agenteval.DeriveRequiredCredentialEnvVarsKind},
+			wantKind:     agenteval.KindSet,
+			wantExpected: strings.Join(agenteval.DeriveRequiredCredentialEnvVars(), ","),
+		},
 	}
+}
+
+// containsString reports whether xs contains s.
+func containsString(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- independent re-derivation helpers (do not call the functions under test) ----

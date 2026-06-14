@@ -230,18 +230,27 @@ func batteryTemplates() []questionTemplate {
 		},
 
 		// Q4b — T1/C2/FM-02: single-resource retrieval via the GET operation shape
-		// (the second of the two C2 shapes TestBatteryCoversSurface requires). Same
-		// derived record count, but the method requirement pins `locations get
-		// <known-id>` so the coverage gate sees both `list` and `get` exercised in
-		// C2. (Asking the count still resolves through a get of the known id plus a
-		// list; the prompt is phrased to invite a get of the well-known record.)
+		// (the second of the two C2 shapes TestBatteryCoversSurface requires). It is
+		// a single graded get-shaped FACT: the agent fetches the well-known record
+		// and reports its name, which is graded (DeriveFieldValueKind on "name" ->
+		// "HQ"). The method requirement pins `locations get <known-id>` so the
+		// coverage gate sees both `list` and `get` exercised in C2. (The total count
+		// is covered separately by the C2 list question Q4, so this question no
+		// longer asks for a fact the scorer does not grade.)
 		{
 			id:       "Q-FM02-zia-loc-get",
 			fm:       "FM-02",
 			tier:     "T1",
 			category: "C2",
-			prompt:   "Fetch the zia location with id " + wellKnownLocationID + " and report its name. Then state how many zia locations are configured in total.",
-			spec:     QuestionSpec{Derivation: DeriveRecordCountKind, Product: resources.ProductZIA, Resource: "locations"},
+			prompt:   "What is the name of the zia location with id " + wellKnownLocationID + "?",
+			spec: QuestionSpec{
+				Derivation: DeriveFieldValueKind,
+				Product:    resources.ProductZIA,
+				Resource:   "locations",
+				ID:         wellKnownLocationID,
+				Field:      "name",
+				Mode:       redact.ModeStandard,
+			},
 			mustRunAny: []string{
 				"locations get " + wellKnownLocationID,
 				"locations get",
@@ -485,24 +494,24 @@ func batteryTemplates() []questionTemplate {
 		},
 
 		// FM-07 — T1/C6/FM-07: "can't find credentials". This is the credentials
-		// half of C6: the agent is asked WHERE credentials come from. The honest
-		// surface answer is environment-only (AGENTS "Configuration is
-		// environment-only"); the question grades whether the agent can locate the
-		// credential mechanism. Truth is the product set (a stand-in derived value
-		// that proves the binary was run); the FM-07 attribution + the
-		// credentials-env-only indict carry the failure-mode meaning. MustRunAny
-		// pins a discovery invocation. (No secret is ever an answer here — F4.)
+		// half of C6, and it now actually GRADES the credential mechanism: the agent
+		// must name the environment variables required to supply tenant credentials.
+		// Truth = the required-core credential env var NAMES, derived from the config
+		// constants (DeriveRequiredCredentialEnvVars). ExtraAllowed is true so an
+		// agent that also lists optional/alternative vars (CLOUD, ZPA_CUSTOMER_ID,
+		// legacy-auth) is not penalized — only failing to name a required-core var is
+		// a miss. MustRunAny pins `doctor` (the diagnostic that reports credential
+		// configuration). No secret is ever an answer — these are var NAMES (F4).
 		{
-			id:       "Q-FM07-credentials",
-			fm:       "FM-07",
-			tier:     "T1",
-			category: "C6",
-			prompt:   "Confirm the tool is reachable by listing the products it can query, then state where this tool reads its tenant credentials from (e.g. environment variables vs a config file).",
-			spec:     QuestionSpec{Derivation: DeriveProducts},
+			id:         "Q-FM07-credentials",
+			fm:         "FM-07",
+			tier:       "T1",
+			category:   "C6",
+			prompt:     "Which environment variables must be set to provide this tool's tenant credentials for live API access?",
+			spec:       QuestionSpec{Derivation: DeriveRequiredCredentialEnvVarsKind},
+			extraAllow: true,
 			mustRunAny: []string{
-				"schema list",
-				"--help",
-				"auth status",
+				"doctor",
 			},
 			indicts: []string{
 				"AGENTS.md#credentials-env-only",
