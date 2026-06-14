@@ -1,34 +1,56 @@
 [
   {
     "rank": 1,
-    "agent": "devin-p",
-    "invocation": "devin run --prompt …",
-    "mode": "session",
-    "readsLocalFiles": "declared",
-    "notes": "Deliberately-bad floor. Session-based: returns a URL and needs session management."
+    "agent": "codex-gpt5.4-mini",
+    "invocation": "codex exec --model gpt-5.4-mini (sub-agent) — CONFIRM exact flag",
+    "mode": "single-shot",
+    "capture": "codex-transcript",
+    "readsLocalFiles": true,
+    "notes": "Deliberately-weak floor (the user-identified genuinely-weak end). GPT-5.4-mini run via a codex sub-agent; FS-sandboxed, so its host sidecar is invisible — capture observed commands via ParseCodexCommands over the codex transcript."
   },
   {
     "rank": 2,
     "agent": "haiku",
     "invocation": "command claude -p --model … --allowedTools Bash",
     "mode": "single-shot",
+    "capture": "host-sidecar",
     "readsLocalFiles": "yes",
-    "notes": "Use `command claude`, NOT `claude` — the nix-darwin fish wrapper injects --remote-control, which disables features. Reads local files via Bash."
+    "notes": "Use `command claude`, NOT `claude` — the nix-darwin fish wrapper injects --remote-control, which disables features. Reads local files via Bash; tool calls go through the PATH-interposed fixture binary to the host sidecar, captured via ParseSidecar."
   },
   {
     "rank": 3,
     "agent": "codex-exec",
     "invocation": "codex exec -q …",
     "mode": "single-shot",
+    "capture": "codex-transcript",
     "readsLocalFiles": "model-specific",
-    "notes": "Mid-tier, different provider. Top of the initial roster (ranks 1–3)."
+    "notes": "Mid-tier, different provider. Top of the initial roster (ranks 1–3). FS-sandboxed codex; capture observed commands via ParseCodexCommands."
   },
   {
     "rank": 4,
     "agent": "sonnet",
     "invocation": "command claude -p --model …",
     "mode": "single-shot",
+    "capture": "host-sidecar",
     "readsLocalFiles": "yes",
     "notes": "Ceiling. DEFERRED (decision 1): NOT in the initial roster. Added once the deterministic spine proves useful, to skip ceiling-validation cost up front."
+  },
+  {
+    "rank": 5,
+    "agent": "devin",
+    "invocation": "devin run --prompt … (cloud workspace)",
+    "mode": "session",
+    "capture": "host-sidecar",
+    "readsLocalFiles": "declared",
+    "notes": "DEFERRED. Cloud workspace (not a local exec): a local-kimi alternative, user-run. Session-based — returns a URL and needs session management."
+  },
+  {
+    "rank": 6,
+    "agent": "gemini",
+    "invocation": "gemini … --approval-mode … (CONFIRM exact flag)",
+    "mode": "single-shot",
+    "capture": "host-sidecar",
+    "readsLocalFiles": "model-specific",
+    "notes": "DEFERRED. Needs --approval-mode authorization before it can run tool calls non-interactively."
   }
 ]
