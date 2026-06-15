@@ -14,6 +14,7 @@ package agenteval
 // on that stream (§4.5).
 
 import (
+	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -155,7 +156,7 @@ func Score(q Question, t Transcript) (Verdict, Finding) {
 			return VerdictWarn, q.finding("WARN", signalNoMethod, "", clipAnswer(answerText))
 		}
 		// Wrong answer with no method -> FAIL (§4.2).
-		return VerdictFail, q.finding("FAIL", signalWrongNoMethod, expectedOf(failed), clipAnswer(answerText))
+		return VerdictFail, q.finding("FAIL", signalWrongNoMethod, failed.expected, failed.got)
 	}
 
 	// Step 5: method satisfied.
@@ -175,7 +176,7 @@ func Score(q Question, t Transcript) (Verdict, Finding) {
 	}
 
 	// Wrong scalar/bool/enum/id answer with method satisfied -> FAIL (§4.2).
-	return VerdictFail, q.finding("FAIL", signalWrong, expectedOf(failed), clipAnswer(answerText))
+	return VerdictFail, q.finding("FAIL", signalWrong, failed.expected, failed.got)
 }
 
 // finding builds a Finding from the question's attribution metadata plus the
@@ -238,90 +239,106 @@ type setGrade struct {
 	got      string
 }
 
+// assertionGrade is the binary grade for a non-set assertion. expected/got are
+// compact diagnostics for the report, not grading inputs; they make grader
+// misses inspectable without dumping the whole raw envelope into a Finding.
+type assertionGrade struct {
+	pass     bool
+	expected string
+	got      string
+}
+
 // evaluateAssertions grades every assertion in the question and reports whether
 // ALL passed (dual-assertion C6 requires both, §2.2). It returns:
 //   - correct: true iff every assertion passed.
 //   - setResult: the partial-credit grade IFF the question is a single set-kind
 //     assertion (so step 5 can award WARN); nil otherwise.
-//   - failed: the first failing assertion (for Finding.Expected/Got); the zero
-//     Assertion if all passed.
+//   - failed: the first failing assertion grade (for Finding.Expected/Got); the
+//     zero assertionGrade if all passed.
 //
 // extraAllowed and requireAll are question policies threaded only to the set path.
-func evaluateAssertions(assertions []Assertion, env AnswerEnvelope, t Transcript, extraAllowed, requireAll bool) (correct bool, setResult *setGrade, failed Assertion) {
+func evaluateAssertions(assertions []Assertion, env AnswerEnvelope, t Transcript, extraAllowed, requireAll bool) (correct bool, setResult *setGrade, failed assertionGrade) {
 	// Single set-kind assertion: grade via the partial-credit table so step 5 can
 	// distinguish PASS / WARN(partial) / WARN(capped) / FAIL.
 	if len(assertions) == 1 && assertions[0].Kind == KindSet {
 		a := assertions[0]
 		grade := gradeSet(a, env, extraAllowed, requireAll)
 		if grade.verdict == VerdictPass {
-			return true, &grade, Assertion{}
+			return true, &grade, assertionGrade{}
 		}
-		return false, &grade, a
+		return false, &grade, assertionGrade{expected: grade.expected, got: grade.got}
 	}
 
 	for _, a := range assertions {
-		if !assertionPasses(a, env, t) {
-			return false, nil, a
+		grade := gradeAssertion(a, env, t)
+		if !grade.pass {
+			return false, nil, grade
 		}
 	}
-	return true, nil, Assertion{}
+	return true, nil, assertionGrade{}
 }
 
-// assertionPasses grades a single non-set assertion to a binary pass/fail per
-// its kind (§2.2). Scalars/bools/enums/ids/exit_code/error_kind/field_present are
-// all binary — there is no partial credit outside the set kind (§4.3).
-func assertionPasses(a Assertion, env AnswerEnvelope, t Transcript) bool {
+// gradeAssertion grades a single non-set assertion to a binary pass/fail per its
+// kind (§2.2). It is tolerant about JSON answer shape but fail-closed about
+// content: scalar kinds accept scalar answers and unambiguous structured
+// wrappers, while ambiguous wrappers fail instead of being guessed. There is no
+// partial credit outside the set kind (§4.3).
+func gradeAssertion(a Assertion, env AnswerEnvelope, t Transcript) assertionGrade {
 	switch a.Kind {
 	case KindCount:
-		got, ok := coerceInt(env.Answer)
-		if !ok {
-			return false
-		}
 		want, ok := coerceIntString(a.Expected)
-		return ok && got == want
+		if !ok {
+			return assertionGrade{expected: a.Expected, got: "<invalid expected count>"}
+		}
+		got, gotText, ok := intAnswerCandidate(env.Answer)
+		return assertionGrade{pass: ok && got == want, expected: strconv.Itoa(want), got: gotText}
 
 	case KindBool, KindFieldPresent:
-		got, ok := coerceBool(env.Answer)
-		if !ok {
-			return false
-		}
 		want, ok := coerceBoolString(a.Expected)
-		return ok && got == want
+		if !ok {
+			return assertionGrade{expected: a.Expected, got: "<invalid expected bool>"}
+		}
+		got, gotText, ok := boolAnswerCandidate(env.Answer)
+		return assertionGrade{pass: ok && got == want, expected: strconv.FormatBool(want), got: gotText}
 
 	case KindID:
 		// id compares trimmed-string-equal ("1" == 1). Unwrap a JSON string/number
-		// to its lexical form, then compare trimmed (no case-fold for ids).
-		got := normalizeElement(jsonScalarText(env.Answer), false)
+		// to its lexical form, or accept an id-like field in a rich object, then
+		// compare trimmed (no case-fold for ids).
+		got := normalizeElement(idAnswerCandidate(env.Answer), false)
 		want := normalizeElement(a.Expected, false)
-		return got != "" && got == want
+		return assertionGrade{pass: got != "" && got == want, expected: want, got: got}
 
 	case KindStringEnum:
 		// string_enum: case-fold+trim the answer, accept if it matches ANY synonym
-		// in the per-assertion accept-set encoded pipe-separated in Expected.
-		got := normalizeElement(jsonStringValue(env.Answer), true)
+		// in the per-assertion accept-set encoded pipe-separated in Expected. A
+		// structured wrapper passes only when it has one unambiguous string leaf.
+		got := normalizeElement(stringAnswerCandidate(env.Answer), true)
 		if got == "" {
-			return false
+			return assertionGrade{expected: a.Expected, got: ""}
 		}
 		for _, syn := range strings.Split(a.Expected, "|") {
 			if normalizeElement(syn, true) == got {
-				return true
+				return assertionGrade{pass: true}
 			}
 		}
-		return false
+		return assertionGrade{expected: a.Expected, got: got}
 
 	case KindExitCode:
 		// exit_code is graded from the OBSERVED commands, NOT the envelope (§2.2):
 		// pass iff some observed command's Exit equals the expected code.
 		want, ok := coerceIntString(a.Expected)
 		if !ok {
-			return false
+			return assertionGrade{expected: a.Expected, got: "<invalid expected exit code>"}
 		}
+		exits := make([]string, 0, len(t.Commands))
 		for _, cmd := range t.Commands {
+			exits = append(exits, strconv.Itoa(cmd.Exit))
 			if cmd.Exit == want {
-				return true
+				return assertionGrade{pass: true}
 			}
 		}
-		return false
+		return assertionGrade{expected: strconv.Itoa(want), got: strings.Join(exits, ",")}
 
 	case KindErrorKind:
 		// error_kind compares the envelope's typed answer (a string) to the
@@ -341,25 +358,25 @@ func assertionPasses(a Assertion, env AnswerEnvelope, t Transcript) bool {
 		if field, ok := jsonObjectStringField(env.Answer, "error_kind", "errorKind", "kind"); ok {
 			got := normalizeElement(field, false)
 			if !validErrorKind(got) {
-				return false
+				return assertionGrade{expected: want, got: got}
 			}
-			return got == want
+			return assertionGrade{pass: got == want, expected: want, got: got}
 		}
 		got := normalizeElement(jsonStringValue(env.Answer), false)
 		if !validErrorKind(got) {
-			return false
+			return assertionGrade{expected: want, got: got}
 		}
-		return got == want
+		return assertionGrade{pass: got == want, expected: want, got: got}
 
 	case KindSet:
 		// A set assertion in a multi-assertion question is graded binary here
 		// (all-or-nothing); partial credit only applies to a question whose SOLE
 		// assertion is a set (handled in evaluateAssertions).
 		grade := gradeSetExact(a, env)
-		return grade.verdict == VerdictPass
+		return assertionGrade{pass: grade.verdict == VerdictPass, expected: grade.expected, got: grade.got}
 
 	default:
-		return false
+		return assertionGrade{expected: a.Expected, got: "<unsupported assertion kind>"}
 	}
 }
 
@@ -411,9 +428,166 @@ func gradeSetExact(a Assertion, env AnswerEnvelope) setGrade {
 	return gradeSet(a, env, false, true)
 }
 
-// expectedOf returns a failing assertion's Expected for the Finding, or "" for a
-// dual-assertion all-pass sentinel.
-func expectedOf(a Assertion) string { return a.Expected }
+// intAnswerCandidate extracts exactly one integer candidate from the answer. A
+// plain scalar uses the existing coerceInt path. A structured JSON wrapper is
+// accepted only when every integer-shaped leaf collapses to the same value; if
+// it contains multiple different integers the answer is ambiguous and fails
+// closed.
+func intAnswerCandidate(raw json.RawMessage) (int, string, bool) {
+	if got, ok := coerceInt(raw); ok {
+		return got, strconv.Itoa(got), true
+	}
+	candidates := map[int]bool{}
+	collectIntCandidates(raw, candidates)
+	return uniqueIntCandidate(candidates)
+}
+
+func collectIntCandidates(raw json.RawMessage, out map[int]bool) {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return
+	}
+	collectIntValueCandidates(v, out)
+}
+
+func collectIntValueCandidates(v any, out map[int]bool) {
+	switch t := v.(type) {
+	case float64:
+		if t == float64(int64(t)) {
+			out[int(int64(t))] = true
+		}
+	case string:
+		if i, ok := coerceIntString(t); ok {
+			out[i] = true
+		}
+	case []any:
+		for _, elem := range t {
+			collectIntValueCandidates(elem, out)
+		}
+	case map[string]any:
+		for _, elem := range t {
+			collectIntValueCandidates(elem, out)
+		}
+	}
+}
+
+func uniqueIntCandidate(candidates map[int]bool) (int, string, bool) {
+	switch len(candidates) {
+	case 0:
+		return 0, "", false
+	case 1:
+		for v := range candidates {
+			return v, strconv.Itoa(v), true
+		}
+	}
+	return 0, joinSortedInts(candidates), false
+}
+
+// boolAnswerCandidate extracts exactly one bool candidate from the answer. Like
+// intAnswerCandidate, structured wrappers are accepted only when unambiguous.
+func boolAnswerCandidate(raw json.RawMessage) (bool, string, bool) {
+	if got, ok := coerceBool(raw); ok {
+		return got, strconv.FormatBool(got), true
+	}
+	candidates := map[bool]bool{}
+	var v any
+	if err := json.Unmarshal(raw, &v); err == nil {
+		collectBoolValueCandidates(v, candidates)
+	}
+	switch len(candidates) {
+	case 0:
+		return false, "", false
+	case 1:
+		for v := range candidates {
+			return v, strconv.FormatBool(v), true
+		}
+	}
+	return false, "false,true", false
+}
+
+func collectBoolValueCandidates(v any, out map[bool]bool) {
+	switch t := v.(type) {
+	case bool:
+		out[t] = true
+	case string:
+		if b, ok := coerceBoolString(t); ok {
+			out[b] = true
+		}
+	case []any:
+		for _, elem := range t {
+			collectBoolValueCandidates(elem, out)
+		}
+	case map[string]any:
+		for _, elem := range t {
+			collectBoolValueCandidates(elem, out)
+		}
+	}
+}
+
+// idAnswerCandidate extracts an id answer. A scalar string/number is preferred.
+// Structured answers are accepted only when they carry an id-like field, so a
+// rich record object {"id":"1","name":"HQ"} can answer an id question without
+// making arbitrary string leaves eligible.
+func idAnswerCandidate(raw json.RawMessage) string {
+	if got := jsonScalarText(raw); got != "" {
+		return got
+	}
+	if field, ok := jsonObjectScalarField(raw, "id", "ID", "resource_id", "resourceId"); ok {
+		return field
+	}
+	return ""
+}
+
+// stringAnswerCandidate extracts a string answer. A scalar string is preferred;
+// a structured wrapper is accepted only when it contains exactly one unique
+// string leaf. That lets {"country":"US"} pass while rejecting
+// {"country":"US","resource":"locations"} as ambiguous instead of guessed.
+func stringAnswerCandidate(raw json.RawMessage) string {
+	if got := jsonStringValue(raw); got != "" {
+		return got
+	}
+	set := normalizeSet(jsonStringSlice(raw), false)
+	if len(set) != 1 {
+		return ""
+	}
+	for v := range set {
+		return v
+	}
+	return ""
+}
+
+// jsonObjectScalarField unwraps a JSON object field that is a string or number,
+// returning its lexical text. Non-object answers and non-scalar fields miss.
+func jsonObjectScalarField(raw json.RawMessage, keys ...string) (string, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return "", false
+	}
+	for _, k := range keys {
+		v, present := obj[k]
+		if !present {
+			continue
+		}
+		got := jsonScalarText(v)
+		if got != "" {
+			return got, true
+		}
+	}
+	return "", false
+}
+
+func joinSortedInts(set map[int]bool) string {
+	vals := make([]int, 0, len(set))
+	for v := range set {
+		vals = append(vals, v)
+	}
+	sort.Ints(vals)
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		out = append(out, strconv.Itoa(v))
+	}
+	return strings.Join(out, ",")
+}
 
 // validErrorKind reports whether s is one of the contract's ErrorKind values
 // (§2.2). The grader never accepts a kind the binary cannot emit.

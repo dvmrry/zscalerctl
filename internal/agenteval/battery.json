@@ -1,7 +1,7 @@
 {
   "schema": "zscalerctl/agent-eval-battery/v1",
-  "grader_version": "agenteval-grader-v1",
-  "inputs_hash": "1b7df3bc9d0c49b951971852d66ca595646a644637598e1e228da7af2edd5ce9",
+  "grader_version": "agenteval-grader-v2",
+  "inputs_hash": "57115b1dda34bf6eba64b6c0d6d21ef5a8fe9da8bb3ec530c14a5a1a0baf3866",
   "question_count": 13,
   "questions": [
     {

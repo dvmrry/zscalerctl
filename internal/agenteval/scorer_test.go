@@ -350,6 +350,92 @@ func TestScorerGradesRecordedTranscripts(t *testing.T) {
 			wantVerd: agenteval.VerdictPass,
 		},
 		{
+			name: "count object with one integer candidate -> PASS",
+			q: agenteval.Question{
+				ID:          "Q-FM02-count-object-001",
+				FailureMode: "FM-02",
+				Assertions:  []agenteval.Assertion{{Kind: agenteval.KindCount, Expected: "28"}},
+				MustRunAny:  []string{"schema list"},
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"count":28,"product":"zpa"}`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "--format", "json", "schema", "list")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
+		{
+			name: "count object with ambiguous integer candidates -> FAIL",
+			q: agenteval.Question{
+				ID:          "Q-FM02-count-object-002",
+				FailureMode: "FM-02",
+				Assertions:  []agenteval.Assertion{{Kind: agenteval.KindCount, Expected: "28"}},
+				MustRunAny:  []string{"schema list"},
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"count":28,"other_possible_count":29}`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "--format", "json", "schema", "list")},
+			},
+			wantVerd:   agenteval.VerdictFail,
+			wantSignal: "wrong",
+		},
+		{
+			name: "bool object with one bool candidate -> PASS",
+			q: agenteval.Question{
+				ID:          "Q-FM08-bool-object-001",
+				FailureMode: "FM-08",
+				Assertions:  []agenteval.Assertion{{Kind: agenteval.KindBool, Expected: "false"}},
+				MustRunAny:  []string{"--fields"},
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"appears":false,"field":"preSharedKey"}`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "zia", "locations", "get", "1", "--fields", "preSharedKey")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
+		{
+			name: "id object with id and name -> PASS",
+			q: agenteval.Question{
+				ID:          "Q-FM02-id-object-001",
+				FailureMode: "FM-02",
+				Assertions:  []agenteval.Assertion{{Kind: agenteval.KindID, Expected: "1"}},
+				MustRunAny:  []string{"zia locations get"},
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"id":"1","name":"HQ"}`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "zia", "locations", "get", "1")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
+		{
+			name: "string_enum object with one string leaf -> PASS",
+			q: agenteval.Question{
+				ID:          "Q-FM02-enum-object-001",
+				FailureMode: "FM-02",
+				Assertions:  []agenteval.Assertion{{Kind: agenteval.KindStringEnum, Expected: "united states|usa|us"}},
+				MustRunAny:  []string{"zia locations get"},
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"country":"USA"}`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "zia", "locations", "get", "1")},
+			},
+			wantVerd: agenteval.VerdictPass,
+		},
+		{
+			name: "string_enum object with multiple string leaves -> FAIL",
+			q: agenteval.Question{
+				ID:          "Q-FM02-enum-object-002",
+				FailureMode: "FM-02",
+				Assertions:  []agenteval.Assertion{{Kind: agenteval.KindStringEnum, Expected: "united states|usa|us"}},
+				MustRunAny:  []string{"zia locations get"},
+			},
+			tr: agenteval.Transcript{
+				AgentText: envelope(`{"country":"US","resource":"locations"}`),
+				Commands:  []agenteval.ObservedCommand{cmd(0, "zscalerctl", "zia", "locations", "get", "1")},
+			},
+			wantVerd:   agenteval.VerdictFail,
+			wantSignal: "wrong",
+		},
+		{
 			name: "set matched==0 -> FAIL",
 			q: agenteval.Question{
 				ID:          "Q-FM01-set-004",

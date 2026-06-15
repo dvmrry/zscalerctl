@@ -25,8 +25,9 @@
 //     its body. Last-block selection forgives "thinking out loud" with an
 //     earlier draft.
 //   - "answer" is typed per question by the question's declared AnswerKind.
-//     Coercion is tolerant within a kind, but ambiguity is a miss, not a
-//     charitable parse.
+//     Coercion is tolerant within a kind. Scalar answers may be emitted as the
+//     scalar itself or as an unambiguous structured wrapper; ambiguity is a miss,
+//     not a charitable parse.
 //   - "evidence" is diagnostic only, never verdict-affecting. The authoritative
 //     record of what ran is the observed-command sidecar (§2.3), not the
 //     agent's self-report; a mismatch is logged as a warning, never a verdict
@@ -83,7 +84,8 @@ const (
 // AnswerKind is the declared type of a question's canonical answer (§2.2). The
 // grader extracts the envelope's "answer" value and compares it by the rule for
 // this kind. Coercion is tolerant within a kind (e.g. "12", 12, "twelve" all
-// coerce to the count 12 via the shared coerceInt) but ambiguity is a miss.
+// coerce to the count 12 via the shared coerceInt). Scalar kinds may also accept
+// unambiguous structured wrappers, but ambiguity is a miss.
 type AnswerKind string
 
 const (

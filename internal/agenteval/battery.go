@@ -43,7 +43,7 @@ import (
 // committed manifest and forces a visible `make agent-eval-gen` regeneration,
 // even when the catalog and fixtures are byte-identical. Bump it whenever the
 // grading contract or the battery layout changes.
-const GraderVersion = "agenteval-grader-v1"
+const GraderVersion = "agenteval-grader-v2"
 
 // Well-known, stable fixture identifiers the battery pins (§3.6 "at least one
 // well-known id per get-template resource is stable"). These mirror the
