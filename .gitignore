@@ -15,5 +15,6 @@ coverage.out
 /scratch-live-smoke-*/
 /scratch-live-dump/
 /scratch-live-dump-*/
-/scratch/resource-drafts/
+# /scratch is transient scratch space (run output, sandboxes, throwaways); never tracked.
+/scratch/
 .playwright-mcp/
