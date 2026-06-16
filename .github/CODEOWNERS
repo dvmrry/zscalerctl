@@ -1,0 +1,26 @@
+# Code owners for zscalerctl. The owner is auto-requested for review on pull
+# requests touching the matched paths. The security-critical surfaces below keep
+# an explicit owner even if more maintainers join, so a change to credential
+# handling, redaction, the live-call boundary, or the output/error contract
+# always gets security review.
+
+# Default owner for everything.
+*                    @dvmrry
+
+# Security-critical surfaces: credential/secret handling, env+config loading,
+# the catalog allow-list projection (fail-closed field dropping), redaction, dump
+# sanitization, the live-call boundary, and the read-only/output/error contract.
+/internal/secret/       @dvmrry
+/internal/credentials/  @dvmrry
+/internal/redact/       @dvmrry
+/internal/config/       @dvmrry
+/internal/zscaler/      @dvmrry
+/internal/resources/    @dvmrry
+/internal/dump/         @dvmrry
+/internal/output/       @dvmrry
+/internal/cli/          @dvmrry
+/cmd/zscalerctl/        @dvmrry
+
+# Supply-chain, release, and CI security posture.
+/.github/workflows/  @dvmrry
+/SECURITY.md         @dvmrry

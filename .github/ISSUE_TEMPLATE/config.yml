@@ -1,0 +1,12 @@
+# Issue template chooser. It surfaces private security disclosure prominently so
+# vulnerabilities go through private channels (SECURITY.md: email or GitHub
+# private vulnerability reporting) rather than public issues. Regular issues
+# remain available via the blank issue form.
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/dvmrry/zscalerctl/security/policy
+    about: >-
+      Do not open a public issue for security vulnerabilities. Use private
+      disclosure — see the security policy (email github@mrry.io, or GitHub
+      private vulnerability reporting if enabled).
