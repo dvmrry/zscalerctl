@@ -85,7 +85,10 @@ type errorBody struct {
 // data but text errors on the same pipe.
 func errorFormat(args []string, stdout io.Writer) output.Format {
 	switch cli.RequestedFormatRaw(args) {
-	case output.FormatJSON:
+	case output.FormatJSON, output.FormatNDJSON:
+		// NDJSON is a machine stream; render a command-boundary error as the same
+		// JSON envelope (there is no per-line "ndjson error"), so the consumer
+		// always gets a parseable object on stderr.
 		return output.FormatJSON
 	case output.FormatAuto:
 		if !output.IsTerminal(stdout) {
