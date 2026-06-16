@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 RULES="${ROOT}/semgrep/rules/zscalerctl.yml"
-SEMGREP_VERSION="${SEMGREP_VERSION:-1.164.0}"
+SEMGREP_VERSION="${SEMGREP_VERSION:-1.166.0}"
 
 semgrep_cmd() {
   if command -v semgrep >/dev/null 2>&1; then
