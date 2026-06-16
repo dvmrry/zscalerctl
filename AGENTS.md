@@ -54,6 +54,8 @@ to set them rather than inventing values or hunting through shell config.**
   `3` credentials missing/invalid, `4` not found/unsupported (including a
   `get` of a nonexistent id), `5` live API failure, `6` partial dump.
 - Narrow output with `--fields a,b,c` (can only narrow, never widen).
+- Bound each call with `--timeout 30s` — it caps each HTTP request (not the
+  whole run), so a slow or unreachable tenant can't hang you indefinitely.
 
 ## Narrowing results
 
@@ -77,7 +79,9 @@ zscalerctl zia url-filtering-rules list | jq '[.[] | select(.urlCategories // []
 ## Boundaries
 
 Output is sanitized by a fail-closed allow-list; secrets never render in any
-mode. Do not try to recover dropped fields — absence is deliberate
+mode. `--redaction` (`standard`, `share`, or `paranoid`) only tunes value-scrubbing
+of rendered fields — it never widens the allow-list, so no mode can surface a
+dropped or secret field. Do not try to recover dropped fields — absence is deliberate
 ([docs/FIELD_COVERAGE.md](docs/FIELD_COVERAGE.md)). Resources failing with
 exit `4`/`5` on a live tenant may be entitlement-gated, not broken.
 Dump directories contain sanitized but still confidential tenant inventory; use
