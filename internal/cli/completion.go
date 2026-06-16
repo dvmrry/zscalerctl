@@ -13,7 +13,7 @@ import (
 var (
 	completionFlags     = []string{"--profile", "--format", "--output", "--timeout", "--redaction", "--color", "--no-color", "--no-cache", "--log-level", "--fields", "--filter", "--search"}
 	completionDumpFlags = []string{"--out", "--products", "--resources", "--continue-on-error"}
-	completionFormats   = []string{"auto", "table", "json", "pretty"}
+	completionFormats   = []string{"auto", "table", "json", "ndjson", "pretty"}
 	completionRedaction = []string{"standard", "share", "paranoid"}
 	completionColors    = []string{"auto", "always", "never"}
 	completionShells    = []string{"bash", "zsh", "fish", "powershell"}

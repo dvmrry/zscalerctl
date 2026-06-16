@@ -2,6 +2,7 @@ package output_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 func TestParseFormatSupportsImplementedFormatsOnly(t *testing.T) {
 	t.Parallel()
 
-	for _, value := range []string{"auto", "table", "json", "pretty"} {
+	for _, value := range []string{"auto", "table", "json", "ndjson", "pretty"} {
 		value := value
 		t.Run(value, func(t *testing.T) {
 			t.Parallel()
@@ -23,7 +24,7 @@ func TestParseFormatSupportsImplementedFormatsOnly(t *testing.T) {
 			}
 		})
 	}
-	for _, value := range []string{"yaml", "ndjson"} {
+	for _, value := range []string{"yaml", "csv"} {
 		value := value
 		t.Run(value, func(t *testing.T) {
 			t.Parallel()
@@ -32,7 +33,7 @@ func TestParseFormatSupportsImplementedFormatsOnly(t *testing.T) {
 			if err == nil {
 				t.Fatalf("ParseFormat(%q) error = nil, want unsupported format error", value)
 			}
-			if !strings.Contains(err.Error(), "supported: auto, table, json, pretty") {
+			if !strings.Contains(err.Error(), "supported: auto, table, json, ndjson, pretty") {
 				t.Errorf("ParseFormat(%q) error = %q, want supported formats", value, err.Error())
 			}
 		})
@@ -135,6 +136,57 @@ func TestRendererWriteTextRedactsText(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "dXNlcjpzZWNyZXQ=") {
 		t.Errorf("Renderer.WriteText() = %q, want no basic auth payload", buf.String())
+	}
+}
+
+func TestRendererWriteNDJSONOneCompactRecordPerLineAndRedacts(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	renderer := output.NewRenderer(redact.New(redact.ModeStandard))
+	err := renderer.WriteNDJSON(&buf, []output.SafeJSON{
+		safeJSONFixture{AuthHeader: "first", Secret: secret.New("client-secret-from-response")},
+		safeJSONFixture{AuthHeader: "second", Secret: secret.New("another-client-secret")},
+	})
+	if err != nil {
+		t.Fatalf("Renderer.WriteNDJSON() error = %v, want nil", err)
+	}
+	got := buf.String()
+	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("WriteNDJSON() produced %d lines, want 2: %q", len(lines), got)
+	}
+	for _, ln := range lines {
+		// Compact: no indentation, and the whole record fits on the one line.
+		if strings.HasPrefix(ln, " ") {
+			t.Errorf("WriteNDJSON line is not compact (indented): %q", ln)
+		}
+		var v map[string]any
+		if err := json.Unmarshal([]byte(ln), &v); err != nil {
+			t.Errorf("WriteNDJSON line is not valid JSON: %q: %v", ln, err)
+		}
+	}
+	// secret.Secret marshals to <REDACTED:SECRET>, so the raw values never appear.
+	for _, forbidden := range []string{"client-secret-from-response", "another-client-secret"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("WriteNDJSON() = %q, leaked %q", got, forbidden)
+		}
+	}
+	if !strings.Contains(got, "<REDACTED:SECRET>") {
+		t.Errorf("WriteNDJSON() = %q, want redaction marker present", got)
+	}
+}
+
+func TestRendererWriteNDJSONEmptyWritesNothing(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	renderer := output.NewRenderer(redact.New(redact.ModeStandard))
+	if err := renderer.WriteNDJSON(&buf, nil); err != nil {
+		t.Fatalf("Renderer.WriteNDJSON(nil) error = %v, want nil", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("WriteNDJSON(nil) = %q, want empty (zero-line NDJSON stream)", buf.String())
 	}
 }
 

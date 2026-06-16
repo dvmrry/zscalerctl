@@ -45,7 +45,9 @@ to set them rather than inventing values or hunting through shell config.**
 ## Parse output, not prose
 
 - Piped/redirected output is always deterministic JSON (`--format auto` is
-  the default; force with `--format json`).
+  the default; force with `--format json`). For streaming a large `list` into a
+  pipeline, `--format ndjson` emits one compact record per line (`jq -c`, SIEM
+  ingest); it applies to resource `list`/`get`/`show` only.
 - Failures emit a JSON envelope on stderr:
   `{"error": {"kind": "...", "message": "...", "product": "...", "resource": "..."}}`
 - Exit codes are a stable contract: `0` ok, `1` internal, `2` usage,

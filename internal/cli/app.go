@@ -219,6 +219,9 @@ func (a *App) runParsed(ctx context.Context, opts globalOptions, rest []string) 
 	case rest[0] == "version":
 		return a.runVersion(opts, rest[1:])
 	case rest[0] == "completion":
+		if opts.format == output.FormatNDJSON {
+			return rejectUnsupportedFormat("completion", opts.format)
+		}
 		return a.runCompletion(rest[1:])
 	case isRunnableCommand(rest[0]):
 	default:
@@ -242,6 +245,9 @@ func (a *App) runParsed(ctx context.Context, opts globalOptions, rest []string) 
 	case "schema":
 		return a.runSchema(ctx, cfg, opts, rest[1:])
 	case "dump":
+		if opts.format == output.FormatNDJSON {
+			return rejectUnsupportedFormat("dump", opts.format)
+		}
 		return a.runDump(ctx, cfg, opts, rest[1:])
 	default:
 		if knownProductCommand(rest[0]) {
@@ -259,7 +265,7 @@ func (a *App) runParsed(ctx context.Context, opts globalOptions, rest []string) 
 // stream unparseable for the automation consumers the envelope exists for.
 // Mirrors main's errorFormat decision.
 func (a *App) writeUsageForHumans(opts globalOptions) {
-	if opts.format == output.FormatJSON || (opts.format == output.FormatAuto && !a.stdoutTTY) {
+	if opts.format == output.FormatJSON || opts.format == output.FormatNDJSON || (opts.format == output.FormatAuto && !a.stdoutTTY) {
 		return
 	}
 	a.writeUsage(a.err)
@@ -376,7 +382,7 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	fs := flag.NewFlagSet("zscalerctl", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	profile := fs.String("profile", "", "profile name")
-	format := fs.String("format", string(output.FormatAuto), "output format: auto, table, json, pretty")
+	format := fs.String("format", string(output.FormatAuto), "output format: auto, table, json, ndjson, pretty")
 	outputPath := fs.String("output", "", "output path")
 	timeout := fs.Duration("timeout", 30*time.Second, "request timeout")
 	redactionFlag := fs.String("redaction", "", "redaction mode: standard, share, paranoid")
@@ -1072,6 +1078,8 @@ func (a *App) writeProjectedRecord(
 	switch opts.format {
 	case output.FormatJSON:
 		return a.renderer(cfg, opts).WriteJSON(a.out, record)
+	case output.FormatNDJSON:
+		return a.renderer(cfg, opts).WriteNDJSON(a.out, []output.SafeJSON{record})
 	case output.FormatTable:
 		if operation == "show" {
 			return a.renderer(cfg, opts).WriteText(a.out, renderRecordKeyValues(fields, record, a.style(opts)))
@@ -1183,6 +1191,8 @@ func (a *App) writeProjectedRecords(
 	switch opts.format {
 	case output.FormatJSON:
 		return a.renderer(cfg, opts).WriteJSON(a.out, records)
+	case output.FormatNDJSON:
+		return a.renderer(cfg, opts).WriteNDJSON(a.out, safeJSONRecords(records))
 	case output.FormatTable:
 		return a.renderer(cfg, opts).WriteText(a.out, renderRecordsTable(fields, records, a.style(opts)))
 	case output.FormatPretty:
@@ -1190,6 +1200,18 @@ func (a *App) writeProjectedRecords(
 	default:
 		return fmt.Errorf("unhandled output format %q for resource list", opts.format)
 	}
+}
+
+// safeJSONRecords adapts projected records to the output layer's SafeJSON slice
+// for NDJSON rendering (one element per line). It preserves order; an empty set
+// yields an empty slice, which WriteNDJSON renders as zero lines.
+func safeJSONRecords(records resources.ProjectedRecords) []output.SafeJSON {
+	recs := records.Records()
+	out := make([]output.SafeJSON, len(recs))
+	for i := range recs {
+		out[i] = recs[i]
+	}
+	return out
 }
 
 // writeHelp prints help scoped to what the user asked for: a known resource's
@@ -1234,7 +1256,7 @@ func (a *App) writeUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "global flags:")
 	fmt.Fprintln(w, "  --profile <name>")
-	fmt.Fprintln(w, "  --format auto|table|json|pretty")
+	fmt.Fprintln(w, "  --format auto|table|json|ndjson|pretty")
 	fmt.Fprintln(w, "  --output <path>")
 	fmt.Fprintln(w, "  --timeout <duration>")
 	fmt.Fprintln(w, "  --redaction standard|share|paranoid")

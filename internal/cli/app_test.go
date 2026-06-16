@@ -903,6 +903,87 @@ func TestResourceListDoesNotUseSDKEnvironmentNames(t *testing.T) {
 	}
 }
 
+// TestResourceListSupportsNDJSON asserts --format ndjson emits one compact,
+// redacted JSON record per line for a list, each independently parseable and in
+// source order.
+func TestResourceListSupportsNDJSON(t *testing.T) {
+	t.Parallel()
+
+	const psk = "ndjson-psk-canary"
+	reader := fakeResourceReader{
+		list: []resources.SourceRecord{
+			resources.NewSourceRecord(map[string]any{"id": "1", "name": "HQ", "preSharedKey": psk}),
+			resources.NewSourceRecord(map[string]any{"id": "2", "name": "Branch"}),
+		},
+	}
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+	if err := app.Run(context.Background(), []string{"--format", "ndjson", "zia", "locations", "list"}); err != nil {
+		t.Fatalf("App.Run(--format ndjson list) error = %v, want nil", err)
+	}
+	if strings.Contains(out.String(), psk) {
+		t.Errorf("ndjson output leaked secret %q: %q", psk, out.String())
+	}
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("ndjson list produced %d lines, want 2: %q", len(lines), out.String())
+	}
+	var names []string
+	for _, ln := range lines {
+		if strings.HasPrefix(ln, " ") {
+			t.Errorf("ndjson line is indented, want compact: %q", ln)
+		}
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(ln), &rec); err != nil {
+			t.Fatalf("ndjson line is not valid JSON: %q: %v", ln, err)
+		}
+		if _, ok := rec["preSharedKey"]; ok {
+			t.Errorf("ndjson record retained preSharedKey: %#v", rec)
+		}
+		if name, ok := rec["name"].(string); ok {
+			names = append(names, name)
+		}
+	}
+	if len(names) != 2 || names[0] != "HQ" || names[1] != "Branch" {
+		t.Errorf("ndjson record names = %v, want [HQ Branch] in source order", names)
+	}
+}
+
+// TestNonRecordCommandsRejectNDJSON asserts every non-record command rejects
+// --format ndjson with a clear usage error — NDJSON is for record streams
+// (list/get/show) only, so doctor/schema (own format guard) and dump/completion
+// (dispatch guard) all refuse it rather than silently ignoring the flag.
+func TestNonRecordCommandsRejectNDJSON(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string][]string{
+		"doctor":     {"doctor", "--format", "ndjson"},
+		"schema":     {"--format", "ndjson", "schema", "list"},
+		"dump":       {"--format", "ndjson", "dump", "--out", "/tmp/zsc-ndjson-reject"},
+		"completion": {"--format", "ndjson", "completion", "bash"},
+	}
+	for name, args := range cases {
+		name, args := name, args
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var out, errOut bytes.Buffer
+			app := cli.New(&out, &errOut, []string{
+				config.EnvClientID + "=id",
+				config.EnvClientSecret + "=secret",
+				config.EnvVanityDomain + "=example",
+			})
+			err := app.Run(context.Background(), args)
+			if err == nil {
+				t.Fatalf("App.Run(%v) error = nil, want unsupported-format error", args)
+			}
+			if !strings.Contains(err.Error(), "does not support ndjson") {
+				t.Errorf("App.Run(%v) error = %q, want it to mention 'does not support ndjson'", args, err.Error())
+			}
+		})
+	}
+}
+
 func TestResourceListProjectsAndRedactsFixture(t *testing.T) {
 	t.Parallel()
 
@@ -980,17 +1061,17 @@ func TestUnsupportedFormatsFailBeforeReader(t *testing.T) {
 		{
 			name: "list yaml",
 			args: []string{"--format", "yaml", "zia", "locations", "list"},
-			want: `unsupported output format "yaml"; supported: auto, table, json, pretty`,
+			want: `unsupported output format "yaml"; supported: auto, table, json, ndjson, pretty`,
 		},
 		{
-			name: "get ndjson",
-			args: []string{"--format", "ndjson", "zia", "locations", "get", "123"},
-			want: `unsupported output format "ndjson"; supported: auto, table, json, pretty`,
+			name: "get yaml",
+			args: []string{"--format", "yaml", "zia", "locations", "get", "123"},
+			want: `unsupported output format "yaml"; supported: auto, table, json, ndjson, pretty`,
 		},
 		{
 			name: "show yaml",
 			args: []string{"--format", "yaml", "zia", "advanced-settings", "show"},
-			want: `unsupported output format "yaml"; supported: auto, table, json, pretty`,
+			want: `unsupported output format "yaml"; supported: auto, table, json, ndjson, pretty`,
 		},
 	}
 	for _, tt := range tests {
