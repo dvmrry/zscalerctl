@@ -5,6 +5,8 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type Mode string
@@ -315,14 +317,21 @@ func contains(needle string) rulePrefilter {
 
 func containsFold(needle string) rulePrefilter {
 	return func(text string) bool {
+		if !isASCII(text) {
+			return containsFoldUnicode(text, needle)
+		}
 		return containsFoldASCII(text, needle)
 	}
 }
 
 func containsAnyFold(needles ...string) rulePrefilter {
 	return func(text string) bool {
+		ascii := isASCII(text)
 		for _, needle := range needles {
-			if containsFoldASCII(text, needle) {
+			if ascii && containsFoldASCII(text, needle) {
+				return true
+			}
+			if !ascii && containsFoldUnicode(text, needle) {
 				return true
 			}
 		}
@@ -360,6 +369,47 @@ func containsFoldASCII(text, needle string) bool {
 	return false
 }
 
+func containsFoldUnicode(text, needle string) bool {
+	if needle == "" {
+		return true
+	}
+	for i := 0; i < len(text); {
+		if hasFoldedNeedleAt(text, needle, i) {
+			return true
+		}
+		_, size := utf8.DecodeRuneInString(text[i:])
+		i += size
+	}
+	return false
+}
+
+func hasFoldedNeedleAt(text, needle string, offset int) bool {
+	for i := 0; i < len(needle); i++ {
+		if offset >= len(text) {
+			return false
+		}
+		r, size := utf8.DecodeRuneInString(text[offset:])
+		if !foldsToASCII(r, needle[i]) {
+			return false
+		}
+		offset += size
+	}
+	return true
+}
+
+func foldsToASCII(r rune, needle byte) bool {
+	target := rune(lowerASCII(needle))
+	for folded := r; ; {
+		if folded == target {
+			return true
+		}
+		folded = unicode.SimpleFold(folded)
+		if folded == r {
+			return false
+		}
+	}
+}
+
 func equalFoldASCIIAt(text, needle string, offset int) bool {
 	for i := 0; i < len(needle); i++ {
 		if lowerASCII(text[offset+i]) != lowerASCII(needle[i]) {
@@ -374,6 +424,15 @@ func lowerASCII(ch byte) byte {
 		return ch + ('a' - 'A')
 	}
 	return ch
+}
+
+func isASCII(text string) bool {
+	for i := 0; i < len(text); i++ {
+		if text[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
 }
 
 func shouldRedactHighEntropyToken(text string, start, end int, context highEntropyContext, mode Mode) bool {
