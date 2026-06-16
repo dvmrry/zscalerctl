@@ -78,8 +78,9 @@ func (r Redactor) ScanString(in string) (string, Report) {
 }
 
 func scanRules(out string, report Report, rules []rule) (string, Report) {
+	view := prefilterText{text: out}
 	for _, rule := range rules {
-		if rule.mayMatch != nil && !rule.mayMatch(out) {
+		if !rule.prefilter.match(&view) {
 			continue
 		}
 		count := len(rule.re.FindAllStringIndex(out, -1))
@@ -91,6 +92,7 @@ func scanRules(out string, report Report, rules []rule) (string, Report) {
 		}
 		report.Counts[rule.name] += count
 		out = rule.re.ReplaceAllString(out, rule.replacement)
+		view = prefilterText{text: out}
 	}
 	return out, report
 }
@@ -149,12 +151,111 @@ type rule struct {
 	name        string
 	re          *regexp.Regexp
 	replacement string
-	// mayMatch is a cheap necessary-condition gate. It must return false only
+	// prefilter is a cheap necessary-condition gate. It must return false only
 	// when the regex cannot match; the regex remains the authority.
-	mayMatch rulePrefilter
+	prefilter rulePrefilter
 }
 
-type rulePrefilter func(text string) bool
+type rulePrefilter struct {
+	kind     prefilterKind
+	needle   string
+	needles  []string
+	children []rulePrefilter
+}
+
+type prefilterKind uint8
+
+const (
+	prefilterNone prefilterKind = iota
+	prefilterContains
+	prefilterContainsFold
+	prefilterContainsAnyFold
+	prefilterAll
+)
+
+func (p rulePrefilter) match(text *prefilterText) bool {
+	switch p.kind {
+	case prefilterNone:
+		return true
+	case prefilterContains:
+		return strings.Contains(text.text, p.needle)
+	case prefilterContainsFold:
+		return text.containsFold(p.needle)
+	case prefilterContainsAnyFold:
+		return text.containsAnyFold(p.needles)
+	case prefilterAll:
+		for _, child := range p.children {
+			if !child.match(text) {
+				return false
+			}
+		}
+		return true
+	default:
+		return true
+	}
+}
+
+const prefilterLowercaseThreshold = 1024
+
+type prefilterText struct {
+	text       string
+	ascii      bool
+	asciiValid bool
+	lower      string
+	lowerValid bool
+}
+
+func (p *prefilterText) isASCII() bool {
+	if !p.asciiValid {
+		p.ascii = isASCII(p.text)
+		p.asciiValid = true
+	}
+	return p.ascii
+}
+
+func (p *prefilterText) lowerText() string {
+	if !p.lowerValid {
+		p.lower = strings.ToLower(p.text)
+		p.lowerValid = true
+	}
+	return p.lower
+}
+
+func (p *prefilterText) containsFold(needle string) bool {
+	if !p.isASCII() {
+		return containsFoldUnicode(p.text, needle)
+	}
+	if len(p.text) >= prefilterLowercaseThreshold {
+		return strings.Contains(p.lowerText(), needle)
+	}
+	return containsFoldASCII(p.text, needle)
+}
+
+func (p *prefilterText) containsAnyFold(needles []string) bool {
+	if !p.isASCII() {
+		for _, needle := range needles {
+			if containsFoldUnicode(p.text, needle) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(p.text) >= prefilterLowercaseThreshold {
+		lower := p.lowerText()
+		for _, needle := range needles {
+			if strings.Contains(lower, needle) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, needle := range needles {
+		if containsFoldASCII(p.text, needle) {
+			return true
+		}
+	}
+	return false
+}
 
 const (
 	markerSecret          = `<REDACTED:SECRET>`
@@ -183,19 +284,19 @@ func buildBaseRules() []rule {
 			name:        "private_key_block",
 			re:          regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----`),
 			replacement: markerPrivateKey,
-			mayMatch:    containsFold("private key"),
+			prefilter:   containsFold("private key"),
 		},
 		{
 			name:        "jwt",
 			re:          regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`),
 			replacement: markerJWT,
-			mayMatch:    contains("eyJ"),
+			prefilter:   contains("eyJ"),
 		},
 		{
 			name:        "zscaler_provisioning_key",
 			re:          regexp.MustCompile(`\b[0-9]+\|[A-Za-z0-9.-]+\|[A-Za-z0-9+/=_-]{16,}(?:[A-Za-z0-9+/=_ -]{8,})?`),
 			replacement: markerProvisioningKey,
-			mayMatch:    contains("|"),
+			prefilter:   contains("|"),
 		},
 		{
 			// An Authorization header value is entirely credential material, so
@@ -206,7 +307,7 @@ func buildBaseRules() []rule {
 			name:        "authorization_header",
 			re:          regexp.MustCompile(`(?i)(authorization\s*[:=]\s*)\S.*`),
 			replacement: `${1}` + markerSecret,
-			mayMatch:    containsFold("authorization"),
+			prefilter:   containsFold("authorization"),
 		},
 		{
 			// The password runs to the LAST '@' before the host, so a password
@@ -216,7 +317,7 @@ func buildBaseRules() []rule {
 			name:        "credential_url",
 			re:          regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s]+@`),
 			replacement: `${1}` + markerSecret + `@`,
-			mayMatch:    all(contains("://"), contains("@")),
+			prefilter:   all(contains("://"), contains("@")),
 		},
 	}
 	rules = append(rules, assignmentRules("provisioning_key_assignment", provisioningAssignmentKeys, markerProvisioningKey)...)
@@ -226,7 +327,7 @@ func buildBaseRules() []rule {
 		name:        "secret_phrase",
 		re:          regexp.MustCompile(`(?i)\b(?:` + secretPhraseKeys + `)\s+([A-Za-z0-9._~+/=|:-]{8,})\b`),
 		replacement: markerSecret,
-		mayMatch:    prefilterForAssignmentKeys(secretPhraseKeys),
+		prefilter:   prefilterForAssignmentKeys(secretPhraseKeys),
 	})
 	return rules
 }
@@ -239,25 +340,25 @@ func assignmentRules(name, keys, marker string) []rule {
 			name:        name,
 			re:          regexp.MustCompile(`(?i)(` + key + `)"(?:\\.|[^"\\])*"`),
 			replacement: `${1}"` + marker + `"`,
-			mayMatch:    prefilter,
+			prefilter:   prefilter,
 		},
 		{
 			name:        name,
 			re:          regexp.MustCompile(`(?i)(` + key + `)'(?:\\.|[^'\\])*'`),
 			replacement: `${1}'` + marker + `'`,
-			mayMatch:    prefilter,
+			prefilter:   prefilter,
 		},
 		{
 			name:        name,
 			re:          regexp.MustCompile(`(?i)(["']?(?:` + keys + `)["']?\s*:\s*)(-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)(\s*[,}\]])`),
 			replacement: `${1}"` + marker + `"${3}`,
-			mayMatch:    prefilter,
+			prefilter:   prefilter,
 		},
 		{
 			name:        name,
 			re:          regexp.MustCompile(`(?i)(` + key + `)[^<"'\s,}\]\{\[]+`),
 			replacement: `${1}` + marker,
-			mayMatch:    prefilter,
+			prefilter:   prefilter,
 		},
 	}
 }
@@ -267,13 +368,13 @@ var shareRules = []rule{
 		name:        "email",
 		re:          regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`),
 		replacement: `<REDACTED:EMAIL>`,
-		mayMatch:    contains("@"),
+		prefilter:   contains("@"),
 	},
 	{
 		name:        "ipv4",
 		re:          regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`),
 		replacement: `<REDACTED:IP>`,
-		mayMatch:    contains("."),
+		prefilter:   contains("."),
 	},
 }
 
@@ -310,44 +411,19 @@ func prefilterForAssignmentKeys(keys string) rulePrefilter {
 }
 
 func contains(needle string) rulePrefilter {
-	return func(text string) bool {
-		return strings.Contains(text, needle)
-	}
+	return rulePrefilter{kind: prefilterContains, needle: needle}
 }
 
 func containsFold(needle string) rulePrefilter {
-	return func(text string) bool {
-		if !isASCII(text) {
-			return containsFoldUnicode(text, needle)
-		}
-		return containsFoldASCII(text, needle)
-	}
+	return rulePrefilter{kind: prefilterContainsFold, needle: needle}
 }
 
 func containsAnyFold(needles ...string) rulePrefilter {
-	return func(text string) bool {
-		ascii := isASCII(text)
-		for _, needle := range needles {
-			if ascii && containsFoldASCII(text, needle) {
-				return true
-			}
-			if !ascii && containsFoldUnicode(text, needle) {
-				return true
-			}
-		}
-		return false
-	}
+	return rulePrefilter{kind: prefilterContainsAnyFold, needles: needles}
 }
 
 func all(filters ...rulePrefilter) rulePrefilter {
-	return func(text string) bool {
-		for _, filter := range filters {
-			if !filter(text) {
-				return false
-			}
-		}
-		return true
-	}
+	return rulePrefilter{kind: prefilterAll, children: filters}
 }
 
 func containsFoldASCII(text, needle string) bool {
