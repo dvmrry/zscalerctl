@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	sdkcache "github.com/zscaler/zscaler-sdk-go/v3/cache"
-	sdklogger "github.com/zscaler/zscaler-sdk-go/v3/logger"
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
 	sdkerrorx "github.com/zscaler/zscaler-sdk-go/v3/zscaler/errorx"
 	sdkzia "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia"
@@ -318,6 +318,11 @@ type ReaderConfig struct {
 	Proxy            ProxyConfig
 	Timeout          time.Duration
 	NoCache          bool
+	// DiagLogger, when non-nil, receives SDK retry/backoff and
+	// session/token-renewal events at debug level (stderr). The CLI wires it
+	// only at --log-level debug; when nil the reader installs a nop SDK logger
+	// and the read paths stay silent.
+	DiagLogger *slog.Logger
 }
 
 type ZIALegacyConfig struct {
@@ -1141,7 +1146,7 @@ func (s perCallService) legacyService(ctx context.Context) (*zsdk.Service, func(
 		return nil, nil, err
 	}
 	cfg := &zsdk.Configuration{
-		Logger:          sdklogger.NewNopLogger(),
+		Logger:          newSDKLogger(s.cfg.DiagLogger),
 		DefaultHeader:   make(map[string]string),
 		UserAgent:       "zscalerctl zscaler-sdk-go/v3",
 		Context:         effectiveContext(ctx),
@@ -1218,7 +1223,7 @@ func newSDKConfiguration(ctx context.Context, cfg ReaderConfig) *zsdk.Configurat
 		Transport: directTransport(cfg.Proxy),
 	}
 	sdkCfg := &zsdk.Configuration{
-		Logger:        sdklogger.NewNopLogger(),
+		Logger:        newSDKLogger(cfg.DiagLogger),
 		HTTPClient:    httpClient,
 		ZIAHTTPClient: httpClient,
 		ZPAHTTPClient: httpClient,
@@ -1263,7 +1268,7 @@ func newLegacyZIAConfiguration(ctx context.Context, cfg ReaderConfig) (*sdkzia.C
 		Transport: directTransport(cfg.Proxy),
 	}
 	ziaCfg := &sdkzia.Configuration{
-		Logger:        sdklogger.NewNopLogger(),
+		Logger:        newSDKLogger(cfg.DiagLogger),
 		HTTPClient:    httpClient,
 		BaseURL:       baseURL,
 		DefaultHeader: make(map[string]string),

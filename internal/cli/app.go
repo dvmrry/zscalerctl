@@ -668,7 +668,7 @@ func applyOptions(cfg *config.Config, opts globalOptions) {
 // given format. JSON is handled separately (fast-path) before this guard, so
 // only non-table/non-pretty formats reach here.
 func rejectUnsupportedFormat(command string, format output.Format) error {
-	return fmt.Errorf("%s does not support %s output yet", command, format)
+	return UsageError{Message: fmt.Sprintf("%s does not support %s output yet", command, format)}
 }
 
 func (a *App) runVersion(opts globalOptions, args []string) error {
@@ -1197,6 +1197,13 @@ func (a *App) resourceReader(cfg config.Config, opts globalOptions) (ResourceRea
 	if a.reader != nil {
 		return a.reader, nil
 	}
+	// Surface SDK retry/backoff and session/token-renewal activity only when the
+	// operator opts in with --log-level debug; otherwise the reader installs a
+	// nop SDK logger and stays silent.
+	var sdkDiagLogger *slog.Logger
+	if opts.logLevel == "debug" {
+		sdkDiagLogger = a.diagLogger()
+	}
 	return zscaler.NewReader(zscaler.ReaderConfig{
 		ClientID:         cfg.Credentials.ClientID,
 		ClientSecret:     cfg.Credentials.ClientSecret,
@@ -1217,6 +1224,7 @@ func (a *App) resourceReader(cfg config.Config, opts globalOptions) (ResourceRea
 			URL:             cfg.Proxy.URL,
 			FromEnvironment: cfg.Proxy.FromEnvironment,
 		},
+		DiagLogger: sdkDiagLogger,
 	})
 }
 

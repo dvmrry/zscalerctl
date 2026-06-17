@@ -17,6 +17,7 @@ var (
 	completionFormats   = []string{"auto", "table", "json", "ndjson", "pretty"}
 	completionRedaction = []string{"standard", "share", "paranoid"}
 	completionColors    = []string{"auto", "always", "never"}
+	completionLogLevels = []string{"off", "error", "warn", "info", "debug"}
 	completionShells    = []string{"bash", "zsh", "fish", "powershell"}
 )
 
@@ -68,6 +69,7 @@ _zscalerctl()
     --format) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     --redaction) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     --color) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
+    --log-level) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     --products) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     --resources) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
     completion) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
@@ -87,6 +89,7 @@ complete -F _zscalerctl zscalerctl
 		words(completionFormats),
 		words(completionRedaction),
 		words(completionColors),
+		words(completionLogLevels),
 		words(completionProductValues()),
 		words(dumpResourceNames()),
 		words(completionShells),
@@ -104,12 +107,13 @@ func zshCompletion() string {
 	return fmt.Sprintf(`#compdef zscalerctl
 
 _zscalerctl() {
-  local -a commands flags formats redactions colors products dump_resources shells operations dump_flags diff_flags
+  local -a commands flags formats redactions colors log_levels products dump_resources shells operations dump_flags diff_flags
   commands=(%s)
   flags=(%s)
   formats=(%s)
   redactions=(%s)
   colors=(%s)
+  log_levels=(%s)
   products=(%s)
   dump_resources=(%s)
   shells=(%s)
@@ -121,6 +125,7 @@ _zscalerctl() {
     --format) compadd -- "${formats[@]}"; return ;;
     --redaction) compadd -- "${redactions[@]}"; return ;;
     --color) compadd -- "${colors[@]}"; return ;;
+    --log-level) compadd -- "${log_levels[@]}"; return ;;
     --products) compadd -- "${products[@]}"; return ;;
     --resources) compadd -- "${dump_resources[@]}"; return ;;
     completion) compadd -- "${shells[@]}"; return ;;
@@ -143,6 +148,7 @@ _zscalerctl "$@"
 		words(completionFormats),
 		words(completionRedaction),
 		words(completionColors),
+		words(completionLogLevels),
 		words(completionProductValues()),
 		words(dumpResourceNames()),
 		words(completionShells),
@@ -210,6 +216,7 @@ Register-ArgumentCompleter -Native -CommandName zscalerctl -ScriptBlock {
   $formats = %s
   $redactions = %s
   $colors = %s
+  $logLevels = %s
   $products = %s
   $dumpResources = %s
   $shells = %s
@@ -244,6 +251,7 @@ Register-ArgumentCompleter -Native -CommandName zscalerctl -ScriptBlock {
     '--format' { Complete-ZscalerctlWords $formats; return }
     '--redaction' { Complete-ZscalerctlWords $redactions; return }
     '--color' { Complete-ZscalerctlWords $colors; return }
+    '--log-level' { Complete-ZscalerctlWords $logLevels; return }
     '--products' { Complete-ZscalerctlWords $products; return }
     '--resources' { Complete-ZscalerctlWords $dumpResources; return }
     'completion' { Complete-ZscalerctlWords $shells; return }
@@ -268,6 +276,7 @@ Register-ArgumentCompleter -Native -CommandName zscalerctl -ScriptBlock {
 		powershellArray(completionFormats),
 		powershellArray(completionRedaction),
 		powershellArray(completionColors),
+		powershellArray(completionLogLevels),
 		powershellArray(completionProductValues()),
 		powershellArray(dumpResourceNames()),
 		powershellArray(completionShells),
@@ -299,7 +308,7 @@ func completionProductValues() []string {
 func bashProductResourceCases() string {
 	var lines []string
 	for _, product := range knownProducts() {
-		lines = append(lines, fmt.Sprintf("    %s) COMPREPLY=( $(compgen -W \"%s\" -- \"$cur\") ); return ;;", product, words(resourceNames(product))))
+		lines = append(lines, fmt.Sprintf("    %s) COMPREPLY=( $(compgen -W \"%s\" -- \"$cur\") ); return ;;", product, words(completionResourceNames(product))))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -307,7 +316,7 @@ func bashProductResourceCases() string {
 func zshProductResourceCases() string {
 	var lines []string
 	for _, product := range knownProducts() {
-		lines = append(lines, fmt.Sprintf("    %s) compadd -- %s; return ;;", product, words(resourceNames(product))))
+		lines = append(lines, fmt.Sprintf("    %s) compadd -- %s; return ;;", product, words(completionResourceNames(product))))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -315,7 +324,7 @@ func zshProductResourceCases() string {
 func fishProductResourceCompletions() string {
 	var lines []string
 	for _, product := range knownProducts() {
-		lines = append(lines, fmt.Sprintf("complete -c zscalerctl -n '__fish_seen_subcommand_from %s' -a '%s'", product, words(resourceNames(product))))
+		lines = append(lines, fmt.Sprintf("complete -c zscalerctl -n '__fish_seen_subcommand_from %s' -a '%s'", product, words(completionResourceNames(product))))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -323,9 +332,27 @@ func fishProductResourceCompletions() string {
 func powershellProductResourceVariables() string {
 	var lines []string
 	for _, product := range knownProducts() {
-		lines = append(lines, fmt.Sprintf("  $%sResources = %s", product, powershellArray(resourceNames(product))))
+		lines = append(lines, fmt.Sprintf("  $%sResources = %s", product, powershellArray(completionResourceNames(product))))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// completionDiagnosticVerbs lists per-product diagnostic verbs that are
+// dispatched directly in app.go rather than registered as catalog resources, so
+// resourceNames (which reads the catalog) omits them. They still need shell
+// completion. url-lookup is the zia-only URL-category diagnostic.
+var completionDiagnosticVerbs = map[resources.Product][]string{
+	resources.ProductZIA: {urlLookupCommandName},
+}
+
+// completionResourceNames returns the completion candidates for a product's
+// second positional word: its catalog resources plus any diagnostic verbs that
+// live outside the catalog.
+func completionResourceNames(product resources.Product) []string {
+	names := resourceNames(product)
+	names = append(names, completionDiagnosticVerbs[product]...)
+	sort.Strings(names)
+	return names
 }
 
 func powershellProductResourceCases() string {

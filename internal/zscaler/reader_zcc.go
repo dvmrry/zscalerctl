@@ -2,6 +2,7 @@ package zscaler
 
 import (
 	"context"
+	"fmt"
 
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
 	zccadminroles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc/services/admin_roles"
@@ -24,6 +25,15 @@ import (
 // is honored by the server and short-page termination stays valid.
 const zccPageSize = 1000
 
+// zccMaxPages is a fail-closed ceiling on the number of pages zccPaginate will
+// fetch. Termination otherwise relies entirely on the server returning a
+// short final page; an endpoint that keeps returning a persistently-full page
+// would loop until --timeout fires on every request. The ceiling mirrors the
+// zidentity/networkApplications guards: at zccPageSize=1000 it admits up to a
+// million records before erroring, so it never trips on a real tenant, but it
+// converts a pathological infinite loop into a visible, descriptive error.
+const zccMaxPages = 1000
+
 // zccPaginate walks every page of a ZCC list endpoint, mirroring the SDK's
 // ReadAllPages contract: advance pages until one returns fewer than a full page.
 // Several ZCC by-company list endpoints otherwise return only the first page
@@ -31,6 +41,9 @@ const zccPageSize = 1000
 func zccPaginate[T any](ctx context.Context, fetchPage func(ctx context.Context, page, pageSize int) ([]T, error)) ([]T, error) {
 	var all []T
 	for page := 1; ; page++ {
+		if page > zccMaxPages {
+			return nil, fmt.Errorf("zcc pagination exceeded the ceiling of %d pages (%d records); the endpoint kept returning full pages, so completeness cannot be guaranteed", zccMaxPages, len(all))
+		}
 		items, err := fetchPage(ctx, page, zccPageSize)
 		if err != nil {
 			return nil, err
