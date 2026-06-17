@@ -1,0 +1,33 @@
+# Auto-bump the zscalerctl formula in dvmrry/homebrew-tap on each release.
+# At go-live, copy this file INTO THIS (main) repo at:
+#   .github/workflows/bump-homebrew.yml
+# Standalone workflow triggered by the release:published event — decoupled from
+# release.yml internals.
+#
+# REQUIRES secret HOMEBREW_TAP_PAT (see GO-LIVE.md, step 3).
+#
+# CAVEAT (verify on first real run — see GO-LIVE.md): this formula has four
+# per-arch url+sha256 pairs. `brew bump-formula-pr` (which this action wraps)
+# handles single-artifact formulas cleanly; multi-arch handling can need a
+# nudge. If the opened PR does not update all four sha256 values, fall back to
+# the custom-script option documented in GO-LIVE.md. The bump opens a *reviewed*
+# PR, so a wrong bump can never auto-ship.
+name: bump-homebrew-tap
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bump zscalerctl formula
+        uses: dawidd6/action-homebrew-bump-formula@v3
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_PAT }}
+          tap: dvmrry/homebrew-tap
+          formula: zscalerctl
+          tag: ${{ github.event.release.tag_name }}
+          # We own the tap, so push the branch directly rather than forking.
+          no_fork: true

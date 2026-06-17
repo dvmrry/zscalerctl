@@ -1,0 +1,40 @@
+# Tap CI for dvmrry/homebrew-tap.
+# At go-live, copy this file to the tap repo at: .github/workflows/ci.yml
+#
+# Lightweight, idiomatic CI for a binary-distribution tap (no bottle building,
+# no brew test-bot). Homebrew/actions/setup-homebrew installs stable Homebrew
+# and handles 6.0 tap-trust in CI transparently.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Formula/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "Formula/**"
+      - ".github/workflows/ci.yml"
+
+jobs:
+  audit-style:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Homebrew/actions/setup-homebrew@master
+      - run: brew tap dvmrry/tap "$(pwd)"
+      - run: brew style Formula/zscalerctl.rb
+      # Offline audit only. Do NOT add --online here: it hits endoflife.date and
+      # produces spurious failures for packages not tracked there. Run --online
+      # manually (or on a schedule) before a major release.
+      - run: brew audit --strict Formula/zscalerctl.rb
+
+  install-test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Homebrew/actions/setup-homebrew@master
+      - run: brew tap dvmrry/tap "$(pwd)"
+      - run: brew install --formula Formula/zscalerctl.rb
+      - run: brew test Formula/zscalerctl.rb
