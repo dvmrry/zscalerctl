@@ -9,8 +9,8 @@ a release note says otherwise.
 ## Reporting a Vulnerability
 
 Do not open a public issue for a suspected vulnerability, credential exposure, or
-unsafe output behavior. Email `github@mrry.io` or use GitHub private
-vulnerability reporting if it is enabled for the repository.
+unsafe output behavior. Use GitHub private vulnerability reporting from the
+repository's **Security** tab: **Report a vulnerability**.
 
 Please include:
 
@@ -35,7 +35,7 @@ Advisories and identified in the release notes of the fixing release.
 This is a single-maintainer project: the repository owner is the only person
 with privileged repository access and holds all roles — development, review
 (enforced through the required CI gate rather than a second reviewer), release
-approval, and security response via the contact above.
+approval, and security response through the private reporting channel above.
 
 ## Authorized Use
 
