@@ -47,20 +47,42 @@ func (a sdkLogAdapter) Printf(format string, v ...interface{}) {
 	a.logger.Debug(msg, slog.String("source", "zscaler-sdk"))
 }
 
-// sdkLogDenyMarkers identify the SDK's full request/response dump format
-// strings, which carry credential-bearing headers and bodies. They are denied
-// unconditionally and take precedence over the allow-list, so the dumps can
-// never be forwarded even if the allow-list is later widened.
+// sdkLogDenyMarkers identify SDK format strings that carry credential- or
+// body-bearing content. They are denied unconditionally and take precedence
+// over the allow-list, so such messages can never be forwarded even if the
+// allow-list is later widened.
+//
+// The first three are the SDK's full request/response dumps (Authorization
+// headers, bodies). The rest cover auth-FAILURE notices whose %v error embeds
+// the raw auth-endpoint response body — e.g. oneapiclient.go:286
+// ("...got http status: %d, response body: %s"), :359 ("auth error: %v"), and
+// zia/v2_client.go:211-217 ("HTTP 401 Unauthorized: %s") propagating into
+// oneapiconfig.go:118 ("Failed to renew OAuth2 token: %v") and
+// zia/v2_client.go:297 ("Failed to refresh session: %v"). On an auth failure
+// that body can carry token material, so it must never reach a log; the failure
+// still surfaces to the operator through the normal redacted error path.
 var sdkLogDenyMarkers = []string{
 	"zscaler sdk request",
 	"zscaler sdk response",
 	"details:",
+	"response body",
+	"http status",
+	"auth error",
+	"failed to renew",
+	"failed to refresh",
 }
 
 // sdkLogAllow lists case-insensitive substrings of the SDK's retry/backoff and
 // session/token-renewal format strings. Only messages whose format matches one
 // of these are forwarded; their interpolated values are retry durations,
-// Retry-After header values, and renewal status — never credentials.
+// Retry-After header values, and renewal/session status — never credentials or
+// response bodies. Deliberately excluded: the auth-FAILURE notices ("Failed to
+// renew OAuth2 token", "Failed to refresh session"), whose %v error embeds the
+// raw auth response body (see sdkLogDenyMarkers). Their safe counterparts —
+// renewal success and session-refresh start/state — remain covered by the
+// "token successfully renewed", "refreshing session", "session is invalid",
+// "session invalidation", and "another goroutine is refreshing" entries, so no
+// useful observability is lost.
 var sdkLogAllow = []string{
 	"retry-after",
 	"rate limit",
@@ -68,12 +90,10 @@ var sdkLogAllow = []string{
 	"retrying",
 	"sleeping for",
 	"refreshing session",
-	"refresh session",
 	"session is invalid",
 	"session invalidation",
 	"another goroutine is refreshing",
 	"token successfully renewed",
-	"renew oauth2 token",
 	"backoff",
 	"waiting",
 }

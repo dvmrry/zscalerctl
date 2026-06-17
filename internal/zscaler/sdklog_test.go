@@ -97,6 +97,75 @@ func TestSDKLogAdapterDropsRequestResponseDumps(t *testing.T) {
 	}
 }
 
+// TestSDKLogAdapterDropsAuthFailureBodies is the second security guard: the
+// SDK's auth-failure notices ("Failed to renew OAuth2 token: %v" /
+// "Failed to refresh session: %v") interpolate an error that embeds the raw
+// auth-endpoint response body, which can carry token material. The adapter must
+// never forward them.
+func TestSDKLogAdapterDropsAuthFailureBodies(t *testing.T) {
+	t.Parallel()
+
+	const secret = "eyJhbGciOiJIUzI1NiJ9.super-secret-token-body"
+	cases := []struct {
+		name   string
+		format string
+		arg    string
+	}{
+		{
+			name:   "renew_oauth2",
+			format: "[ERROR] Failed to renew OAuth2 token: %v",
+			arg:    "got http status: 401, response body: {\"access_token\":\"" + secret + "\"}",
+		},
+		{
+			name:   "refresh_session",
+			format: "[ERROR] Failed to refresh session: %v",
+			arg:    "HTTP 401 Unauthorized: {\"token\":\"" + secret + "\"}",
+		},
+		{
+			name:   "auth_error",
+			format: "auth error: %v",
+			arg:    secret,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			adapter := newSDKLogger(debugSlogLogger(&buf))
+			adapter.Printf(tc.format, tc.arg)
+			if buf.Len() != 0 {
+				t.Fatalf("Printf(%q) logged %q, want empty (auth-failure bodies must never be forwarded)", tc.format, buf.String())
+			}
+			if strings.Contains(buf.String(), secret) {
+				t.Fatalf("Printf(%q) leaked secret %q", tc.format, secret)
+			}
+		})
+	}
+}
+
+// TestSDKLogAdapterStillForwardsSafeSessionEvents guards against over-correcting
+// the fix: dropping the auth-failure notices must not silence the safe
+// renewal/session signals operators rely on at debug.
+func TestSDKLogAdapterStillForwardsSafeSessionEvents(t *testing.T) {
+	t.Parallel()
+
+	safe := []string{
+		"[INFO] OAuth2 token successfully renewed",
+		"[INFO] Session is invalid or expired. Refreshing session...",
+		"[INFO] Another goroutine is refreshing the session. Waiting...",
+	}
+	for _, format := range safe {
+		var buf bytes.Buffer
+		adapter := newSDKLogger(debugSlogLogger(&buf))
+		adapter.Printf(format)
+		if buf.Len() == 0 {
+			t.Errorf("Printf(%q) logged nothing, want it forwarded as a safe session event", format)
+		}
+	}
+}
+
 func TestSDKLogAdapterDropsUnknownMessages(t *testing.T) {
 	t.Parallel()
 
