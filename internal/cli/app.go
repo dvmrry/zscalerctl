@@ -1507,14 +1507,15 @@ func (a *App) writeProjectedRecords(
 	spec resources.ResourceSpec,
 	records resources.ProjectedRecords,
 ) error {
-	// Narrow rows before --fields narrows columns, so a filter may reference
-	// any projected field even when it is not selected for display. An empty
-	// match is success: every format renders its empty form and exits 0.
-	records = narrowRecords(records, opts.filters, opts.search)
 	fields, err := effectiveFields(spec, cfg.Defaults.Redaction, opts.fields)
 	if err != nil {
 		return err
 	}
+	warnUnknownFilterKeys(a.err, spec, opts.filters)
+	// Narrow rows before --fields narrows columns, so a filter may reference
+	// any projected field even when it is not selected for display. An empty
+	// match is success: every format renders its empty form and exits 0.
+	records = narrowRecords(records, opts.filters, opts.search)
 	if len(opts.fields) > 0 {
 		records = records.Select(fields)
 	}
@@ -1529,6 +1530,27 @@ func (a *App) writeProjectedRecords(
 		return a.renderer(cfg, opts).WriteText(a.out, renderRecordsPretty(fields, records, a.style(opts)))
 	default:
 		return fmt.Errorf("unhandled output format %q for resource list", opts.format)
+	}
+}
+
+func warnUnknownFilterKeys(w io.Writer, spec resources.ResourceSpec, filters []recordFilter) {
+	if len(filters) == 0 {
+		return
+	}
+	catalog := make(map[string]struct{}, len(spec.Fields))
+	for _, field := range spec.Fields {
+		catalog[field.JSONField()] = struct{}{}
+	}
+	warned := make(map[string]struct{}, len(filters))
+	for _, filter := range filters {
+		if _, ok := catalog[filter.key]; ok {
+			continue
+		}
+		if _, ok := warned[filter.key]; ok {
+			continue
+		}
+		warned[filter.key] = struct{}{}
+		fmt.Fprintf(w, "warning: --filter key %q is not a field of %s/%s\n", filter.key, spec.Product, spec.Name)
 	}
 }
 
@@ -1548,6 +1570,34 @@ func safeJSONRecords(records resources.ProjectedRecords) []output.SafeJSON {
 // operations and renderable fields for `<product> <resource> --help`, the
 // product's resources for `<product> --help`, or the global usage otherwise.
 func (a *App) writeHelp(w io.Writer, rest []string) {
+	if len(rest) >= 1 {
+		switch rest[0] {
+		case "doctor":
+			fmt.Fprintln(w, "usage: zscalerctl doctor")
+			return
+		case "auth":
+			fmt.Fprintln(w, "usage: zscalerctl auth status")
+			return
+		case "config":
+			fmt.Fprintln(w, "usage: zscalerctl config show")
+			return
+		case "schema":
+			fmt.Fprintln(w, "usage: zscalerctl schema list")
+			return
+		case "dump":
+			fmt.Fprintln(w, dumpUsage())
+			return
+		case "diff":
+			fmt.Fprintln(w, diffUsage())
+			return
+		case "completion":
+			fmt.Fprintf(w, "usage: zscalerctl completion %s\n", completionShellNames())
+			return
+		case "version":
+			fmt.Fprintln(w, "usage: zscalerctl version")
+			return
+		}
+	}
 	if len(rest) >= 1 && knownProductCommand(rest[0]) {
 		product := resources.Product(rest[0])
 		if len(rest) >= 2 {

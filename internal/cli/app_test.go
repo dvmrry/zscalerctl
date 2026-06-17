@@ -359,6 +359,53 @@ func TestHelpFlagsReturnUsage(t *testing.T) {
 	}
 }
 
+func TestPerCommandHelpPrintsScopedSynopsis(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "doctor", args: []string{"doctor", "--help"}, want: "usage: zscalerctl doctor"},
+		{name: "auth", args: []string{"auth", "--help"}, want: "usage: zscalerctl auth status"},
+		{name: "config", args: []string{"config", "--help"}, want: "usage: zscalerctl config show"},
+		{name: "schema", args: []string{"schema", "list", "--help"}, want: "usage: zscalerctl schema list"},
+		{name: "dump", args: []string{"dump", "--help"}, want: "usage: zscalerctl dump --out <dir>"},
+		{name: "diff", args: []string{"diff", "--help"}, want: "usage: zscalerctl diff <old-dump-dir> <new-dump-dir>"},
+		{name: "completion", args: []string{"completion", "--help"}, want: "usage: zscalerctl completion bash|zsh|fish|powershell"},
+		{name: "version", args: []string{"version", "--help"}, want: "usage: zscalerctl version"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out, errOut bytes.Buffer
+			app := cli.New(&out, &errOut, []string{
+				config.EnvClientSecretFile + "=/path/that/must/not-be-read",
+			})
+
+			err := app.Run(context.Background(), tt.args)
+			if err != nil {
+				t.Fatalf("App.Run(%v) error = %v, want nil", tt.args, err)
+			}
+			got := out.String()
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("App.Run(%v) stdout = %q, want %q", tt.args, got, tt.want)
+			}
+			for _, globalOnly := range []string{"commands:", "products:"} {
+				if strings.Contains(got, globalOnly) {
+					t.Errorf("App.Run(%v) stdout = %q, want scoped help without global section %q", tt.args, got, globalOnly)
+				}
+			}
+			if errOut.Len() != 0 {
+				t.Errorf("App.Run(%v) stderr = %q, want empty", tt.args, errOut.String())
+			}
+		})
+	}
+}
+
 func TestUsageListsKnownProducts(t *testing.T) {
 	t.Parallel()
 
@@ -979,6 +1026,86 @@ func TestResourceListSupportsNDJSON(t *testing.T) {
 	}
 	if len(names) != 2 || names[0] != "HQ" || names[1] != "Branch" {
 		t.Errorf("ndjson record names = %v, want [HQ Branch] in source order", names)
+	}
+}
+
+func TestResourceListWarnsUnknownFilterKeyButKeepsStdoutClean(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeResourceReader{
+		list: []resources.SourceRecord{
+			resources.NewSourceRecord(map[string]any{"id": "1", "name": "HQ"}),
+		},
+	}
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{
+		Reader:  reader,
+		Catalog: filterWarningCatalog(),
+	})
+
+	err := app.Run(context.Background(), []string{"--format", "json", "zia", "locations", "list", "--filter", "naem=HQ"})
+	if err != nil {
+		t.Fatalf("App.Run(list --filter unknown) error = %v, want nil", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "[]" {
+		t.Fatalf("App.Run(list --filter unknown) stdout = %q, want []", out.String())
+	}
+	if strings.Contains(out.String(), "warning:") {
+		t.Errorf("App.Run(list --filter unknown) stdout = %q, want no warning", out.String())
+	}
+	wantWarning := `warning: --filter key "naem" is not a field of zia/locations`
+	if !strings.Contains(errOut.String(), wantWarning) {
+		t.Errorf("App.Run(list --filter unknown) stderr = %q, want %q", errOut.String(), wantWarning)
+	}
+}
+
+func TestResourceListDoesNotWarnForCatalogFieldDroppedByMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		filter string
+	}{
+		{name: "secret field", filter: "internalToken=raw-token-value"},
+		{name: "standard only field in share", filter: "hostname=host-01"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			reader := fakeResourceReader{
+				list: []resources.SourceRecord{
+					resources.NewSourceRecord(map[string]any{
+						"id":            "1",
+						"name":          "HQ",
+						"hostname":      "host-01",
+						"internalToken": "raw-token-value",
+					}),
+				},
+			}
+			var out, errOut bytes.Buffer
+			app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{
+				Reader:  reader,
+				Catalog: filterWarningCatalog(),
+			})
+
+			err := app.Run(context.Background(), []string{
+				"--format", "json",
+				"--redaction", "share",
+				"zia", "locations", "list",
+				"--filter", tt.filter,
+			})
+			if err != nil {
+				t.Fatalf("App.Run(list --filter catalog field dropped by mode) error = %v, want nil", err)
+			}
+			if got := strings.TrimSpace(out.String()); got != "[]" {
+				t.Fatalf("App.Run(list --filter catalog field dropped by mode) stdout = %q, want []", out.String())
+			}
+			if errOut.Len() != 0 {
+				t.Errorf("App.Run(list --filter catalog field dropped by mode) stderr = %q, want empty", errOut.String())
+			}
+		})
 	}
 }
 
@@ -2287,6 +2414,36 @@ func (f fakeResourceReader) Get(context.Context, resources.Product, string, stri
 
 func (f fakeResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
 	return f.show, nil
+}
+
+func filterWarningCatalog() resources.ResourceCatalog {
+	allModes := []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid}
+	return resources.ResourceCatalog{{
+		Product:    resources.ProductZIA,
+		Name:       "locations",
+		Operations: resources.ListOperations(),
+		Fields: []resources.FieldSpec{
+			{
+				Name:           "id",
+				Classification: resources.ClassOperational,
+				AllowedModes:   allModes,
+			},
+			{
+				Name:           "name",
+				Classification: resources.ClassTenantConfig,
+				AllowedModes:   allModes,
+			},
+			{
+				Name:           "hostname",
+				Classification: resources.ClassSensitiveIdentifier,
+				AllowedModes:   []redact.Mode{redact.ModeStandard},
+			},
+			{
+				Name:           "internalToken",
+				Classification: resources.ClassSecret,
+			},
+		},
+	}}
 }
 
 type selectiveErrorResourceReader struct {

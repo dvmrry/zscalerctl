@@ -222,7 +222,7 @@ func loadDump(dir string, catalog resources.ResourceCatalog) (loadedDump, error)
 		return loadedDump{}, fmt.Errorf("%w: parse manifest for %s: %v", ErrInvalidDump, dir, err)
 	}
 	if manifest.Schema != dump.ManifestSchemaID {
-		return loadedDump{}, fmt.Errorf("%w: unsupported manifest schema %q", ErrInvalidDump, manifest.Schema)
+		return loadedDump{}, fmt.Errorf("%w: unsupported manifest schema %q (want %s; see docs/schema/manifest.schema.json)", ErrInvalidDump, manifest.Schema, dump.ManifestSchemaID)
 	}
 	if _, err := redact.ParseMode(manifest.Redaction); err != nil {
 		return loadedDump{}, fmt.Errorf("%w: invalid redaction mode %q", ErrInvalidDump, manifest.Redaction)
@@ -230,7 +230,7 @@ func loadDump(dir string, catalog resources.ResourceCatalog) (loadedDump, error)
 	switch manifest.Status {
 	case "complete", "partial":
 	default:
-		return loadedDump{}, fmt.Errorf("%w: invalid manifest status %q", ErrInvalidDump, manifest.Status)
+		return loadedDump{}, fmt.Errorf("%w: invalid manifest status %q (want complete or partial)", ErrInvalidDump, manifest.Status)
 	}
 	loaded := loadedDump{
 		ref: DumpRef{

@@ -214,6 +214,32 @@ func TestCompareRejectsInvalidManifestStatus(t *testing.T) {
 	if !strings.Contains(err.Error(), "invalid manifest status") {
 		t.Fatalf("Compare() error = %v, want invalid manifest status context", err)
 	}
+	if !strings.Contains(err.Error(), "want complete or partial") {
+		t.Fatalf("Compare() error = %v, want accepted-status hint", err)
+	}
+}
+
+func TestCompareRejectsUnsupportedManifestSchemaWithExpectedSchema(t *testing.T) {
+	catalog := resources.ResourceCatalog{testKeyedSpec()}
+	oldDir := writeTestDump(t, catalog, dumpFixture{})
+	newDir := writeTestDump(t, catalog, dumpFixture{})
+	rewriteManifest(t, oldDir, func(manifest *dump.Manifest) {
+		manifest.Schema = "zscalerctl.dump.manifest.v0"
+	})
+
+	_, err := Compare(oldDir, newDir, Options{Catalog: catalog})
+	if !errors.Is(err, ErrInvalidDump) {
+		t.Fatalf("Compare() error = %v, want ErrInvalidDump", err)
+	}
+	for _, want := range []string{
+		"unsupported manifest schema",
+		dump.ManifestSchemaID,
+		"docs/schema/manifest.schema.json",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Compare() error = %v, want %q", err, want)
+		}
+	}
 }
 
 func TestCompareRejectsOversizedManifest(t *testing.T) {
@@ -341,6 +367,27 @@ func writeTestDump(t *testing.T, catalog resources.ResourceCatalog, fixture dump
 		t.Fatalf("WriteFile(manifest): %v", err)
 	}
 	return dir
+}
+
+func rewriteManifest(t *testing.T, dir string, mutate func(*dump.Manifest)) {
+	t.Helper()
+	path := filepath.Join(dir, "manifest.json")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", path, err)
+	}
+	var manifest dump.Manifest
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		t.Fatalf("Unmarshal(%s): %v", path, err)
+	}
+	mutate(&manifest)
+	body, err = json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent(manifest): %v", err)
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatalf("WriteFile(%s): %v", path, err)
+	}
 }
 
 func truncateTestFile(t *testing.T, path string, size int64) {

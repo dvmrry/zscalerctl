@@ -4,8 +4,22 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-paths=(README.md AGENTS.md docs examples skills)
 fail=0
+
+agent_docs=(CLAUDE.md GEMINI.md)
+paths=(README.md AGENTS.md docs examples skills)
+for agent_doc in "${agent_docs[@]}"; do
+  if [[ ! -f "$agent_doc" ]]; then
+    echo "verify-docs: $agent_doc must exist and point agents to AGENTS.md" >&2
+    fail=1
+    continue
+  fi
+  paths+=("$agent_doc")
+  if ! grep -Fq "AGENTS.md" "$agent_doc"; then
+    echo "verify-docs: $agent_doc must reference AGENTS.md" >&2
+    fail=1
+  fi
+done
 
 check_pattern() {
   local label="$1"
