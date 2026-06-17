@@ -40,16 +40,14 @@
         "resources_with_drift",
         "records_added",
         "records_removed",
-        "records_changed",
-        "unsupported_resources"
+        "records_changed"
       ],
       "properties": {
         "resources_compared": { "type": "integer", "minimum": 0 },
         "resources_with_drift": { "type": "integer", "minimum": 0 },
         "records_added": { "type": "integer", "minimum": 0 },
         "records_removed": { "type": "integer", "minimum": 0 },
-        "records_changed": { "type": "integer", "minimum": 0 },
-        "unsupported_resources": { "type": "integer", "minimum": 0 }
+        "records_changed": { "type": "integer", "minimum": 0 }
       }
     },
     "resourceDiff": {

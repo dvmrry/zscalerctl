@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/zscalerctl/internal/dump"
@@ -169,6 +170,54 @@ func TestCompareRejectsPartialDumpUnlessAllowed(t *testing.T) {
 	}
 }
 
+func TestCompareRejectsInvalidManifestStatus(t *testing.T) {
+	catalog := resources.ResourceCatalog{testKeyedSpec()}
+	oldDir := writeTestDump(t, catalog, dumpFixture{status: "degraded"})
+	newDir := writeTestDump(t, catalog, dumpFixture{})
+
+	_, err := Compare(oldDir, newDir, Options{Catalog: catalog})
+	if !errors.Is(err, ErrInvalidDump) {
+		t.Fatalf("Compare() error = %v, want ErrInvalidDump", err)
+	}
+	if !strings.Contains(err.Error(), "invalid manifest status") {
+		t.Fatalf("Compare() error = %v, want invalid manifest status context", err)
+	}
+}
+
+func TestCompareRejectsOversizedManifest(t *testing.T) {
+	catalog := resources.ResourceCatalog{testKeyedSpec()}
+	oldDir := writeTestDump(t, catalog, dumpFixture{})
+	newDir := writeTestDump(t, catalog, dumpFixture{})
+	truncateTestFile(t, filepath.Join(oldDir, "manifest.json"), maxManifestBytes+1)
+
+	_, err := Compare(oldDir, newDir, Options{Catalog: catalog})
+	if !errors.Is(err, ErrInvalidDump) {
+		t.Fatalf("Compare() error = %v, want ErrInvalidDump", err)
+	}
+	if !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("Compare() error = %v, want too large context", err)
+	}
+}
+
+func TestCompareRejectsOversizedResource(t *testing.T) {
+	catalog := resources.ResourceCatalog{testKeyedSpec()}
+	oldDir := writeTestDump(t, catalog, dumpFixture{
+		entries: []dumpEntryFixture{{spec: testKeyedSpec(), payload: `[{"id":"1","name":"old"}]`}},
+	})
+	newDir := writeTestDump(t, catalog, dumpFixture{
+		entries: []dumpEntryFixture{{spec: testKeyedSpec(), payload: `[{"id":"1","name":"old"}]`}},
+	})
+	truncateTestFile(t, filepath.Join(oldDir, "resources", "zia", "rules.json"), maxResourceBytes+1)
+
+	_, err := Compare(oldDir, newDir, Options{Catalog: catalog})
+	if !errors.Is(err, ErrInvalidDump) {
+		t.Fatalf("Compare() error = %v, want ErrInvalidDump", err)
+	}
+	if !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("Compare() error = %v, want too large context", err)
+	}
+}
+
 func TestCompareIgnoreOperationalSuppressesKeyedOperationalChanges(t *testing.T) {
 	catalog := resources.ResourceCatalog{testKeyedSpec()}
 	oldDir := writeTestDump(t, catalog, dumpFixture{
@@ -260,6 +309,13 @@ func writeTestDump(t *testing.T, catalog resources.ResourceCatalog, fixture dump
 		t.Fatalf("WriteFile(manifest): %v", err)
 	}
 	return dir
+}
+
+func truncateTestFile(t *testing.T, path string, size int64) {
+	t.Helper()
+	if err := os.Truncate(path, size); err != nil {
+		t.Fatalf("Truncate(%s, %d): %v", path, size, err)
+	}
 }
 
 func countRecords(t *testing.T, payload string) int {

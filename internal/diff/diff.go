@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -20,6 +21,11 @@ import (
 )
 
 const SchemaID = "zscalerctl.diff.v1"
+
+const (
+	maxManifestBytes int64 = 1 << 20
+	maxResourceBytes int64 = 512 << 20
+)
 
 var (
 	ErrInvalidDump       = errors.New("invalid dump")
@@ -63,12 +69,11 @@ type DumpRef struct {
 }
 
 type Summary struct {
-	ResourcesCompared    int `json:"resources_compared"`
-	ResourcesWithDrift   int `json:"resources_with_drift"`
-	RecordsAdded         int `json:"records_added"`
-	RecordsRemoved       int `json:"records_removed"`
-	RecordsChanged       int `json:"records_changed"`
-	UnsupportedResources int `json:"unsupported_resources"`
+	ResourcesCompared  int `json:"resources_compared"`
+	ResourcesWithDrift int `json:"resources_with_drift"`
+	RecordsAdded       int `json:"records_added"`
+	RecordsRemoved     int `json:"records_removed"`
+	RecordsChanged     int `json:"records_changed"`
 }
 
 type ResourceDiff struct {
@@ -208,9 +213,9 @@ func loadDump(dir string, catalog resources.ResourceCatalog) (loadedDump, error)
 	}
 	defer root.Close()
 
-	body, err := root.ReadFile("manifest.json")
+	body, err := readRootFile(root, "manifest.json", fmt.Sprintf("manifest for %s", dir), maxManifestBytes)
 	if err != nil {
-		return loadedDump{}, fmt.Errorf("%w: read manifest for %s: %v", ErrInvalidDump, dir, err)
+		return loadedDump{}, err
 	}
 	var manifest dump.Manifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
@@ -221,6 +226,11 @@ func loadDump(dir string, catalog resources.ResourceCatalog) (loadedDump, error)
 	}
 	if _, err := redact.ParseMode(manifest.Redaction); err != nil {
 		return loadedDump{}, fmt.Errorf("%w: invalid redaction mode %q", ErrInvalidDump, manifest.Redaction)
+	}
+	switch manifest.Status {
+	case "complete", "partial":
+	default:
+		return loadedDump{}, fmt.Errorf("%w: invalid manifest status %q", ErrInvalidDump, manifest.Status)
 	}
 	loaded := loadedDump{
 		ref: DumpRef{
@@ -266,9 +276,9 @@ func readResource(root *os.Root, mr dump.ManifestResource) ([]map[string]any, er
 	if !filepath.IsLocal(path) {
 		return nil, fmt.Errorf("%w: resource %s/%s has unsafe path %q", ErrInvalidDump, mr.Product, mr.Name, mr.Path)
 	}
-	body, err := root.ReadFile(path)
+	body, err := readRootFile(root, path, fmt.Sprintf("resource %s/%s", mr.Product, mr.Name), maxResourceBytes)
 	if err != nil {
-		return nil, fmt.Errorf("%w: read resource %s/%s: %v", ErrInvalidDump, mr.Product, mr.Name, err)
+		return nil, err
 	}
 	var raw any
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -290,6 +300,33 @@ func readResource(root *os.Root, mr dump.ManifestResource) ([]map[string]any, er
 	default:
 		return nil, fmt.Errorf("%w: resource %s/%s payload is not an object or array", ErrInvalidDump, mr.Product, mr.Name)
 	}
+}
+
+func readRootFile(root *os.Root, name, label string, maxBytes int64) ([]byte, error) {
+	file, err := root.Open(name)
+	if err != nil {
+		return nil, fmt.Errorf("%w: read %s: %v", ErrInvalidDump, label, err)
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("%w: inspect %s: %v", ErrInvalidDump, label, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: %s is not a regular file", ErrInvalidDump, label)
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("%w: %s is too large", ErrInvalidDump, label)
+	}
+	body, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("%w: read %s: %v", ErrInvalidDump, label, err)
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("%w: %s is too large", ErrInvalidDump, label)
+	}
+	return body, nil
 }
 
 func compareResource(spec resources.ResourceSpec, oldRecords, newRecords []map[string]any, ignoreOperational bool) (ResourceDiff, error) {
