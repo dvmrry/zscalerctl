@@ -26,6 +26,7 @@ const (
 	exitNotFound          = 4
 	exitLiveAccessFailure = 5
 	exitPartialDump       = 6
+	exitDriftDetected     = 7
 )
 
 func main() {
@@ -151,6 +152,8 @@ func errorKind(err error) string {
 		return "usage"
 	case errors.Is(err, cli.ErrPartialDump):
 		return "partial_dump"
+	case errors.Is(err, cli.ErrDriftDetected):
+		return "drift_detected"
 	case errors.Is(err, cli.ErrNotFound):
 		return "not_found"
 	case errors.Is(err, zscaler.ErrResourceNotFound):
@@ -178,6 +181,8 @@ func exitCodeForError(err error) int {
 		return exitUsageError
 	case errors.Is(err, cli.ErrPartialDump):
 		return exitPartialDump
+	case errors.Is(err, cli.ErrDriftDetected):
+		return exitDriftDetected
 	case errors.Is(err, cli.ErrNotFound):
 		return exitNotFound
 	case errors.Is(err, zscaler.ErrResourceNotFound):

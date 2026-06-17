@@ -18,7 +18,7 @@ A single Go binary, agentic/pipeline-first by design, so one reviewed command ca
 - **Agentic-first output** — deterministic JSON whenever output is piped or redirected; a styled `pretty` view on a terminal, both rendered from the same sanitized data.
 - **Explicit auth only** — reads only `ZSCALERCTL_*` config; never the Zscaler SDK's own env vars or files.
 - **Leak-resistant** — allow-list projection into safe views, with every SDK field classified or deliberately excluded on the record, test-enforced ([docs/FIELD_COVERAGE.md](docs/FIELD_COVERAGE.md)); redaction and secret scanning as defense-in-depth for values.
-- **Sanitized, fail-closed dumps** — releases ship checksums, per-target SBOMs, and provenance attestations.
+- **Sanitized, fail-closed dumps and local drift reports** — releases ship checksums, per-target SBOMs, and provenance attestations.
 - **Stable automation contract** — documented exit codes and JSON error envelopes.
 
 Reviewed read/list/show coverage spans **ZIA, ZPA, ZTW, ZCC, and Zidentity**. The catalog is the source of truth:
@@ -67,11 +67,14 @@ zscalerctl zia url-lookup example.com
 
 # Write a sanitized, fail-closed dump
 zscalerctl dump --products zia --out ./scratch-live-dump
+
+# Compare two existing dumps for drift
+zscalerctl diff ./scratch-live-dump-old ./scratch-live-dump-new --fail-on-drift
 ```
 
 Output defaults to `--format auto`: a terminal gets the human-readable `pretty` view, while a pipe, redirect, or `--output` file gets JSON, so automation is the default surface without a flag. Force it either way with `--format json` or `--format pretty` (or `--format table` for the tab-separated form). The `pretty` view is a styled overlay of the same sanitized data — it adds no fields and passes through the same redaction. Use `--output <path>` to write a single command's output to a restricted file; use `dump --out <dir>` for dump directories (the two are intentionally not combined). Dump refuses to overwrite by default; add `--force` only to replace an existing zscalerctl dump directory.
 
-The examples above are written for interactive use. Scripts and agents should pass `--format json` explicitly rather than rely on auto-detection — a PTY-based harness can read as a terminal and receive the `pretty` view. Dump directories contain sanitized but still confidential tenant inventory; keep them in ignored scratch paths and do not paste dump payloads into tickets or chats. The agent-oriented guide is in [AGENTS.md](AGENTS.md).
+The examples above are written for interactive use. Scripts and agents should pass `--format json` explicitly rather than rely on auto-detection — a PTY-based harness can read as a terminal and receive the `pretty` view. Dump directories and diff reports contain sanitized but still confidential tenant inventory; keep them in ignored scratch paths and do not paste payloads into tickets or chats. `diff` compares two dump directories you already collected; use cron, CI, or another external scheduler if you want recurring drift checks. The agent-oriented guide is in [AGENTS.md](AGENTS.md).
 
 ## Authentication
 
@@ -101,6 +104,7 @@ Exit codes are stable for scripting:
 | `4` | Product/resource not found or unsupported |
 | `5` | Live Zscaler API access failure |
 | `6` | Partial dump written (inspect `manifest.json` and `errors.ndjson`) |
+| `7` | Drift detected when `diff --fail-on-drift` is used |
 
 Configuration and proxy errors (an invalid `ZSCALERCTL_*` value) map to `2`. With `--format json` — or the default `auto` when stdout is not a terminal — a failing command emits a redacted envelope on stderr:
 

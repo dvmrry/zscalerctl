@@ -254,13 +254,16 @@ zscalerctl config show
 zscalerctl <product> <resource> list|get|show   # ops vary by resource
 zscalerctl zia url-lookup <url> [url...]        # diagnostic lookup
 zscalerctl dump --products zia,zpa --out ./scratch-live-dump
+zscalerctl diff ./old-dump ./new-dump
 zscalerctl schema list
 zscalerctl version
 zscalerctl completion bash|zsh|fish|powershell
 ```
 
-`diff` (compare two dump directories) is planned, not yet implemented. There is
-no code for it yet.
+`diff` compares two existing dump directories on disk. It does not collect live
+data, run in the background, or schedule recurring checks; operators should use
+cron, CI, or another external scheduler to create dumps when they want a
+recurring drift workflow.
 
 ### Diagnostic lookups
 
@@ -394,6 +397,18 @@ resources are represented as `status: error` manifest entries, and
 `errors.ndjson` contains value-free error records with product, resource,
 operation, and error kind. Credential/session creation failures remain fatal
 because they indicate that live read access itself is not trustworthy.
+
+Diff compares the already-projected dump files structurally, not as raw JSON
+text. Diffs require matching dump redaction modes and reject partial dumps unless
+the caller passes `--allow-partial`. Records are paired by three identity modes:
+catalog `get_key` resources report added, removed, and changed records by key;
+singletons report changes to the single record; list-only resources without a
+stable key use a canonical content hash over non-operational fields and report
+added/removed records only. A one-field edit in content-hash mode appears as one
+removed record plus one added record because there is no stable key for a
+field-level pairing. `--ignore-operational` suppresses operational metadata for
+keyed and singleton field comparisons; content-hash identity always excludes
+operational fields to avoid phantom drift from timestamps and counters.
 
 ## Redaction Modes
 

@@ -2566,6 +2566,94 @@ func TestOutputFileBadDirectoryIsUsageErrorWithoutTempName(t *testing.T) {
 	}
 }
 
+func TestDiffComparesLocalDumpsWithoutCredentials(t *testing.T) {
+	t.Parallel()
+
+	catalog := resources.ResourceCatalog{cliDiffSpec()}
+	oldDir := writeCLIDiffDump(t, dumpFixtureForCLI{
+		spec:    cliDiffSpec(),
+		payload: `[{"id":"1","name":"old"}]`,
+	})
+	newDir := writeCLIDiffDump(t, dumpFixtureForCLI{
+		spec:    cliDiffSpec(),
+		payload: `[{"id":"1","name":"new"}]`,
+	})
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Catalog: catalog})
+
+	err := app.Run(context.Background(), []string{"--format", "json", "diff", oldDir, newDir})
+	if err != nil {
+		t.Fatalf("App.Run(diff) error = %v, want nil", err)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(diff) stderr = %q, want empty", errOut.String())
+	}
+	var report struct {
+		Schema  string `json:"schema"`
+		Summary struct {
+			RecordsChanged int `json:"records_changed"`
+		} `json:"summary"`
+		Resources []struct {
+			Product  string `json:"product"`
+			Resource string `json:"resource"`
+			Identity struct {
+				Mode  string `json:"mode"`
+				Field string `json:"field"`
+			} `json:"identity"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json.Unmarshal(diff report) error = %v; output=%q", err, out.String())
+	}
+	if report.Schema != "zscalerctl.diff.v1" {
+		t.Errorf("diff schema = %q, want zscalerctl.diff.v1", report.Schema)
+	}
+	if report.Summary.RecordsChanged != 1 {
+		t.Errorf("records_changed = %d, want 1", report.Summary.RecordsChanged)
+	}
+	if len(report.Resources) != 1 || report.Resources[0].Product != "zia" || report.Resources[0].Resource != "locations" {
+		t.Fatalf("diff resources = %#v, want zia/locations", report.Resources)
+	}
+	if report.Resources[0].Identity.Mode != "get_key" || report.Resources[0].Identity.Field != "id" {
+		t.Errorf("identity = %#v, want get_key/id", report.Resources[0].Identity)
+	}
+}
+
+func TestDiffFailOnDriftReturnsSentinelAndStillWritesOutputFile(t *testing.T) {
+	t.Parallel()
+
+	catalog := resources.ResourceCatalog{cliDiffSpec()}
+	oldDir := writeCLIDiffDump(t, dumpFixtureForCLI{
+		spec:    cliDiffSpec(),
+		payload: `[{"id":"1","name":"old"}]`,
+	})
+	newDir := writeCLIDiffDump(t, dumpFixtureForCLI{
+		spec:    cliDiffSpec(),
+		payload: `[{"id":"1","name":"new"}]`,
+	})
+	outPath := filepath.Join(t.TempDir(), "diff.json")
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Catalog: catalog})
+
+	err := app.Run(context.Background(), []string{
+		"--format", "json",
+		"--output", outPath,
+		"diff", oldDir, newDir, "--fail-on-drift",
+	})
+	if !errors.Is(err, cli.ErrDriftDetected) {
+		t.Fatalf("App.Run(diff --fail-on-drift) error = %v, want ErrDriftDetected", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(diff --output) stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(diff --output) stderr = %q, want empty", errOut.String())
+	}
+	if got := readFile(t, outPath); !strings.Contains(got, `"schema": "zscalerctl.diff.v1"`) {
+		t.Errorf("diff output file = %q, want diff schema", got)
+	}
+}
+
 func TestAuthStatusTableLabelMatchesJSONKey(t *testing.T) {
 	t.Parallel()
 
@@ -2665,5 +2753,61 @@ func TestProductHelpListsItsResources(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "schema list") || !strings.Contains(err.Error(), "zpa --help") {
 		t.Errorf("zpa unknown-resource error = %q, want enumeration hints", err.Error())
+	}
+}
+
+type dumpFixtureForCLI struct {
+	spec    resources.ResourceSpec
+	payload string
+}
+
+func writeCLIDiffDump(t *testing.T, fixture dumpFixtureForCLI) string {
+	t.Helper()
+	dir := t.TempDir()
+	relPath := filepath.ToSlash(filepath.Join("resources", string(fixture.spec.Product), fixture.spec.Name+".json"))
+	path := filepath.Join(dir, relPath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(%s) error = %v, want nil", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(fixture.payload), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%s) error = %v, want nil", path, err)
+	}
+	manifest := dump.Manifest{
+		Schema:      dump.ManifestSchemaID,
+		CollectedAt: "2026-01-01T00:00:00Z",
+		ToolVersion: "test",
+		Redaction:   string(redact.ModeStandard),
+		Warning:     "test fixture",
+		Status:      "complete",
+		Resources: []dump.ManifestResource{
+			{
+				Product: string(fixture.spec.Product),
+				Name:    fixture.spec.Name,
+				Shape:   string(fixture.spec.EffectiveShape()),
+				Status:  "ok",
+				Path:    relPath,
+				Records: 1,
+			},
+		},
+	}
+	body, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("json.MarshalIndent(manifest) error = %v, want nil", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), body, 0o600); err != nil {
+		t.Fatalf("os.WriteFile(manifest) error = %v, want nil", err)
+	}
+	return dir
+}
+
+func cliDiffSpec() resources.ResourceSpec {
+	return resources.ResourceSpec{
+		Product:    resources.ProductZIA,
+		Name:       "locations",
+		Operations: resources.ReadOperations(),
+		Fields: []resources.FieldSpec{
+			{Name: "id", Classification: resources.ClassOperational},
+			{Name: "name", Classification: resources.ClassTenantConfig},
+		},
 	}
 }

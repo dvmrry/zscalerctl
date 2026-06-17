@@ -96,6 +96,14 @@ lookup and never modifies tenant state. At least one URL is required.
 Write a sanitized multi-resource dump (manifest.json, redaction_report.json,
 per-resource files, and errors.ndjson on failure) into a new directory.
 .TP
+.B diff <old-dump-dir> <new-dump-dir> [\-\-products ...] [\-\-resources ...] [\-\-ignore-operational] [\-\-detail] [\-\-allow-partial] [\-\-fail-on-drift]
+Compare two existing dump directories and emit a local drift report. By
+default drift is reported with exit 0; \fB\-\-fail-on-drift\fR returns exit 7
+when added, removed, or changed records are detected. List and array fields are
+compared in order, so reordering a list is reported as drift. The command
+performs no live API calls and does not schedule collection; use cron, CI, or
+another external scheduler to create dumps at the cadence you need.
+.TP
 .B schema list
 Print the resource catalog (products, resources, operations, field model).
 .TP
@@ -179,6 +187,9 @@ Live API access failure.
 .TP
 .B 6
 Partial dump (some resources failed; see errors.ndjson).
+.TP
+.B 7
+Drift detected when \fBdiff \-\-fail-on-drift\fR is used.
 .SH SEE ALSO
 Project documentation under \fBdocs/\fR, including ARCHITECTURE.md,
-THREAT_MODEL.md, and the published dump schemas in docs/schema/.
+THREAT_MODEL.md, and the published dump and diff schemas in docs/schema/.

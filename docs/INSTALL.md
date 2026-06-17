@@ -147,6 +147,37 @@ export ZSCALERCTL_ZIA_CLOUD=<zia-cloud-name>
 Inline `ZSCALERCTL_ZIA_PASSWORD` and `ZSCALERCTL_ZIA_API_KEY` are supported for
 short-lived local smoke tests, but file-based secret delivery is preferred.
 
+## Drift Checks
+
+`zscalerctl` does not run a daemon or scheduler. A drift workflow is simply:
+collect one dump, collect a later dump, then compare the two directories.
+
+```sh
+today="$(date -u +%Y%m%dT%H%M%SZ)"
+zscalerctl dump --products zia,zpa,ztw,zcc,zidentity --out "$HOME/zscaler-dumps/$today"
+zscalerctl --format json diff "$HOME/zscaler-dumps/previous" "$HOME/zscaler-dumps/$today" \
+  --fail-on-drift --output "$HOME/zscaler-dumps/$today.diff.json"
+```
+
+Use cron, launchd, systemd timers, GitHub Actions, or your scheduler of choice
+to run those commands on the cadence you need. For GitHub Actions, keep the
+dump directories as encrypted/restricted artifacts or write them to a protected
+storage location; sanitized dumps and diff reports are still confidential tenant
+inventory.
+
+```yaml
+on:
+  schedule:
+    - cron: "0 6 * * *"
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: zscalerctl dump --products zia --out ./current
+      - run: zscalerctl --format json diff ./baseline ./current --fail-on-drift --output ./drift.json
+```
+
 ## Configure A Proxy
 
 By default, live reads use a direct transport and ignore ambient proxy

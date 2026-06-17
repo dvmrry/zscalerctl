@@ -64,9 +64,9 @@ func NewResourceError(product resources.Product, name string, operation string, 
 	}
 }
 
-// manifestSchemaID is the versioned schema identifier written to manifest.json.
+// ManifestSchemaID is the versioned schema identifier written to manifest.json.
 // It must match the `schema` const published in docs/schema/manifest.schema.json.
-const manifestSchemaID = "zscalerctl.dump.manifest.v2"
+const ManifestSchemaID = "zscalerctl.dump.manifest.v2"
 
 type Manifest struct {
 	Schema      string             `json:"schema"`
@@ -146,7 +146,7 @@ func Write(dir string, mode redact.Mode, result Result) error {
 	}
 
 	manifest := Manifest{
-		Schema:      manifestSchemaID,
+		Schema:      ManifestSchemaID,
 		CollectedAt: time.Now().UTC().Format(time.RFC3339),
 		ToolVersion: version.Current().Version,
 		Redaction:   string(mode),

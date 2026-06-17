@@ -13,6 +13,7 @@ import (
 var (
 	completionFlags     = []string{"--profile", "--format", "--output", "--timeout", "--redaction", "--color", "--no-color", "--no-cache", "--log-level", "--fields", "--filter", "--search"}
 	completionDumpFlags = []string{"--out", "--products", "--resources", "--continue-on-error", "--force"}
+	completionDiffFlags = []string{"--products", "--resources", "--ignore-operational", "--detail", "--allow-partial", "--fail-on-drift"}
 	completionFormats   = []string{"auto", "table", "json", "ndjson", "pretty"}
 	completionRedaction = []string{"standard", "share", "paranoid"}
 	completionColors    = []string{"auto", "always", "never"}
@@ -74,6 +75,7 @@ _zscalerctl()
     config) COMPREPLY=( $(compgen -W "show" -- "$cur") ); return ;;
     schema) COMPREPLY=( $(compgen -W "list" -- "$cur") ); return ;;
     dump) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
+    diff) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
 %s
     %s) COMPREPLY=( $(compgen -W "%s" -- "$cur") ); return ;;
   esac
@@ -89,6 +91,7 @@ complete -F _zscalerctl zscalerctl
 		words(dumpResourceNames()),
 		words(completionShells),
 		words(completionDumpFlags),
+		words(completionDiffFlags),
 		bashProductResourceCases(),
 		bashCasePatterns(allResourceNames()),
 		words(operationNames()),
@@ -101,7 +104,7 @@ func zshCompletion() string {
 	return fmt.Sprintf(`#compdef zscalerctl
 
 _zscalerctl() {
-  local -a commands flags formats redactions colors products dump_resources shells operations dump_flags
+  local -a commands flags formats redactions colors products dump_resources shells operations dump_flags diff_flags
   commands=(%s)
   flags=(%s)
   formats=(%s)
@@ -112,6 +115,7 @@ _zscalerctl() {
   shells=(%s)
   operations=(%s)
   dump_flags=(%s)
+  diff_flags=(%s)
 
   case ${words[CURRENT-1]} in
     --format) compadd -- "${formats[@]}"; return ;;
@@ -124,6 +128,7 @@ _zscalerctl() {
     config) compadd -- show; return ;;
     schema) compadd -- list; return ;;
     dump) compadd -- "${dump_flags[@]}"; return ;;
+    diff) compadd -- "${diff_flags[@]}"; return ;;
 %s
     %s) compadd -- "${operations[@]}"; return ;;
   esac
@@ -143,6 +148,7 @@ _zscalerctl "$@"
 		words(completionShells),
 		words(operationNames()),
 		words(completionDumpFlags),
+		words(completionDiffFlags),
 		zshProductResourceCases(),
 		zshCasePatterns(allResourceNames()),
 	)
@@ -171,6 +177,9 @@ complete -c zscalerctl -n '__fish_seen_subcommand_from schema' -a 'list'
 complete -c zscalerctl -n '__fish_seen_subcommand_from dump' -a '%s'
 complete -c zscalerctl -n '__fish_seen_subcommand_from dump' -l products -x -a '%s'
 complete -c zscalerctl -n '__fish_seen_subcommand_from dump' -l resources -x -a '%s'
+complete -c zscalerctl -n '__fish_seen_subcommand_from diff' -a '%s'
+complete -c zscalerctl -n '__fish_seen_subcommand_from diff' -l products -x -a '%s'
+complete -c zscalerctl -n '__fish_seen_subcommand_from diff' -l resources -x -a '%s'
 %s
 complete -c zscalerctl -n '__fish_seen_subcommand_from %s' -a '%s'
 `,
@@ -180,6 +189,9 @@ complete -c zscalerctl -n '__fish_seen_subcommand_from %s' -a '%s'
 		words(completionCommandNames()),
 		words(completionShells),
 		words(completionDumpFlags),
+		words(completionProductValues()),
+		words(dumpResourceNames()),
+		words(completionDiffFlags),
 		words(completionProductValues()),
 		words(dumpResourceNames()),
 		fishProductResourceCompletions(),
@@ -203,6 +215,7 @@ Register-ArgumentCompleter -Native -CommandName zscalerctl -ScriptBlock {
   $shells = %s
   $operations = %s
   $dumpFlags = %s
+  $diffFlags = %s
   $allResources = %s
 %s
 
@@ -238,6 +251,7 @@ Register-ArgumentCompleter -Native -CommandName zscalerctl -ScriptBlock {
     'config' { Complete-ZscalerctlWords @('show'); return }
     'schema' { Complete-ZscalerctlWords @('list'); return }
     'dump' { Complete-ZscalerctlWords $dumpFlags; return }
+    'diff' { Complete-ZscalerctlWords $diffFlags; return }
 %s
   }
 
@@ -259,6 +273,7 @@ Register-ArgumentCompleter -Native -CommandName zscalerctl -ScriptBlock {
 		powershellArray(completionShells),
 		powershellArray(operationNames()),
 		powershellArray(completionDumpFlags),
+		powershellArray(completionDiffFlags),
 		powershellArray(allResourceNames()),
 		powershellProductResourceVariables(),
 		powershellProductResourceCases(),
@@ -266,7 +281,7 @@ Register-ArgumentCompleter -Native -CommandName zscalerctl -ScriptBlock {
 }
 
 func completionCommandNames() []string {
-	commands := []string{"doctor", "auth", "config", "schema", "dump", "completion", "version", "help"}
+	commands := []string{"doctor", "auth", "config", "schema", "dump", "diff", "completion", "version", "help"}
 	commands = append(commands, productNames(knownProducts())...)
 	sort.Strings(commands)
 	return commands

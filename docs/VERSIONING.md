@@ -25,12 +25,12 @@ Breaking changes are allowed in `0.x` minor releases, but not in patch releases.
 deliberate manual step (see [Automation](#automation)).
 
 Machine-readable output schemas are part of the release contract. This includes
-dump manifests, redaction reports, partial-dump error records, and the stderr
-JSON error envelope emitted by a failing command under JSON output. The
-published JSON Schemas for these artifacts live in [schema/](schema/) and carry
-versioned `schema` ids; drift tests keep them in sync with the emitting structs.
-Backward-compatible schema additions are minor releases; incompatible schema
-changes are breaking changes.
+dump manifests, redaction reports, partial-dump error records, diff reports, and
+the stderr JSON error envelope emitted by a failing command under JSON output.
+The published JSON Schemas for these artifacts live in [schema/](schema/) and
+carry versioned `schema` ids; drift tests keep them in sync with the emitting
+structs. Backward-compatible schema additions are minor releases; incompatible
+schema changes are breaking changes.
 
 Process exit codes are also part of the contract: `0` success, `1` internal
 error, `2` usage (including invalid CLI flags, an invalid resource id, an
@@ -38,7 +38,8 @@ invalid `ZSCALERCTL_*` configuration value, and invalid proxy configuration),
 `3` missing or invalid credentials, `4` resource not found or unsupported
 (including a product/resource the tenant is not entitled to, or a get-by-ID whose
 ID does not exist), `5` live API access failure, and `6` partial dump. Changing
-the meaning of an exit code is a breaking change.
+the meaning of an exit code is a breaking change. Exit code `7` means drift
+detected when `diff --fail-on-drift` is used.
 
 ## After 1.0.0
 
