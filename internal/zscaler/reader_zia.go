@@ -2,6 +2,7 @@ package zscaler
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
@@ -23,6 +24,7 @@ import (
 	riskprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudapplications/risk_profiles"
 	cloudnss "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/cloudnss"
 	nssservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/nss_servers"
+	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups"
 	dlpengines "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_engines"
 	dlpexactdatamatch "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match"
@@ -95,12 +97,89 @@ import (
 	"github.com/dvmrry/zscalerctl/internal/resources"
 )
 
+// ziaMaxPages is a fail-closed ceiling on the number of pages the bounded ZIA
+// paginators will fetch. Like the zcc/zidentity guards, termination otherwise
+// relies entirely on the server returning a short final page; an endpoint that
+// keeps returning a persistently-full page would loop until --timeout fires on
+// every request. The ceiling never trips on a real tenant (even at the smallest
+// 1000-record page size it admits a million records) but converts a
+// pathological infinite loop into a visible, descriptive error.
+const ziaMaxPages = 1000
+
+// ziaPaginate walks every page of a ZIA list endpoint, mirroring the SDK's
+// ReadAllPages contract (advance until a page returns fewer than pageSize
+// records) while enforcing the ziaMaxPages ceiling the vendored ReadAllPages
+// lacks. fetchPage is injectable so the ceiling is unit-testable without a live
+// tenant.
+func ziaPaginate[T any](ctx context.Context, pageSize int, fetchPage func(ctx context.Context, page, pageSize int) ([]T, error)) ([]T, error) {
+	var all []T
+	for page := 1; ; page++ {
+		if page > ziaMaxPages {
+			return nil, fmt.Errorf("zia pagination exceeded the ceiling of %d pages (%d records); the endpoint kept returning full pages, so completeness cannot be guaranteed", ziaMaxPages, len(all))
+		}
+		items, err := fetchPage(ctx, page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+		if len(items) < pageSize {
+			break
+		}
+	}
+	return all, nil
+}
+
+// getZIAUsersAllPages reads /zia/api/v1/users with a bounded page walk. It
+// replaces ziausers.GetAllUsers, whose vendored ReadAllPages loop has no page
+// ceiling; the endpoint, 10000-record page size, and short-page termination are
+// preserved exactly (the reader sets no sort options, so none are sent).
+func getZIAUsersAllPages(ctx context.Context, service *zsdk.Service) ([]ziausers.Users, error) {
+	const pageSize = 10000
+	return ziaPaginate(ctx, pageSize, func(ctx context.Context, page, size int) ([]ziausers.Users, error) {
+		var items []ziausers.Users
+		err := ziacommon.ReadPage(ctx, service.Client, "/zia/api/v1/users", page, &items, size)
+		return items, err
+	})
+}
+
+// getZIALocationsAllPages reads /zia/api/v1/locations with a bounded page walk,
+// replacing locationmanagement.GetAll's unbounded loop. Endpoint, 1000-record
+// page size, and short-page termination match the SDK.
+func getZIALocationsAllPages(ctx context.Context, service *zsdk.Service) ([]locationmanagement.Locations, error) {
+	const pageSize = 1000
+	return ziaPaginate(ctx, pageSize, func(ctx context.Context, page, size int) ([]locationmanagement.Locations, error) {
+		var items []locationmanagement.Locations
+		err := ziacommon.ReadPage(ctx, service.Client, "/zia/api/v1/locations", page, &items, size)
+		return items, err
+	})
+}
+
+// getZIAURLCategoriesAll reads /zia/api/v1/urlCategories. This endpoint does not
+// paginate (the SDK's GetAll issues a single Read), so it follows the
+// networkApplications pattern instead of ziaPaginate: read one large bounded
+// page and fail closed if it fills the ceiling, since a full single page is
+// indistinguishable from a truncated one. includeOnlyUrlKeywordCounts=true
+// preserves the prior GetAll(customOnly=false, includeOnlyUrlKeywordCounts=true,
+// type="") query semantics.
+func getZIAURLCategoriesAll(ctx context.Context, service *zsdk.Service) ([]urlcategories.URLCategory, error) {
+	const pageCeiling = 5000
+	var categories []urlcategories.URLCategory
+	err := ziacommon.ReadPage(ctx, service.Client, "/zia/api/v1/urlCategories?includeOnlyUrlKeywordCounts=true", 1, &categories, pageCeiling)
+	if err != nil {
+		return nil, err
+	}
+	if len(categories) >= pageCeiling {
+		return nil, fmt.Errorf("zia url-categories returned the full single-page ceiling of %d records; this endpoint does not paginate, so completeness cannot be guaranteed", pageCeiling)
+	}
+	return categories, nil
+}
+
 func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 	entries := map[resourceKey]resourceHandler{
 		{product: resources.ProductZIA, name: resourceLocations}: newListGetHandler(
 			resourceLocations,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]locationmanagement.Locations, error) {
-				return locationmanagement.GetAll(ctx, service)
+				return getZIALocationsAllPages(ctx, service)
 			}),
 			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*locationmanagement.Locations, error) {
 				return locationmanagement.GetLocation(ctx, service, id)
@@ -180,7 +259,7 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceURLCategories}: newListGetHandler(
 			resourceURLCategories,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]urlcategories.URLCategory, error) {
-				return urlcategories.GetAll(ctx, service, false, true, "")
+				return getZIAURLCategoriesAll(ctx, service)
 			}),
 			ziaSDKStringGet(client, func(ctx context.Context, service *zsdk.Service, id string) (*urlcategories.URLCategory, error) {
 				return urlcategories.Get(ctx, service, id)
@@ -450,7 +529,7 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceUsers}: newListGetHandler(
 			resourceUsers,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ziausers.Users, error) {
-				return ziausers.GetAllUsers(ctx, service, nil)
+				return getZIAUsersAllPages(ctx, service)
 			}),
 			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*ziausers.Users, error) {
 				return ziausers.Get(ctx, service, id)

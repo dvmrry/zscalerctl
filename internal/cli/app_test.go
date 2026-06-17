@@ -1140,6 +1140,11 @@ func TestNonRecordCommandsRejectNDJSON(t *testing.T) {
 			if !strings.Contains(err.Error(), "does not support ndjson") {
 				t.Errorf("App.Run(%v) error = %q, want it to mention 'does not support ndjson'", args, err.Error())
 			}
+			// An unsupported --format is user error, so it must map to the
+			// usage exit code (2), not the internal-error code (1).
+			if !errors.Is(err, cli.ErrUsage) {
+				t.Errorf("App.Run(%v) error = %v, want errors.Is(err, cli.ErrUsage)", args, err)
+			}
 		})
 	}
 }

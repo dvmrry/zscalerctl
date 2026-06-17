@@ -34,6 +34,58 @@ func TestCompletionScriptsExposeSameGeneratedSurface(t *testing.T) {
 	}
 }
 
+// TestCompletionScriptsIncludeURLLookup guards the zia-only url-lookup
+// diagnostic verb. It is dispatched directly in app.go (not a catalog
+// resource), so resourceNames omits it; every shell's completion block must
+// still offer it after "zia".
+func TestCompletionScriptsIncludeURLLookup(t *testing.T) {
+	t.Parallel()
+
+	for _, shell := range completionShells {
+		shell := shell
+		t.Run(shell, func(t *testing.T) {
+			t.Parallel()
+
+			script, err := completionScript(shell)
+			if err != nil {
+				t.Fatalf("completionScript(%q) error = %v, want nil", shell, err)
+			}
+			if !completionScriptContainsToken(script, urlLookupCommandName) {
+				t.Errorf("completionScript(%q) missing %q", shell, urlLookupCommandName)
+			}
+		})
+	}
+}
+
+// TestCompletionScriptsOfferLogLevelValues asserts every shell completes the
+// --log-level flag's values (off/error/warn/info/debug), not just the flag name.
+func TestCompletionScriptsOfferLogLevelValues(t *testing.T) {
+	t.Parallel()
+
+	for _, shell := range completionShells {
+		shell := shell
+		t.Run(shell, func(t *testing.T) {
+			t.Parallel()
+
+			script, err := completionScript(shell)
+			if err != nil {
+				t.Fatalf("completionScript(%q) error = %v, want nil", shell, err)
+			}
+			want := words(completionLogLevels)
+			if shell == "powershell" {
+				want = powershellArray(completionLogLevels)
+			}
+			if !strings.Contains(script, want) {
+				t.Errorf("completionScript(%q) missing log-level value list %q", shell, want)
+			}
+			// The values must be wired to the --log-level flag specifically.
+			if !strings.Contains(script, "log-level") {
+				t.Errorf("completionScript(%q) does not reference log-level", shell)
+			}
+		})
+	}
+}
+
 func completionSurfaceTokensForTest() []string {
 	seen := map[string]struct{}{}
 	add := func(values ...string) {
