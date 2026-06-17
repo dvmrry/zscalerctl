@@ -176,17 +176,22 @@ jobs:
         run: |
           set -euo pipefail
           # Keyless: signs with the job's OIDC identity (id-token: write) via
-          # Sigstore — no long-lived keys. The SHA256SUMS.bundle covers every
-          # artifact through the SHA256SUMS subject list, and is the signature
-          # asset OSSF Scorecard's Signed-Releases check inspects.
+          # Sigstore — no long-lived keys. SHA256SUMS.bundle is the primary,
+          # self-contained verification artifact and covers every release file
+          # through the SHA256SUMS subject list. We ALSO emit a detached
+          # SHA256SUMS.sig + SHA256SUMS.pem because OSSF Scorecard's
+          # Signed-Releases probe recognizes detached .sig assets but does not
+          # recognize the cosign .bundle format.
           # Verify (see docs/INSTALL.md): cosign verify-blob
-          #   --bundle SHA256SUMS.bundle
+          #   --bundle SHA256SUMS.bundle  (or: --signature SHA256SUMS.sig --certificate SHA256SUMS.pem)
           #   --certificate-oidc-issuer https://token.actions.githubusercontent.com
           #   --certificate-identity-regexp '^https://github.com/<owner>/<repo>/\.github/workflows/release\.yml@'
           #   SHA256SUMS
           cd dist
           cosign sign-blob --yes \
             --bundle SHA256SUMS.bundle \
+            --output-signature SHA256SUMS.sig \
+            --output-certificate SHA256SUMS.pem \
             SHA256SUMS
 
       - name: Publish release
