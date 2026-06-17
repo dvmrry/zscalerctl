@@ -89,4 +89,5 @@ exit `4`/`5` on a live tenant may be entitlement-gated, not broken.
 Dump directories and diff reports contain sanitized but still confidential
 tenant inventory; use ignored scratch paths and do not paste payloads into
 tickets or chats. `diff` only compares dump directories already on disk; it
-does not schedule collection or contact Zscaler.
+does not schedule collection or contact Zscaler. List and array fields are
+compared in order; reordering a list is reported as drift.

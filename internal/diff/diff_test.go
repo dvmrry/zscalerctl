@@ -49,6 +49,38 @@ func TestCompareKeyedResourceNormalizesIdentityAndReportsFieldChanges(t *testing
 	assertChangedFields(t, resource.Changed[0], []string{"name"})
 }
 
+func TestCompareKeyedResourceReportsRecreatedRecordAsRemoveAndAdd(t *testing.T) {
+	catalog := resources.ResourceCatalog{testKeyedSpec()}
+	oldDir := writeTestDump(t, catalog, dumpFixture{
+		entries: []dumpEntryFixture{
+			{
+				spec:    testKeyedSpec(),
+				payload: `[{"id":"1","name":"policy"}]`,
+			},
+		},
+	})
+	newDir := writeTestDump(t, catalog, dumpFixture{
+		entries: []dumpEntryFixture{
+			{
+				spec:    testKeyedSpec(),
+				payload: `[{"id":"2","name":"policy"}]`,
+			},
+		},
+	})
+
+	report, err := Compare(oldDir, newDir, Options{Catalog: catalog})
+	if err != nil {
+		t.Fatalf("Compare() error = %v", err)
+	}
+	resource := onlyResourceDiff(t, report)
+	if len(resource.Added) != 1 || len(resource.Removed) != 1 || len(resource.Changed) != 0 {
+		t.Fatalf("recreated record diff counts added=%d removed=%d changed=%d, want 1/1/0", len(resource.Added), len(resource.Removed), len(resource.Changed))
+	}
+	if resource.Removed[0].Key != "1" || resource.Added[0].Key != "2" {
+		t.Fatalf("recreated record keys removed=%+v added=%+v, want removed key 1 and added key 2", resource.Removed, resource.Added)
+	}
+}
+
 func TestCompareSingletonResourceReportsChanges(t *testing.T) {
 	catalog := resources.ResourceCatalog{testSingletonSpec()}
 	oldDir := writeTestDump(t, catalog, dumpFixture{

@@ -508,6 +508,8 @@ func canonicalValue(value any) any {
 		}
 		return out
 	case []any:
+		// Arrays are compared in order. Some fields encode precedence or ordered
+		// membership, so reordering a list is intentionally reported as drift.
 		out := make([]any, len(v))
 		for i, item := range v {
 			out[i] = canonicalValue(item)

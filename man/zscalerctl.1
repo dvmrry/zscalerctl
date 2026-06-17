@@ -99,9 +99,10 @@ per-resource files, and errors.ndjson on failure) into a new directory.
 .B diff <old-dump-dir> <new-dump-dir> [\-\-products ...] [\-\-resources ...] [\-\-ignore-operational] [\-\-detail] [\-\-allow-partial] [\-\-fail-on-drift]
 Compare two existing dump directories and emit a local drift report. By
 default drift is reported with exit 0; \fB\-\-fail-on-drift\fR returns exit 7
-when added, removed, or changed records are detected. The command performs no
-live API calls and does not schedule collection; use cron, CI, or another
-external scheduler to create dumps at the cadence you need.
+when added, removed, or changed records are detected. List and array fields are
+compared in order, so reordering a list is reported as drift. The command
+performs no live API calls and does not schedule collection; use cron, CI, or
+another external scheduler to create dumps at the cadence you need.
 .TP
 .B schema list
 Print the resource catalog (products, resources, operations, field model).
