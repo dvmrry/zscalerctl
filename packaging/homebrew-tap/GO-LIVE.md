@@ -62,6 +62,14 @@ different repo), so `GITHUB_TOKEN` is not enough. Mint a **fine-grained PAT**:
 cp packaging/homebrew-tap/bump-homebrew.yml .github/workflows/bump-homebrew.yml
 ```
 
+**Before merging, SHA-pin the actions** (this repo enforces `verify-actions-pinned.sh`,
+which scans `.github/` — the staged file uses floating `@v3`/`@v4`/`@master` and will
+fail the gate otherwise). Pin all three to a commit SHA with a trailing Renovate
+version comment: `dawidd6/action-homebrew-bump-formula`, `actions/checkout`, and
+`Homebrew/actions/setup-homebrew`. Pin at merge time (not now) so the SHAs aren't
+stale by go-live. The tap repo's own `ci.yml` isn't subject to this gate, but pin it
+too for hygiene.
+
 Open a PR, confirm CI, merge. It triggers on `release: published`.
 
 ### 4. Add the Homebrew section to docs (same PR as step 3)
