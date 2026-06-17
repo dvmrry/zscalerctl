@@ -28,6 +28,7 @@ zscalerctl --format json zia locations list
 zscalerctl --format json zia locations get 12345
 zscalerctl --format json zia advanced-settings show
 zscalerctl dump --products zia --out ./scratch-live-dump   # sanitized whole-product export
+zscalerctl --format json diff ./old-dump ./new-dump        # compare two existing dumps
 ```
 
 ## Credentials
@@ -52,7 +53,8 @@ to set them rather than inventing values or hunting through shell config.**
   `{"error": {"kind": "...", "message": "...", "product": "...", "resource": "..."}}`
 - Exit codes are a stable contract: `0` ok, `1` internal, `2` usage,
   `3` credentials missing/invalid, `4` not found/unsupported (including a
-  `get` of a nonexistent id), `5` live API failure, `6` partial dump.
+  `get` of a nonexistent id), `5` live API failure, `6` partial dump,
+  `7` drift detected when `diff --fail-on-drift` is used.
 - Narrow output with `--fields a,b,c` (can only narrow, never widen).
 - Bound each call with `--timeout 30s` — it caps each HTTP request (not the
   whole run), so a slow or unreachable tenant can't hang you indefinitely.
@@ -84,5 +86,7 @@ of rendered fields — it never widens the allow-list, so no mode can surface a
 dropped or secret field. Do not try to recover dropped fields — absence is deliberate
 ([docs/FIELD_COVERAGE.md](docs/FIELD_COVERAGE.md)). Resources failing with
 exit `4`/`5` on a live tenant may be entitlement-gated, not broken.
-Dump directories contain sanitized but still confidential tenant inventory; use
-ignored scratch paths and do not paste dump payloads into tickets or chats.
+Dump directories and diff reports contain sanitized but still confidential
+tenant inventory; use ignored scratch paths and do not paste payloads into
+tickets or chats. `diff` only compares dump directories already on disk; it
+does not schedule collection or contact Zscaler.

@@ -99,8 +99,8 @@ func TestManifestSchemaIDMatchesPublishedConst(t *testing.T) {
 	if !ok {
 		t.Fatalf("manifest.schema.json: properties.schema.const = %v, want string", node["const"])
 	}
-	if manifestSchemaID != published {
-		t.Errorf("manifestSchemaID = %q, want published schema const %q", manifestSchemaID, published)
+	if ManifestSchemaID != published {
+		t.Errorf("ManifestSchemaID = %q, want published schema const %q", ManifestSchemaID, published)
 	}
 }
 

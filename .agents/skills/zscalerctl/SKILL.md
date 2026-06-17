@@ -30,9 +30,13 @@ can modify tenant state.
 - Piped output is deterministic JSON; failures emit a JSON error envelope on
   stderr with `kind`, `product`, `resource`.
 - Exit codes: 0 ok, 2 usage, 3 credentials missing, 4 not found/unsupported,
-  5 live API failure (possibly entitlement), 6 partial dump.
+  5 live API failure (possibly entitlement), 6 partial dump, 7 drift detected
+  when `diff --fail-on-drift` is used.
 - `--fields a,b,c` narrows output; `zscalerctl dump --products zia --out DIR`
   writes a sanitized export.
+- `zscalerctl --format json diff OLD_DUMP_DIR NEW_DUMP_DIR` compares two
+  existing dumps. It does not schedule collection or contact Zscaler; use cron,
+  CI, or another scheduler to create dumps on a cadence.
 - Absent fields are deliberately excluded by a fail-closed allow-list — do
   not try to recover them.
 

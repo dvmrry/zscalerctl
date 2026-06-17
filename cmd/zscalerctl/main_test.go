@@ -33,6 +33,7 @@ func TestExitCodeForError(t *testing.T) {
 		{"usage", cli.ErrUsage, exitUsageError},
 		{"partial_dump", cli.ErrPartialDump, exitPartialDump},
 		{"wrapped_partial_dump", fmt.Errorf("dump zia: %w", cli.ErrPartialDump), exitPartialDump},
+		{"drift_detected", cli.ErrDriftDetected, exitDriftDetected},
 		{"not_found", cli.ErrNotFound, exitNotFound},
 		{"resource_not_found", zscaler.ErrResourceNotFound, exitNotFound},
 		{"wrapped_resource_not_found", fmt.Errorf("zia get: %w", zscaler.ErrResourceNotFound), exitNotFound},

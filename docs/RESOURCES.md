@@ -53,6 +53,23 @@ Dump refuses to overwrite by default. Use `--force` only to replace an existing
 zscalerctl dump directory from a previous run; it rejects populated directories
 that do not contain a zscalerctl dump manifest.
 
+## Dump Diffs
+
+`zscalerctl diff` compares two existing dump directories locally; it does not
+schedule collection or contact Zscaler. Use the same `--products` and
+`--resources` narrowing grammar as `dump`:
+
+```sh
+zscalerctl --format json diff ./old-dump ./new-dump --resources zia/locations
+zscalerctl diff ./old-dump ./new-dump --fail-on-drift
+```
+
+Diff rejects redaction-mode mismatches and partial dumps by default
+(`--allow-partial` is explicit opt-in). Keyed resources report added, removed,
+and changed records; singleton resources report changes to their single record;
+list-only resources without a stable key use a canonical non-operational content
+hash and report added/removed records only.
+
 ## ZIA Locations
 
 Commands:

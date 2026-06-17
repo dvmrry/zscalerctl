@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/dvmrry/zscalerctl/internal/config"
+	dumpdiff "github.com/dvmrry/zscalerctl/internal/diff"
 	"github.com/dvmrry/zscalerctl/internal/dump"
 	"github.com/dvmrry/zscalerctl/internal/output"
 	"github.com/dvmrry/zscalerctl/internal/redact"
@@ -28,6 +29,7 @@ import (
 var ErrUsage = errors.New("usage error")
 var ErrPartialDump = errors.New("partial dump")
 var ErrNotFound = errors.New("not found")
+var ErrDriftDetected = errors.New("drift detected")
 
 type UsageError struct {
 	Message string
@@ -52,6 +54,16 @@ func (e PartialDumpError) Error() string {
 
 func (e PartialDumpError) Unwrap() error {
 	return ErrPartialDump
+}
+
+type DriftDetectedError struct{}
+
+func (e DriftDetectedError) Error() string {
+	return "drift detected"
+}
+
+func (e DriftDetectedError) Unwrap() error {
+	return ErrDriftDetected
 }
 
 type ResourceNotFoundError struct {
@@ -179,10 +191,13 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		a.out = &buffered
 		err := a.runParsed(ctx, opts, rest)
 		a.out = originalOut
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrDriftDetected) {
 			return err
 		}
-		return writeOutputFile(opts.output, buffered.Bytes())
+		if writeErr := writeOutputFile(opts.output, buffered.Bytes()); writeErr != nil {
+			return writeErr
+		}
+		return err
 	}
 	return a.runParsed(ctx, opts, rest)
 }
@@ -224,6 +239,11 @@ func (a *App) runParsed(ctx context.Context, opts globalOptions, rest []string) 
 			return rejectUnsupportedFormat("completion", opts.format)
 		}
 		return a.runCompletion(rest[1:])
+	case rest[0] == "diff":
+		if opts.format == output.FormatNDJSON {
+			return rejectUnsupportedFormat("diff", opts.format)
+		}
+		return a.runDiff(opts, rest[1:])
 	case isRunnableCommand(rest[0]):
 	default:
 		a.writeUsageForHumans(opts)
@@ -552,6 +572,48 @@ func splitGlobalArgs(args []string) ([]string, []string, bool, error) {
 	return global, rest, help, nil
 }
 
+func splitDiffArgs(args []string) ([]string, []string, error) {
+	boolFlags := map[string]bool{
+		"ignore-operational": true,
+		"detail":             true,
+		"allow-partial":      true,
+		"fail-on-drift":      true,
+	}
+	valueFlags := map[string]bool{
+		"products":  true,
+		"resources": true,
+	}
+	var flags []string
+	var positionals []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			positionals = append(positionals, args[i+1:]...)
+			break
+		}
+		name, hasValue := flagName(arg)
+		if name == "" {
+			positionals = append(positionals, arg)
+			continue
+		}
+		flags = append(flags, arg)
+		if hasValue || boolFlags[name] {
+			continue
+		}
+		if !valueFlags[name] {
+			// Let flag.FlagSet produce the canonical "flag provided but not
+			// defined" error for unknown flags.
+			continue
+		}
+		if i+1 >= len(args) {
+			return nil, nil, UsageError{Message: fmt.Sprintf("flag needs an argument: -%s", name)}
+		}
+		i++
+		flags = append(flags, args[i])
+	}
+	return flags, positionals, nil
+}
+
 func flagName(arg string) (string, bool) {
 	var name string
 	switch {
@@ -866,6 +928,146 @@ func (a *App) runDump(ctx context.Context, cfg config.Config, opts globalOptions
 		return PartialDumpError{Dir: *outDir, Errors: len(result.Errors)}
 	}
 	return a.renderer(cfg, opts).WriteText(a.err, output.NewSafeText(fmt.Sprintf("dump written: %s\n", *outDir)))
+}
+
+func (a *App) runDiff(opts globalOptions, args []string) error {
+	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	productsFlag := fs.String("products", "", "comma-separated products")
+	resourcesFlag := fs.String("resources", "", "comma-separated resources: locations or zia/locations")
+	ignoreOperational := fs.Bool("ignore-operational", false, "ignore operational metadata on keyed and singleton resources")
+	detail := fs.Bool("detail", false, "include record-level table details")
+	allowPartial := fs.Bool("allow-partial", false, "compare partial dumps instead of rejecting them")
+	failOnDrift := fs.Bool("fail-on-drift", false, "exit 7 when drift is detected")
+	flagArgs, positionalArgs, err := splitDiffArgs(args)
+	if err != nil {
+		return err
+	}
+	if err := fs.Parse(flagArgs); err != nil {
+		return UsageError{Message: err.Error()}
+	}
+	if len(positionalArgs) != 2 {
+		return UsageError{Message: diffUsage()}
+	}
+	catalog := a.resourceCatalog()
+	products, err := parseProducts(*productsFlag)
+	if err != nil {
+		return err
+	}
+	selectedResources, err := parseDumpResources(*resourcesFlag, products, catalog)
+	if err != nil {
+		return err
+	}
+	report, err := dumpdiff.Compare(positionalArgs[0], positionalArgs[1], dumpdiff.Options{
+		Catalog:           catalog,
+		Products:          products,
+		Resources:         diffResourceSelection(selectedResources),
+		IgnoreOperational: *ignoreOperational,
+		AllowPartial:      *allowPartial,
+	})
+	if err != nil {
+		if errors.Is(err, dumpdiff.ErrInvalidDump) ||
+			errors.Is(err, dumpdiff.ErrPartialDumpInput) ||
+			errors.Is(err, dumpdiff.ErrRedactionMismatch) {
+			return UsageError{Message: err.Error()}
+		}
+		return err
+	}
+	renderer := output.NewRenderer(redact.New(redact.ModeStandard))
+	switch opts.format {
+	case output.FormatJSON:
+		if err := renderer.WriteJSON(a.out, report); err != nil {
+			return err
+		}
+	case output.FormatTable, output.FormatPretty:
+		if err := renderer.WriteText(a.out, renderDiffTable(report, *detail, a.style(opts))); err != nil {
+			return err
+		}
+	default:
+		return rejectUnsupportedFormat("diff", opts.format)
+	}
+	if *failOnDrift && report.HasDrift() {
+		return DriftDetectedError{}
+	}
+	return nil
+}
+
+func renderDiffTable(report dumpdiff.Report, detail bool, style output.Style) output.SafeText {
+	var body strings.Builder
+	fmt.Fprintf(
+		&body,
+		"%s\t%s\t%s\t%s\t%s\n",
+		style.Key("RESOURCE"),
+		style.Key("IDENTITY"),
+		style.Key("ADDED"),
+		style.Key("REMOVED"),
+		style.Key("CHANGED"),
+	)
+	for _, resource := range report.Resources {
+		resourceName := resource.Product + "/" + resource.Resource
+		fmt.Fprintf(
+			&body,
+			"%s\t%s\t%d\t%d\t%d\n",
+			resourceName,
+			diffIdentityLabel(resource.Identity),
+			len(resource.Added),
+			len(resource.Removed),
+			len(resource.Changed),
+		)
+		if detail && resource.HasDrift() {
+			writeDiffDetailRows(&body, resourceName, resource)
+		}
+	}
+	if len(report.Resources) == 0 {
+		fmt.Fprintln(&body, "no comparable resources found")
+	}
+	fmt.Fprintf(
+		&body,
+		"\nsummary: compared=%d drifted=%d added=%d removed=%d changed=%d\n",
+		report.Summary.ResourcesCompared,
+		report.Summary.ResourcesWithDrift,
+		report.Summary.RecordsAdded,
+		report.Summary.RecordsRemoved,
+		report.Summary.RecordsChanged,
+	)
+	return output.NewSafeText(body.String())
+}
+
+func writeDiffDetailRows(body *strings.Builder, resourceName string, resource dumpdiff.ResourceDiff) {
+	for _, added := range resource.Added {
+		fmt.Fprintf(body, "%s\t+\t%s\t-\t-\n", resourceName, diffRecordRefLabel(added))
+	}
+	for _, removed := range resource.Removed {
+		fmt.Fprintf(body, "%s\t-\t%s\t-\t-\n", resourceName, diffRecordRefLabel(removed))
+	}
+	for _, changed := range resource.Changed {
+		fmt.Fprintf(body, "%s\t~\t%s\t%s\t-\n", resourceName, changed.Key, diffFieldNames(changed.Changes))
+	}
+}
+
+func diffIdentityLabel(identity dumpdiff.Identity) string {
+	if identity.Field == "" {
+		return identity.Mode
+	}
+	return identity.Mode + ":" + identity.Field
+}
+
+func diffRecordRefLabel(ref dumpdiff.RecordRef) string {
+	if ref.Key != "" {
+		return ref.Key
+	}
+	if len(ref.Hash) > 12 {
+		return ref.Hash[:12]
+	}
+	return ref.Hash
+}
+
+func diffFieldNames(changes []dumpdiff.FieldChange) string {
+	fields := make([]string, len(changes))
+	for i, change := range changes {
+		fields[i] = change.Field
+	}
+	return strings.Join(fields, ",")
 }
 
 func prepareForcedDumpDir(dir string, force bool) error {
@@ -1376,6 +1578,7 @@ func (a *App) writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  zia url-lookup <url> [url...]")
 	fmt.Fprintln(w, "  schema list")
 	fmt.Fprintln(w, "  dump --out <dir> [--products names] [--resources names] [--continue-on-error] [--force]")
+	fmt.Fprintln(w, "  diff <old-dump-dir> <new-dump-dir> [--products names] [--resources names] [--ignore-operational] [--detail] [--allow-partial] [--fail-on-drift]")
 	fmt.Fprintf(w, "  completion %s\n", completionShellNames())
 	fmt.Fprintln(w, "  version")
 	for _, product := range knownProducts() {
@@ -1624,6 +1827,13 @@ func dumpUsage() string {
 	)
 }
 
+func diffUsage() string {
+	return fmt.Sprintf(
+		"usage: zscalerctl diff <old-dump-dir> <new-dump-dir> [--products %s] [--resources names] [--ignore-operational] [--detail] [--allow-partial] [--fail-on-drift]",
+		strings.Join(productNames(knownProducts()), ","),
+	)
+}
+
 func knownProducts() []resources.Product {
 	// Derive from the enabled catalog so help and command dispatch always reflect
 	// the products that actually have resources, instead of a hardcoded list that
@@ -1650,7 +1860,7 @@ func knownProductCommand(name string) bool {
 
 func isRunnableCommand(name string) bool {
 	switch name {
-	case "doctor", "auth", "config", "schema", "dump":
+	case "doctor", "auth", "config", "schema", "dump", "diff":
 		return true
 	default:
 		return knownProductCommand(name)
@@ -2033,4 +2243,15 @@ func dumpResourceSelected(selected map[dumpResourceKey]bool, spec resources.Reso
 		return true
 	}
 	return selected[dumpResourceKey{product: spec.Product, name: spec.Name}]
+}
+
+func diffResourceSelection(selected map[dumpResourceKey]bool) map[dumpdiff.ResourceKey]bool {
+	if selected == nil {
+		return nil
+	}
+	out := make(map[dumpdiff.ResourceKey]bool, len(selected))
+	for key := range selected {
+		out[dumpdiff.ResourceKey{Product: key.product, Name: key.name}] = true
+	}
+	return out
 }

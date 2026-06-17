@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dvmrry/zscalerctl/blob/main/docs/schema/diff.schema.json",
+  "title": "zscalerctl dump diff report",
+  "description": "Schema for the report emitted by `zscalerctl diff` when comparing two existing dump directories.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "old", "new", "summary", "resources"],
+  "properties": {
+    "schema": {
+      "const": "zscalerctl.diff.v1",
+      "description": "Versioned schema identifier for this artifact."
+    },
+    "old": { "$ref": "#/$defs/dumpRef" },
+    "new": { "$ref": "#/$defs/dumpRef" },
+    "summary": { "$ref": "#/$defs/summary" },
+    "resources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resourceDiff" }
+    }
+  },
+  "$defs": {
+    "dumpRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "manifest_schema", "redaction", "status", "partial"],
+      "properties": {
+        "path": { "type": "string", "description": "Dump directory path supplied to the command." },
+        "manifest_schema": { "type": "string", "description": "Schema id from the input dump manifest." },
+        "redaction": { "type": "string", "enum": ["standard", "share", "paranoid"], "description": "Redaction mode recorded by the input dump." },
+        "status": { "type": "string", "enum": ["complete", "partial"], "description": "Status recorded by the input dump manifest." },
+        "partial": { "type": "boolean", "description": "True when the input dump was partial." }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resources_compared",
+        "resources_with_drift",
+        "records_added",
+        "records_removed",
+        "records_changed",
+        "unsupported_resources"
+      ],
+      "properties": {
+        "resources_compared": { "type": "integer", "minimum": 0 },
+        "resources_with_drift": { "type": "integer", "minimum": 0 },
+        "records_added": { "type": "integer", "minimum": 0 },
+        "records_removed": { "type": "integer", "minimum": 0 },
+        "records_changed": { "type": "integer", "minimum": 0 },
+        "unsupported_resources": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "resourceDiff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "resource", "identity", "added", "removed", "changed"],
+      "properties": {
+        "product": { "type": "string" },
+        "resource": { "type": "string" },
+        "identity": { "$ref": "#/$defs/identity" },
+        "added": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/recordRef" }
+        },
+        "removed": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/recordRef" }
+        },
+        "changed": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/recordChange" }
+        },
+        "note": { "type": "string" }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["get_key", "singleton", "content_hash"],
+          "description": "How records were paired. content_hash reports added/removed only; changed records appear as remove+add."
+        },
+        "field": { "type": "string", "description": "Identity field for get_key comparisons." }
+      }
+    },
+    "recordRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "description": "Record key for get_key or singleton comparisons." },
+        "hash": { "type": "string", "description": "Canonical content hash for content_hash comparisons." },
+        "record": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Canonical projected record."
+        }
+      }
+    },
+    "recordChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "changes"],
+      "properties": {
+        "key": { "type": "string" },
+        "changes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fieldChange" }
+        }
+      }
+    },
+    "fieldChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "old", "new"],
+      "properties": {
+        "field": { "type": "string" },
+        "old": { "description": "Old canonical value; null when the field was absent." },
+        "new": { "description": "New canonical value; null when the field was absent." }
+      }
+    }
+  }
+}
