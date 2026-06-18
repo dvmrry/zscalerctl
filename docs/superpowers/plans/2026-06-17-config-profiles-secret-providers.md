@@ -751,7 +751,7 @@ func TestResolveKeyringReturnsSecret(t *testing.T) {
 func TestResolveKeyringNotFound(t *testing.T) {
 	r := NewResolver(ResolverOpts{Keyring: fakeGetter{err: keyring.ErrNotFound}})
 	_, err := r.Resolve(context.Background(), SecretRef{Scheme: "keyring", Service: "svc", Key: "k"})
-	if err == nil || !strings.Contains(err.Error(), "env:/file:/cmd:") {
+	if err == nil || !strings.Contains(err.Error(), "env:/file:/cmd") {
 		t.Fatalf("not-found must hint at alternatives: %v", err)
 	}
 }
@@ -810,7 +810,7 @@ func (r *Resolver) resolveKeyring(ctx context.Context, ref SecretRef) (secret.Se
 	value, err := r.opts.Keyring.Get(ctx, ref.Service, ref.Key)
 	if err != nil {
 		if errors.Is(err, keyring.ErrNotFound) {
-			return secret.Secret{}, fmt.Errorf("%w: keyring has no entry for service=%q key=%q; store it or use env:/file:/cmd:", ErrInvalidRef, ref.Service, ref.Key)
+			return secret.Secret{}, fmt.Errorf("%w: keyring has no entry for service=%q key=%q; store it or use env:/file:/cmd refs", ErrInvalidRef, ref.Service, ref.Key)
 		}
 		if errors.Is(err, keyring.ErrUnavailable) {
 			// ErrUnavailable carries a value-free, actionable message by contract
@@ -1005,7 +1005,7 @@ func runKeyringCmd(ctx context.Context, timeout time.Duration, argv []string) (s
 	if runErr != nil {
 		if errors.Is(cctx.Err(), context.DeadlineExceeded) {
 			// Locked/hung keychain: actionable + value-free, so resolveKeyring surfaces it.
-			return "", "", -1, fmt.Errorf("keyring: %q timed out after %s (keychain may be locked or require interaction); use env:/file:/cmd: (%w)", argv[0], timeout, ErrUnavailable)
+			return "", "", -1, fmt.Errorf("keyring: %q timed out after %s (keychain may be locked or require interaction); use env:/file:/cmd: %w (%w)", argv[0], timeout, context.DeadlineExceeded, ErrUnavailable)
 		}
 		if cctx.Err() != nil {
 			return "", "", -1, cctx.Err() // caller cancelled — propagate the context error
@@ -1543,6 +1543,6 @@ Expected: all succeed (no cgo). Run `GOOS=windows GOARCH=amd64 go vet ./internal
 ## Self-Review (against the frozen spec)
 
 - **Spec coverage:** SecretSource (1.1,1.5,1.6) ✓; precedence (1.8) ✓; config file + perms POSIX+Windows (1.3,1.7) ✓; SafeConfig metadata + no-resolution proof (1.5,1.9) ✓; env/file (1.4,1.6) ✓; cmd structured+timeout+killswitch (2.1–2.3) ✓; keyring cgo-free (3.1–3.2) ✓; surfacing/schema/docs (4.x) ✓; backward-compat (1.6) ✓; no-fallback + unknown-scheme (1.2,1.4) ✓; keyring segment rules (1.2) ✓; value-free errors (2.2) ✓.
-- **Placeholders:** none — each task has concrete code or a concrete acceptance criterion + signatures; the one open *decision* (keyring lib vs hand-roll, Task 3.2) is an explicit decision step with both branches specified, not a TODO.
+- **Placeholders:** none — each task has concrete code or a concrete acceptance criterion + signatures; the keyring backend decision is resolved as hand-rolled, zero-new-dependency OS integrations.
 - **Type consistency:** `SecretSource`/`SecretRef`/`Resolver`/`ResolverOpts`/`Getter`/`fileperm.Validate`/`Deferred`/`Resolved`/`Unset`/`DefaultCmdTimeout` are named consistently across tasks.
 - **Verify before each PR:** `go test -mod=vendor ./...` and `make check` (gofmt, vet, staticcheck, govulncheck, semgrep, gitleaks, verify-docs, verify-actions-pinned, sync-agents-skill --check, verify-release-artifacts). New deps: `go mod tidy && go mod vendor` + `verify-licenses.sh`.
