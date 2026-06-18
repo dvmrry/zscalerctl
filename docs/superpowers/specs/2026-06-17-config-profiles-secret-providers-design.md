@@ -109,12 +109,16 @@ resolved.
 - **Permission validation, fail-closed, on every platform — phase 1:**
   - **POSIX (macOS/Linux):** reject group/world readable or writable (owner-only),
     same primitive as `*_FILE` secret files.
-  - **Windows:** **DACL validation is required in phase 1** (not deferred). Accept a
-    file whose effective read/write access is limited to the **current user** plus
-    standard administrative principals (the file owner, `SYSTEM`, `Administrators`);
-    **reject** any DACL granting access to broad principals — `Everyone`, `Users`,
-    `Authenticated Users`, etc. It need not handle every exotic ACL; it must
-    correctly accept the normal owner-only case and reject the broad-grant cases.
+  - **Windows:** **DACL validation is required in phase 1** (not deferred). Accept
+    the **current user, the file owner, `SYSTEM`, and `Administrators`**; **reject**
+    broad principals such as `Everyone`, `Users`, `Authenticated Users`,
+    `Domain Users`, or **any inherited grant that gives a non-owner interactive user
+    read/write access**. Administrative access (`SYSTEM`/`Administrators`) is
+    acceptable but **not sufficient on its own** — the file is rejected if any broad
+    interactive principal is granted, regardless of the admin entries (so "standard
+    inherited ACLs" are *not* automatically fine). It need not handle every exotic
+    ACL; it must accept the normal owner-only case and reject the broad-grant and
+    broad-inherited cases.
     Implemented via `golang.org/x/sys/windows` security-descriptor APIs (cgo-free).
   - This validation is enforced **even though the file holds no secrets**, because
     it holds `cmd:` argv (see threat model). The Windows DACL validator is written as
@@ -143,7 +147,7 @@ profiles:
     zia_api_key_ref:             # cmd is STRUCTURED, never a shell string
       cmd:
         argv: ["/usr/local/bin/get-zia-key", "--profile", "preprod"]
-        timeout: 10s             # optional; bounds the secret fetch (default below)
+        timeout: 10s             # optional; overrides the 10s default; bounds the fetch
     zia_cloud: "..."
 ```
 
@@ -173,9 +177,10 @@ Rules:
   require platform-dependent argv parsing. `argv` is a non-empty list; `argv[0]` is
   the executable; nothing is shell-interpreted.
 - **`cmd:` timeout:** every `cmd:` resolution is bounded by a context timeout
-  (per-ref `timeout`, else a built-in default — **proposed 10s**). A hung provider
+  (per-ref `timeout`, else a built-in **default of 10s — final**). A hung provider
   can never hang a live read. The timeout is independent of `--timeout` (which bounds
-  HTTP requests).
+  HTTP requests). 10s is enough for `op`/`pass`/`sops`/`az`/a local wrapper and short
+  enough to avoid a "why is my list hung?" spiral.
 - **No automatic fallback:** an unavailable `keyring:`/`cmd:` fails loud
   (`keyring backend unavailable on this host; use env:, file:, or cmd:`).
 - `keyring:` sits behind a **mockable interface** so CI never touches a real
@@ -280,9 +285,13 @@ create a config file notices anything.
 ## Rollout
 
 Single coherent pre-1.0 feature. Likely phasing for the implementation plan:
-**(1)** `SecretSource` + config loader + POSIX & Windows permission validation +
-`env`/`file` providers + precedence + backward-compat; **(2)** `cmd:` (structured,
-timeout, kill-switch) + threat-model docs; **(3)** `keyring:` cgo-free backend;
-**(4)** `config show`/`doctor` surfacing + schema + remaining docs. Fast-follows
+**(1)** `SecretSource` + config loader + POSIX & Windows DACL validation +
+`env`/`file` providers + precedence + backward-compat **+ a minimal `SafeConfig`
+metadata view** (active profile, config source, per-secret `Scheme()`/`IsConfigured()`
+— no resolution). This view lands in phase 1 on purpose: it is how phase 1 *proves*
+the no-resolution property ("safe output reads metadata without resolving"), so it is
+a test surface, not just docs polish. **(2)** `cmd:` (structured, timeout,
+kill-switch) + threat-model docs; **(3)** `keyring:` cgo-free backend (read);
+**(4)** fuller `config show`/`doctor` surfacing + config JSON schema + remaining docs. Fast-follows
 (separately, demand-validated): keyring **write** helper, native cgo keychain,
 SOPS conveniences, Windows DACL for `file:` secrets.
