@@ -40,7 +40,11 @@ counts (metadata only — never record values or secrets).
 
 Configuration is `ZSCALERCTL_*` env-first, with optional owner-only YAML
 profiles selected by `--profile` and `--config`. Env variables always win over
-profiles, and the Zscaler SDK's own variables are never read. Run
+profiles, and the Zscaler SDK's own variables are never read. Profile secret
+refs can point at `env:`, `file:`, or structured `cmd:` providers; `cmd:` runs
+an operator-specified argv directly with no shell and can be disabled with
+`ZSCALERCTL_DISALLOW_CMD=true`. Do not invent or edit provider commands while
+driving the CLI — ask the operator. Run
 `zscalerctl doctor`: it reports exactly which variables or profile-backed
 secret refs are set or missing without contacting Zscaler. The canonical env
 set is in the [README](README.md#authentication)

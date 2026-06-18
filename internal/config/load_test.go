@@ -3,8 +3,10 @@ package config_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/zscalerctl/internal/config"
@@ -163,6 +165,73 @@ profiles:
 	}
 }
 
+func TestLoadConfigCmdProviderKillSwitch(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeConfig(t, fmt.Sprintf(`
+profiles:
+  default:
+    client_secret_ref:
+      cmd:
+        argv: [%q, "-test.run=^TestConfigCmdHelperProcess$", "--", "print", "cmd-secret"]
+`, os.Args[0]))
+
+	for _, env := range [][]string{
+		nil,
+		{config.EnvDisallowCmd + "=false"},
+	} {
+		cfg, err := config.LoadConfig(env, config.LoadOptions{ConfigPath: configPath})
+		if err != nil {
+			t.Fatalf("LoadConfig(cmd ref, env %v) error = %v, want nil", env, err)
+		}
+		got, err := cfg.Credentials.ClientSecret.Resolve(context.Background())
+		if err != nil {
+			t.Fatalf("ClientSecret.Resolve(cmd ref, env %v) error = %v, want nil", env, err)
+		}
+		if got.Reveal() != "cmd-secret" {
+			t.Fatalf("ClientSecret.Resolve(cmd ref, env %v) = %q, want cmd-secret", env, got.Reveal())
+		}
+	}
+
+	sentinel := filepath.Join(t.TempDir(), "provider-ran")
+	disabledPath := writeConfig(t, fmt.Sprintf(`
+profiles:
+  default:
+    client_secret_ref:
+      cmd:
+        argv: [%q, "-test.run=^TestConfigCmdHelperProcess$", "--", "touch", %q]
+`, os.Args[0], sentinel))
+	cfg, err := config.LoadConfig([]string{config.EnvDisallowCmd + "=true"}, config.LoadOptions{ConfigPath: disabledPath})
+	if err != nil {
+		t.Fatalf("LoadConfig(disabled cmd ref) error = %v, want nil", err)
+	}
+	if _, err := cfg.Credentials.ClientSecret.Resolve(context.Background()); err == nil {
+		t.Fatal("ClientSecret.Resolve(disabled cmd ref) error = nil, want disabled error")
+	}
+	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+		t.Fatalf("disabled cmd provider created %q; stat err = %v", sentinel, err)
+	}
+}
+
+func TestLoadConfigRejectsMalformedDisallowCmdWithoutValueLeak(t *testing.T) {
+	t.Parallel()
+
+	const badValue = "definitely-not-bool"
+	_, err := config.LoadConfig([]string{config.EnvDisallowCmd + "=" + badValue}, config.LoadOptions{})
+	if err == nil {
+		t.Fatal("LoadConfig(malformed disallow cmd) error = nil, want error")
+	}
+	if !errors.Is(err, config.ErrInvalidConfig) {
+		t.Fatalf("LoadConfig(malformed disallow cmd) error = %v, want ErrInvalidConfig", err)
+	}
+	if strings.Contains(err.Error(), badValue) {
+		t.Fatalf("LoadConfig(malformed disallow cmd) error = %q, want value-free error", err.Error())
+	}
+	if !strings.Contains(err.Error(), config.EnvDisallowCmd) {
+		t.Fatalf("LoadConfig(malformed disallow cmd) error = %q, want env var name", err.Error())
+	}
+}
+
 func TestLoadConfigExplicitMissingFileFails(t *testing.T) {
 	t.Parallel()
 
@@ -207,4 +276,36 @@ func (r fakeResolver) Resolve(context.Context, secretref.SecretRef) (secret.Secr
 		return secret.Secret{}, r.err
 	}
 	return r.secret, nil
+}
+
+func TestConfigCmdHelperProcess(t *testing.T) {
+	index := -1
+	for i, arg := range os.Args {
+		if arg == "--" {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return
+	}
+	args := os.Args[index+1:]
+	if len(args) == 0 {
+		os.Exit(2)
+	}
+	switch args[0] {
+	case "print":
+		fmt.Print(strings.Join(args[1:], " "))
+	case "touch":
+		if len(args) < 2 {
+			os.Exit(2)
+		}
+		if err := os.WriteFile(args[1], []byte("ran"), 0o600); err != nil {
+			fmt.Fprint(os.Stderr, err)
+			os.Exit(1)
+		}
+	default:
+		os.Exit(2)
+	}
+	os.Exit(0)
 }

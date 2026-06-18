@@ -1,10 +1,14 @@
 package secretref
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
+	"time"
 
 	"github.com/dvmrry/zscalerctl/internal/credentials"
 	"github.com/dvmrry/zscalerctl/internal/secret"
@@ -12,7 +16,9 @@ import (
 
 var ErrNoResolver = errors.New("secret resolver is not configured")
 
-type ResolverOpts struct{}
+type ResolverOpts struct {
+	AllowCmd bool
+}
 
 type Resolver struct {
 	opts ResolverOpts
@@ -39,10 +45,94 @@ func (r *Resolver) Resolve(ctx context.Context, ref SecretRef) (secret.Secret, e
 	case "file":
 		return credentials.ReadOwnerOnlySecretFile(ref.Path)
 	case "cmd":
-		return secret.Secret{}, fmt.Errorf("%w: cmd refs are not enabled in this build phase", ErrInvalidRef)
+		return r.resolveCmd(ctx, ref)
 	case "keyring":
 		return secret.Secret{}, fmt.Errorf("%w: keyring refs are not enabled in this build phase", ErrInvalidRef)
 	default:
 		return secret.Secret{}, fmt.Errorf("%w: unknown scheme %q", ErrInvalidRef, ref.Scheme)
 	}
+}
+
+func (r *Resolver) resolveCmd(ctx context.Context, ref SecretRef) (secret.Secret, error) {
+	if !r.opts.AllowCmd {
+		return secret.Secret{}, fmt.Errorf("%w: cmd refs are disabled", ErrInvalidRef)
+	}
+	if len(ref.Argv) == 0 || strings.TrimSpace(ref.Argv[0]) == "" {
+		return secret.Secret{}, fmt.Errorf("%w: cmd.argv must be non-empty", ErrInvalidRef)
+	}
+	timeout := ref.Timeout
+	if timeout <= 0 {
+		timeout = DefaultCmdTimeout
+	}
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// #nosec G204 -- owner-only profile cmd refs intentionally execute the
+	// operator-specified argv directly, with no shell and a bounded timeout.
+	cmd := exec.CommandContext(cmdCtx, ref.Argv[0], ref.Argv[1:]...)
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Env = filterEnv(os.Environ())
+
+	stdout := &cappedWriter{limit: 64 * 1024}
+	stderr := &cappedWriter{limit: 16 * 1024}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
+			return secret.Secret{}, fmt.Errorf("%w: cmd provider %q timed out after %s", ErrInvalidRef, ref.Argv[0], timeout)
+		}
+		if cmdCtx.Err() != nil {
+			return secret.Secret{}, fmt.Errorf("%w: cmd provider %q cancelled", ErrInvalidRef, ref.Argv[0])
+		}
+		if stdout.err != nil {
+			return secret.Secret{}, fmt.Errorf("%w: cmd provider %q output too large", ErrInvalidRef, ref.Argv[0])
+		}
+		return secret.Secret{}, fmt.Errorf("%w: cmd provider %q failed: %s", ErrInvalidRef, ref.Argv[0], summarizeStderr(stderr.String()))
+	}
+	if stdout.err != nil {
+		return secret.Secret{}, fmt.Errorf("%w: cmd provider %q output too large", ErrInvalidRef, ref.Argv[0])
+	}
+	outStr := strings.TrimRight(stdout.String(), "\r\n")
+	if outStr == "" {
+		return secret.Secret{}, fmt.Errorf("%w: cmd provider %q produced no output", ErrInvalidRef, ref.Argv[0])
+	}
+	return secret.New(outStr), nil
+}
+
+func summarizeStderr(stderr string) string {
+	if stderr == "" {
+		return "no stderr"
+	}
+	return fmt.Sprintf("stderr omitted (%d bytes)", len(stderr))
+}
+
+func filterEnv(environ []string) []string {
+	var filtered []string
+	for _, env := range environ {
+		if !strings.HasPrefix(env, "ZSCALERCTL_") {
+			filtered = append(filtered, env)
+		}
+	}
+	return filtered
+}
+
+type cappedWriter struct {
+	buf   bytes.Buffer
+	limit int
+	err   error
+}
+
+func (w *cappedWriter) Write(p []byte) (n int, err error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	if w.buf.Len()+len(p) > w.limit {
+		w.err = errors.New("output limit exceeded")
+		return 0, w.err
+	}
+	return w.buf.Write(p)
+}
+
+func (w *cappedWriter) String() string {
+	return w.buf.String()
 }

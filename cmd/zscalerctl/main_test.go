@@ -188,6 +188,64 @@ func TestRunJSONCredentialErrorEnvelope(t *testing.T) {
 	}
 }
 
+func TestRunDeferredSecretResolveFailureIsCredentialError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := filepath.Join(t.TempDir(), "provider-ran")
+	configPath := writeMainConfig(t, fmt.Sprintf(`
+profiles:
+  default:
+    vanity_domain: example
+    client_id: client-id
+    client_secret_ref:
+      cmd:
+        argv: [%q, "-test.run=^TestRunConfigCmdHelperProcess$", "--", "touch", %q]
+`, os.Args[0], sentinel))
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"--config", configPath, "--format", "json", "zia", "locations", "list"}, &stdout, &stderr, []string{config.EnvDisallowCmd + "=true"})
+	if code != exitCredentialError {
+		t.Fatalf("run(disabled deferred secret) exit code = %d, want %d; stderr = %q", code, exitCredentialError, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("run(disabled deferred secret) stdout = %q, want empty", stdout.String())
+	}
+	got := decodeErrorEnvelope(t, stderr.Bytes())
+	if got.Error.Kind != "missing_credentials" {
+		t.Fatalf("run(disabled deferred secret) error kind = %q, want missing_credentials", got.Error.Kind)
+	}
+	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+		t.Fatalf("disabled cmd provider created %q; stat err = %v", sentinel, err)
+	}
+}
+
+func TestRunLiveCmdProviderFailureIsCredentialError(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeMainConfig(t, fmt.Sprintf(`
+profiles:
+  default:
+    vanity_domain: example
+    client_id: client-id
+    client_secret_ref:
+      cmd:
+        argv: [%q, "-test.run=^TestRunConfigCmdHelperProcess$", "--", "fail"]
+`, os.Args[0]))
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"--config", configPath, "--format", "json", "zia", "locations", "list"}, &stdout, &stderr, nil)
+	if code != exitCredentialError {
+		t.Fatalf("run(live failing cmd) exit code = %d, want %d; stderr = %q", code, exitCredentialError, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("run(live failing cmd) stdout = %q, want empty", stdout.String())
+	}
+	got := decodeErrorEnvelope(t, stderr.Bytes())
+	if got.Error.Kind != "missing_credentials" {
+		t.Fatalf("run(live failing cmd) error kind = %q, want missing_credentials", got.Error.Kind)
+	}
+}
+
 // TestRunJSONCredentialErrorEnvelopeMissingArray verifies that the JSON error
 // envelope for a missing-credentials failure includes a non-empty "missing"
 // array of variable NAMES and that no secret values appear anywhere in the
@@ -545,4 +603,35 @@ func TestErrorDetailsPopulatesOperationContext(t *testing.T) {
 	if body.Product != "zia" || body.Resource != "locations" || body.Operation != "list" {
 		t.Errorf("errorDetails context = %q/%q/%q, want zia/locations/list", body.Product, body.Resource, body.Operation)
 	}
+}
+
+func writeMainConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v, want nil", path, err)
+	}
+	return path
+}
+
+func TestRunConfigCmdHelperProcess(t *testing.T) {
+	index := -1
+	for i, arg := range os.Args {
+		if arg == "--" {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return
+	}
+	args := os.Args[index+1:]
+	if len(args) < 2 || args[0] != "touch" {
+		os.Exit(2)
+	}
+	if err := os.WriteFile(args[1], []byte("ran"), 0o600); err != nil {
+		fmt.Fprint(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(0)
 }

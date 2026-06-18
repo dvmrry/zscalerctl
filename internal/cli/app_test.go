@@ -88,6 +88,62 @@ profiles:
 	}
 }
 
+func TestStatusCommandsWithProfileCmdRefDoNotResolve(t *testing.T) {
+	t.Parallel()
+
+	sentinel := filepath.Join(t.TempDir(), "provider-ran")
+	configPath := writeCLIConfig(t, fmt.Sprintf(`
+profiles:
+  default:
+    vanity_domain: example
+    client_id: client-id
+    client_secret_ref:
+      cmd:
+        argv: [%q, "-test.run=^TestCLIConfigCmdHelperProcess$", "--", "touch", %q]
+`, os.Args[0], sentinel))
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "config show", args: []string{"--config", configPath, "--format", "json", "config", "show"}},
+		{name: "doctor", args: []string{"--config", configPath, "--format", "json", "doctor"}},
+		{name: "auth status", args: []string{"--config", configPath, "--format", "json", "auth", "status"}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			app := cli.New(&out, &errOut, nil)
+			if err := app.Run(context.Background(), tc.args); err != nil {
+				t.Fatalf("App.Run(%s) error = %v, want nil", tc.name, err)
+			}
+			if errOut.Len() != 0 {
+				t.Errorf("App.Run(%s) stderr = %q, want empty", tc.name, errOut.String())
+			}
+			if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+				t.Fatalf("App.Run(%s) resolved cmd ref and created %q; stat err = %v", tc.name, sentinel, err)
+			}
+			if strings.Contains(out.String(), sentinel) || strings.Contains(out.String(), "TestCLIConfigCmdHelperProcess") {
+				t.Fatalf("App.Run(%s) output = %q, want no raw cmd ref", tc.name, out.String())
+			}
+		})
+	}
+
+	var out, errOut bytes.Buffer
+	app := cli.New(&out, &errOut, nil)
+	if err := app.Run(context.Background(), []string{"--config", configPath, "--format", "json", "config", "show"}); err != nil {
+		t.Fatalf("App.Run(config show) error = %v, want nil", err)
+	}
+	var safe config.SafeConfig
+	if err := json.Unmarshal(out.Bytes(), &safe); err != nil {
+		t.Fatalf("json.Unmarshal(config show) error = %v; body = %q", err, out.String())
+	}
+	if safe.Credentials.ClientSecretScheme != "cmd" {
+		t.Fatalf("SafeConfig client_secret_scheme = %q, want cmd", safe.Credentials.ClientSecretScheme)
+	}
+}
+
 func TestDoctorDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	t.Parallel()
 
@@ -3017,4 +3073,26 @@ func cliDiffSpec() resources.ResourceSpec {
 			{Name: "name", Classification: resources.ClassTenantConfig},
 		},
 	}
+}
+
+func TestCLIConfigCmdHelperProcess(t *testing.T) {
+	index := -1
+	for i, arg := range os.Args {
+		if arg == "--" {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return
+	}
+	args := os.Args[index+1:]
+	if len(args) < 2 || args[0] != "touch" {
+		os.Exit(2)
+	}
+	if err := os.WriteFile(args[1], []byte("ran"), 0o600); err != nil {
+		fmt.Fprint(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(0)
 }

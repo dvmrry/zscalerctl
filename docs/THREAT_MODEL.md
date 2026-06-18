@@ -120,6 +120,13 @@ Allowed secret sources:
 
 - Environment variables using the `ZSCALERCTL_*` namespace.
 - Secret files with strict owner-only permissions.
+- Structured `cmd` references in owner-only profile files. The command is
+  executed as an argv array with no shell interpretation, has a bounded timeout
+  plus a 2-second WaitDelay grace period to force-close misbehaving background
+  forks, and must return the secret on stdout. Provider stderr is summarized without
+  content so helper failures cannot leak token material through error messages.
+  Operators can disable this provider entirely with
+  `ZSCALERCTL_DISALLOW_CMD=true`.
 - A future OS keychain integration.
 
 Config files should contain non-secret profile settings only. Commands such as
