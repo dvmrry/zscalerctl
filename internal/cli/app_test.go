@@ -108,6 +108,7 @@ profiles:
 	}{
 		{name: "config show", args: []string{"--config", configPath, "--format", "json", "config", "show"}},
 		{name: "doctor", args: []string{"--config", configPath, "--format", "json", "doctor"}},
+		{name: "auth status", args: []string{"--config", configPath, "--format", "json", "auth", "status"}},
 	}
 	for _, tc := range cases {
 		tc := tc

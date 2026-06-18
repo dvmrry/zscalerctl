@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -100,6 +101,71 @@ func TestResolverCmdDisabledDoesNotExec(t *testing.T) {
 	}
 }
 
+func TestResolverCmdWaitDelayBoundsForkingChild(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now()
+	_, err := NewResolver(ResolverOpts{AllowCmd: true}).Resolve(context.Background(), SecretRef{
+		Scheme:  "cmd",
+		Argv:    helperCommand("fork-sleep", "5s"),
+		Timeout: 10 * time.Millisecond,
+	})
+	if err == nil {
+		t.Fatal("Resolve(cmd fork-sleep) error = nil, want timeout error")
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatalf("Resolve(cmd fork-sleep) took %s, want timeout+WaitDelay bounds (approx 2s)", time.Since(start))
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("Resolve(cmd fork-sleep) error = %v, want timeout text", err)
+	}
+}
+
+func TestResolverCmdStripsZscalerctlEnv(t *testing.T) {
+	t.Setenv("ZSCALERCTL_TEST_LEAK", "secret-value")
+
+	got, err := NewResolver(ResolverOpts{AllowCmd: true}).Resolve(context.Background(), SecretRef{
+		Scheme: "cmd",
+		Argv:   helperCommand("print-env"),
+	})
+	if err != nil {
+		t.Fatalf("Resolve(cmd print-env) error = %v, want nil", err)
+	}
+	if strings.Contains(got.Reveal(), "ZSCALERCTL_TEST_LEAK") {
+		t.Errorf("Resolve(cmd print-env) output contains ZSCALERCTL_TEST_LEAK. Output: %q", got.Reveal())
+	}
+}
+
+func TestResolverCmdBoundsOutput(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewResolver(ResolverOpts{AllowCmd: true}).Resolve(context.Background(), SecretRef{
+		Scheme: "cmd",
+		Argv:   helperCommand("write-large", "100000"), // 100k
+	})
+	if err == nil {
+		t.Fatal("Resolve(cmd write-large) error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "output too large") {
+		t.Fatalf("Resolve(cmd write-large) error = %v, want 'output too large'", err)
+	}
+}
+
+func TestResolverCmdEmptyOutput(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewResolver(ResolverOpts{AllowCmd: true}).Resolve(context.Background(), SecretRef{
+		Scheme: "cmd",
+		Argv:   helperCommand("print", "\r\n"),
+	})
+	if err == nil {
+		t.Fatal("Resolve(cmd empty) error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "produced no output") {
+		t.Fatalf("Resolve(cmd empty) error = %v, want 'produced no output'", err)
+	}
+}
+
 func helperCommand(args ...string) []string {
 	cmd := []string{os.Args[0], "-test.run=^TestResolverCmdHelperProcess$", "--"}
 	return append(cmd, args...)
@@ -123,6 +189,23 @@ func TestResolverCmdHelperProcess(t *testing.T) {
 	switch args[0] {
 	case "print":
 		fmt.Print(strings.Join(args[1:], " "))
+	case "print-env":
+		for _, e := range os.Environ() {
+			fmt.Println(e)
+		}
+	case "write-large":
+		n := 100000
+		if len(args) > 1 {
+			fmt.Sscanf(args[1], "%d", &n)
+		}
+		buf := make([]byte, n)
+		fmt.Print(string(buf))
+	case "fork-sleep":
+		if len(args) > 1 {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestResolverCmdHelperProcess$", "--", "sleep", args[1])
+			cmd.Stdout = os.Stdout
+			cmd.Start()
+		}
 	case "echo-args":
 		fmt.Print(strings.Join(args[1:], "\n"))
 	case "sleep":

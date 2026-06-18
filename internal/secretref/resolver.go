@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/dvmrry/zscalerctl/internal/credentials"
 	"github.com/dvmrry/zscalerctl/internal/secret"
@@ -69,9 +70,13 @@ func (r *Resolver) resolveCmd(ctx context.Context, ref SecretRef) (secret.Secret
 	// #nosec G204 -- owner-only profile cmd refs intentionally execute the
 	// operator-specified argv directly, with no shell and a bounded timeout.
 	cmd := exec.CommandContext(cmdCtx, ref.Argv[0], ref.Argv[1:]...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Env = filterEnv(os.Environ())
+
+	stdout := &cappedWriter{limit: 64 * 1024}
+	stderr := &cappedWriter{limit: 16 * 1024}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
 		if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
 			return secret.Secret{}, fmt.Errorf("%w: cmd provider %q timed out after %s", ErrInvalidRef, ref.Argv[0], timeout)
@@ -79,9 +84,19 @@ func (r *Resolver) resolveCmd(ctx context.Context, ref SecretRef) (secret.Secret
 		if cmdCtx.Err() != nil {
 			return secret.Secret{}, fmt.Errorf("%w: cmd provider %q cancelled", ErrInvalidRef, ref.Argv[0])
 		}
+		if stdout.err != nil {
+			return secret.Secret{}, fmt.Errorf("%w: cmd provider %q output too large", ErrInvalidRef, ref.Argv[0])
+		}
 		return secret.Secret{}, fmt.Errorf("%w: cmd provider %q failed: %s", ErrInvalidRef, ref.Argv[0], summarizeStderr(stderr.String()))
 	}
-	return secret.New(strings.TrimRight(stdout.String(), "\r\n")), nil
+	if stdout.err != nil {
+		return secret.Secret{}, fmt.Errorf("%w: cmd provider %q output too large", ErrInvalidRef, ref.Argv[0])
+	}
+	outStr := strings.TrimRight(stdout.String(), "\r\n")
+	if outStr == "" {
+		return secret.Secret{}, fmt.Errorf("%w: cmd provider %q produced no output", ErrInvalidRef, ref.Argv[0])
+	}
+	return secret.New(outStr), nil
 }
 
 func summarizeStderr(stderr string) string {
@@ -89,4 +104,35 @@ func summarizeStderr(stderr string) string {
 		return "no stderr"
 	}
 	return fmt.Sprintf("stderr omitted (%d bytes)", len(stderr))
+}
+
+func filterEnv(environ []string) []string {
+	var filtered []string
+	for _, env := range environ {
+		if !strings.HasPrefix(env, "ZSCALERCTL_") {
+			filtered = append(filtered, env)
+		}
+	}
+	return filtered
+}
+
+type cappedWriter struct {
+	buf   bytes.Buffer
+	limit int
+	err   error
+}
+
+func (w *cappedWriter) Write(p []byte) (n int, err error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	if w.buf.Len()+len(p) > w.limit {
+		w.err = errors.New("output limit exceeded")
+		return 0, w.err
+	}
+	return w.buf.Write(p)
+}
+
+func (w *cappedWriter) String() string {
+	return w.buf.String()
 }

@@ -219,6 +219,33 @@ profiles:
 	}
 }
 
+func TestRunLiveCmdProviderFailureIsCredentialError(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeMainConfig(t, fmt.Sprintf(`
+profiles:
+  default:
+    vanity_domain: example
+    client_id: client-id
+    client_secret_ref:
+      cmd:
+        argv: [%q, "-test.run=^TestRunConfigCmdHelperProcess$", "--", "fail"]
+`, os.Args[0]))
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"--config", configPath, "--format", "json", "zia", "locations", "list"}, &stdout, &stderr, nil)
+	if code != exitCredentialError {
+		t.Fatalf("run(live failing cmd) exit code = %d, want %d; stderr = %q", code, exitCredentialError, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("run(live failing cmd) stdout = %q, want empty", stdout.String())
+	}
+	got := decodeErrorEnvelope(t, stderr.Bytes())
+	if got.Error.Kind != "missing_credentials" {
+		t.Fatalf("run(live failing cmd) error kind = %q, want missing_credentials", got.Error.Kind)
+	}
+}
+
 // TestRunJSONCredentialErrorEnvelopeMissingArray verifies that the JSON error
 // envelope for a missing-credentials failure includes a non-empty "missing"
 // array of variable NAMES and that no secret values appear anywhere in the
