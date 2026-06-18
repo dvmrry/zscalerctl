@@ -478,7 +478,7 @@ Bound the read (reuse the `1<<20`-style guard pattern). Reject unknown YAML keys
 
 **Files:**
 - Modify: `internal/cli/app.go` (`config show`/`doctor` render `SafeConfig` profile + per-secret scheme), `.github/workflows/ci.yml` (add a `windows-latest` job running the `fileperm` + config tests)
-- Test: `internal/cli/app_test.go` (config show output includes profile + `client_secret: <scheme> (configured)`; **asserts no Resolve happens** — inject a resolver that fails if called)
+- Test: `internal/cli/app_test.go` (config show output includes profile + the client-secret source scheme; **asserts no Resolve happens** — inject a resolver that fails if called)
 
 - [ ] **Step 1: Failing test** — `config show --format json` with a profile + deferred keyring ref reports `"client_secret": {"scheme":"keyring","configured":true}` and the injected resolver's `Resolve` is never called.
 - [ ] **Step 2: Run, fail.**

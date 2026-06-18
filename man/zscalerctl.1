@@ -14,10 +14,12 @@ It never mutates tenant state and never emits secret material in normal output.
 .SH GLOBAL OPTIONS
 .TP
 .BI \-\-profile " name"
-Metadata label echoed in \fBconfig show\fR and \fBdoctor\fR output to tag the
-run. It does not select any configuration: all configuration comes from
-\fBZSCALERCTL_*\fR environment variables, and there are no profile config
-files.
+Profile name for optional owner-only config files. Environment variables still
+take precedence.
+.TP
+.BI \-\-config " path"
+Path to an optional owner-only YAML config file containing profiles and secret
+references.
 .TP
 .BI \-\-format " auto|table|json|ndjson|pretty"
 Output format. Defaults to \fBauto\fR, which renders the human-readable
@@ -168,9 +170,11 @@ Legacy ZIA credentials (with \fB_FILE\fR variants for password and API key)
 when \fBZSCALERCTL_AUTH_MODE=zia-legacy\fR.
 .TP
 .B ZSCALERCTL_PROFILE
-Default for \fB\-\-profile\fR. Like the flag, it is only a metadata label
-echoed in \fBconfig show\fR and \fBdoctor\fR output; it selects no
-configuration.
+Default for \fB\-\-profile\fR.
+.TP
+.B ZSCALERCTL_CONFIG
+Default config file path for profile loading. Environment variables override
+profile values.
 .TP
 .B ZSCALERCTL_REDACTION, ZSCALERCTL_NO_CACHE
 Optional defaults mirroring the matching flags.

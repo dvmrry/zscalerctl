@@ -250,7 +250,10 @@ func (a *App) runParsed(ctx context.Context, opts globalOptions, rest []string) 
 		return UsageError{Message: unknownCommandMessage(rest[0])}
 	}
 
-	cfg, err := config.LoadEnv(a.env)
+	cfg, err := config.LoadConfig(a.env, config.LoadOptions{
+		Profile:    opts.profile,
+		ConfigPath: opts.configPath,
+	})
 	if err != nil {
 		return err
 	}
@@ -308,6 +311,7 @@ func unknownCommandMessage(name string) string {
 
 type globalOptions struct {
 	profile      string
+	configPath   string
 	format       output.Format
 	output       string
 	timeout      time.Duration
@@ -380,6 +384,7 @@ type doctorStatus struct {
 	Status      string `json:"status"`
 	Mode        string `json:"mode"`
 	Profile     string `json:"profile"`
+	Config      string `json:"config"`
 	AuthMode    string `json:"auth_mode"`
 	Redaction   string `json:"redaction"`
 	Timeout     string `json:"timeout"`
@@ -403,6 +408,7 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	fs := flag.NewFlagSet("zscalerctl", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	profile := fs.String("profile", "", "profile name")
+	configPath := fs.String("config", "", "config file path")
 	format := fs.String("format", string(output.FormatAuto), "output format: auto, table, json, ndjson, pretty")
 	outputPath := fs.String("output", "", "output path")
 	timeout := fs.Duration("timeout", 30*time.Second, "request timeout")
@@ -458,6 +464,7 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	}
 	return globalOptions{
 		profile:      *profile,
+		configPath:   *configPath,
 		format:       parsedFormat,
 		output:       *outputPath,
 		timeout:      *timeout,
@@ -641,7 +648,7 @@ func flagName(arg string) (string, bool) {
 
 func isGlobalFlag(name string) bool {
 	switch name {
-	case "profile", "format", "output", "timeout", "redaction", "no-cache", "color", "no-color", "log-level", "fields", "filter", "search":
+	case "profile", "config", "format", "output", "timeout", "redaction", "no-cache", "color", "no-color", "log-level", "fields", "filter", "search":
 		return true
 	default:
 		return false
@@ -653,9 +660,6 @@ func isGlobalBoolFlag(name string) bool {
 }
 
 func applyOptions(cfg *config.Config, opts globalOptions) {
-	if opts.profile != "" {
-		cfg.Profile = opts.profile
-	}
 	if opts.redactionSet {
 		cfg.Defaults.Redaction = opts.redaction
 	}
@@ -749,16 +753,17 @@ func (a *App) runConfig(_ context.Context, cfg config.Config, opts globalOptions
 	safe := cfg.Safe()
 	body := output.RenderKeyValues([]output.KV{
 		{Key: "Profile", Value: safe.Profile},
+		{Key: "Config", Value: configSourceStatus(safe)},
 		{Key: "Auth Mode", Value: safe.AuthMode},
 		{Key: "Vanity Domain", Value: setStatus(safe.VanityDomainSet)},
 		{Key: "Cloud", Value: valueOrUnset(safe.Cloud)},
 		{Key: "Client ID", Value: setStatus(safe.Credentials.ClientIDSet)},
-		{Key: "Client Secret", Value: setStatus(safe.Credentials.ClientSecretSet || safe.Credentials.ClientSecretFileSet)},
+		{Key: "Client Secret", Value: secretSourceStatus(safe.Credentials.ClientSecretSet || safe.Credentials.ClientSecretFileSet, safe.Credentials.ClientSecretScheme)},
 		{Key: "ZPA Customer ID", Value: setStatus(safe.ZPA.CustomerIDSet)},
 		{Key: "ZPA Microtenant ID", Value: setStatus(safe.ZPA.MicrotenantIDSet)},
 		{Key: "ZIA Username", Value: setStatus(safe.ZIALegacy.UsernameSet)},
-		{Key: "ZIA Password", Value: setStatus(safe.ZIALegacy.PasswordSet || safe.ZIALegacy.PasswordFileSet)},
-		{Key: "ZIA API Key", Value: setStatus(safe.ZIALegacy.APIKeySet || safe.ZIALegacy.APIKeyFileSet)},
+		{Key: "ZIA Password", Value: secretSourceStatus(safe.ZIALegacy.PasswordSet || safe.ZIALegacy.PasswordFileSet, safe.ZIALegacy.PasswordScheme)},
+		{Key: "ZIA API Key", Value: secretSourceStatus(safe.ZIALegacy.APIKeySet || safe.ZIALegacy.APIKeyFileSet, safe.ZIALegacy.APIKeyScheme)},
 		{Key: "ZIA Cloud", Value: setStatus(safe.ZIALegacy.CloudSet)},
 		{Key: "Proxy", Value: proxyStatus(cfg.Proxy)},
 		{Key: "Redaction", Value: safe.Defaults.Redaction},
@@ -837,7 +842,7 @@ func (a *App) runProduct(ctx context.Context, cfg config.Config, opts globalOpti
 	if !spec.SupportsReadOperation(op) {
 		return UsageError{Message: fmt.Sprintf("unsupported operation %s for %s/%s\n%s", op, product, resource, resourceUsage(product, spec, 0))}
 	}
-	reader, err := a.resourceReader(cfg, opts)
+	reader, err := a.resourceReader(ctx, cfg, opts)
 	if err != nil {
 		return err
 	}
@@ -1193,9 +1198,21 @@ func validateExistingDumpDir(dir string) error {
 	return nil
 }
 
-func (a *App) resourceReader(cfg config.Config, opts globalOptions) (ResourceReader, error) {
+func (a *App) resourceReader(ctx context.Context, cfg config.Config, opts globalOptions) (ResourceReader, error) {
 	if a.reader != nil {
 		return a.reader, nil
+	}
+	clientSecret, err := cfg.Credentials.ClientSecret.Resolve(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: resolve client secret: %w", config.ErrInvalidConfig, err)
+	}
+	ziaPassword, err := cfg.ZIALegacy.Password.Resolve(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: resolve ZIA legacy password: %w", config.ErrInvalidConfig, err)
+	}
+	ziaAPIKey, err := cfg.ZIALegacy.APIKey.Resolve(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: resolve ZIA legacy API key: %w", config.ErrInvalidConfig, err)
 	}
 	// Surface SDK retry/backoff and session/token-renewal activity only when the
 	// operator opts in with --log-level debug; otherwise the reader installs a
@@ -1206,7 +1223,7 @@ func (a *App) resourceReader(cfg config.Config, opts globalOptions) (ResourceRea
 	}
 	return zscaler.NewReader(zscaler.ReaderConfig{
 		ClientID:         cfg.Credentials.ClientID,
-		ClientSecret:     cfg.Credentials.ClientSecret,
+		ClientSecret:     clientSecret,
 		VanityDomain:     cfg.VanityDomain,
 		Cloud:            cfg.Cloud,
 		ZPACustomerID:    cfg.ZPA.CustomerID,
@@ -1214,8 +1231,8 @@ func (a *App) resourceReader(cfg config.Config, opts globalOptions) (ResourceRea
 		AuthMode:         zscaler.AuthMode(cfg.EffectiveAuthMode()),
 		ZIALegacy: zscaler.ZIALegacyConfig{
 			Username: cfg.ZIALegacy.Username,
-			Password: cfg.ZIALegacy.Password,
-			APIKey:   cfg.ZIALegacy.APIKey,
+			Password: ziaPassword,
+			APIKey:   ziaAPIKey,
 			Cloud:    cfg.ZIALegacy.Cloud,
 		},
 		Timeout: opts.timeout,
@@ -1234,7 +1251,7 @@ func (a *App) dumpResourceReader(
 	opts globalOptions,
 	product resources.Product,
 ) (ResourceReader, func(), error) {
-	reader, err := a.resourceReader(cfg, opts)
+	reader, err := a.resourceReader(ctx, cfg, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1645,6 +1662,7 @@ func (a *App) writeUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "global flags:")
 	fmt.Fprintln(w, "  --profile <name>")
+	fmt.Fprintln(w, "  --config <path>")
 	fmt.Fprintln(w, "  --format auto|table|json|ndjson|pretty")
 	fmt.Fprintln(w, "  --output <path>")
 	fmt.Fprintln(w, "  --timeout <duration>")
@@ -2059,6 +2077,7 @@ func newDoctorStatus(cfg config.Config, opts globalOptions) doctorStatus {
 		Status:      "OK",
 		Mode:        "read-only",
 		Profile:     cfg.Profile,
+		Config:      configSourceStatus(cfg.Safe()),
 		AuthMode:    string(cfg.EffectiveAuthMode()),
 		Redaction:   string(cfg.Defaults.Redaction),
 		Timeout:     opts.timeout.String(),
@@ -2074,6 +2093,7 @@ func doctorStatusRows(status doctorStatus) []output.KV {
 		{Key: "Status", Value: status.Status, Kind: "ok"},
 		{Key: "Mode", Value: status.Mode, Kind: "mode"},
 		{Key: "Profile", Value: status.Profile},
+		{Key: "Config", Value: status.Config},
 		{Key: "Auth Mode", Value: status.AuthMode},
 		{Key: "Redaction", Value: status.Redaction},
 		{Key: "Timeout", Value: status.Timeout},
@@ -2139,6 +2159,23 @@ func setStatus(set bool) string {
 		return "set"
 	}
 	return "unset"
+}
+
+func secretSourceStatus(set bool, scheme string) string {
+	if !set {
+		return "unset"
+	}
+	if scheme == "" {
+		return "set"
+	}
+	return "set (" + scheme + ")"
+}
+
+func configSourceStatus(safe config.SafeConfig) string {
+	if safe.ConfigFileSet {
+		return "config file"
+	}
+	return "environment"
 }
 
 func cacheStatus(noCache bool) string {

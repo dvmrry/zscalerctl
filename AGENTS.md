@@ -38,10 +38,12 @@ counts (metadata only — never record values or secrets).
 
 ## Credentials
 
-Configuration is environment-only, via `ZSCALERCTL_*` variables — never
-files, never the Zscaler SDK's own variables. Run `zscalerctl doctor`: it
-reports exactly which variables are set or missing without contacting
-Zscaler. The canonical set is in the [README](README.md#authentication)
+Configuration is `ZSCALERCTL_*` env-first, with optional owner-only YAML
+profiles selected by `--profile` and `--config`. Env variables always win over
+profiles, and the Zscaler SDK's own variables are never read. Run
+`zscalerctl doctor`: it reports exactly which variables or profile-backed
+secret refs are set or missing without contacting Zscaler. The canonical env
+set is in the [README](README.md#authentication)
 (`ZSCALERCTL_CLIENT_ID`, `ZSCALERCTL_CLIENT_SECRET` or `..._FILE`,
 `ZSCALERCTL_VANITY_DOMAIN`, `ZSCALERCTL_CLOUD`, plus
 `ZSCALERCTL_ZPA_CUSTOMER_ID` for ZPA). **Values are operator- and

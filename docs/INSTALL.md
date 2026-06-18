@@ -9,13 +9,11 @@ operator's shell.
 Release artifacts are published for macOS and Linux on amd64 and arm64, and for
 Windows on amd64.
 
-On macOS and Linux, file-backed secrets are supported when the secret file is
-owner-only. On Windows, file-backed secrets are not supported yet because the
-permission model needs an explicit ACL design and test coverage. Windows users
-must use protected inline environment variables such as
-`ZSCALERCTL_CLIENT_SECRET`, `ZSCALERCTL_ZIA_PASSWORD`, and
-`ZSCALERCTL_ZIA_API_KEY`; `*_FILE` variables fail closed on Windows until ACL
-support lands.
+File-backed secrets are supported when the secret file is owner-only. On macOS
+and Linux, that means no group/world access. On Windows, `zscalerctl` validates
+the file DACL and accepts access for the current user, the file owner, `SYSTEM`,
+and `Administrators`; broad principals such as `Everyone`, `Users`,
+`Authenticated Users`, and `Domain Users` are rejected.
 
 Relatedly, `dump` creates its output directory and files with owner-only
 permissions on macOS and Linux, but that enforcement does not apply on Windows:
@@ -108,9 +106,11 @@ product fail at the API; no local configuration change can fix it.
 
 ### Switching Tenants
 
-`zscalerctl` has no profile file and no implicit SDK config lookup. To switch
-tenants, switch the `ZSCALERCTL_*` environment block in the current shell or CI
-job.
+`zscalerctl` supports optional owner-only YAML profiles selected with
+`--profile` and `--config`, but `ZSCALERCTL_*` environment variables remain the
+highest-precedence path and the Zscaler SDK's own config lookup is never used.
+To switch tenants in CI or an agent container, switching the `ZSCALERCTL_*`
+environment block is still the simplest and most explicit option.
 
 On macOS and Linux, keep one untracked env file per tenant and source the one
 you need:
@@ -123,16 +123,22 @@ set +a
 zscalerctl doctor
 ```
 
+For local operator workflows, a profile file can hold non-secret tenant
+metadata plus secret references such as `env:NAME` or `file:/path`; the file is
+rejected unless it is owner-only. Secret values themselves do not belong in the
+profile file.
+
 For CI, use the CI platform's protected environment or secret store and set the
 same variable names per job/environment. Do not commit env files, dump
 directories, or live-smoke artifacts.
 
-On Windows, use protected inline environment variables. File-backed secrets
-(`*_FILE`) fail closed until Windows ACL checks are designed and tested:
+On Windows, inline environment variables and file-backed secrets are both
+supported. If you use `*_FILE`, store the secret in a file whose DACL is limited
+to your account plus administrative principals:
 
 ```powershell
 $env:ZSCALERCTL_CLIENT_ID = '<client-id>'
-[Environment]::SetEnvironmentVariable('ZSCALERCTL_CLIENT_SECRET', '<client-secret>', 'Process')
+$env:ZSCALERCTL_CLIENT_SECRET_FILE = "$env:USERPROFILE\.config\zscalerctl\client-secret.txt"
 $env:ZSCALERCTL_VANITY_DOMAIN = '<vanity-domain>'
 $env:ZSCALERCTL_CLOUD = 'PRODUCTION'
 $env:ZSCALERCTL_ZPA_CUSTOMER_ID = '<zpa-customer-id>' # only for ZPA resources

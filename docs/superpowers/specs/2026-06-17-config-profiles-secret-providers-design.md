@@ -122,8 +122,8 @@ resolved.
     Implemented via `golang.org/x/sys/windows` security-descriptor APIs (cgo-free).
   - This validation is enforced **even though the file holds no secrets**, because
     it holds `cmd:` argv (see threat model). The Windows DACL validator is written as
-    a reusable primitive so the `file:` secret provider can adopt it too (closing the
-    current Windows `*_FILE` gap as a follow-on — noted, not required for phase 1).
+    a reusable primitive and is shared by the config loader and `*_FILE` secret files
+    in phase 1.
 - **Schema** (illustrative; full field set mirrors today's env vars per auth mode):
 
 ```yaml
@@ -163,7 +163,7 @@ A secret reference is **either a string** (simple schemes) **or a structured map
 | Form | Provider | Resolution | Notes |
 |------|----------|------------|-------|
 | `"env:NAME"` | env | read env var `NAME` | unset → error |
-| `"file:/path"` | file | existing `ReadOwnerOnlySecretFile` (+ Windows DACL primitive) | strict perms; already implemented for POSIX |
+| `"file:/path"` | file | existing `ReadOwnerOnlySecretFile` (+ Windows DACL primitive) | strict permissions on every supported platform |
 | `"keyring:service/key"` | keyring | cgo-free OS keychain | Linux D-Bus, Windows wincred syscall, macOS `security` CLI |
 | `{cmd: {argv: [...], timeout: D}}` | cmd | exec `argv[0]` with `argv[1:]`, **no shell**; trimmed stdout is the secret | deterministic argv across OSes; no quoting/splitting; pipes/SOPS go in a script that `argv` points at |
 
@@ -217,7 +217,7 @@ written up as a dedicated `THREAT_MODEL.md` section:
   surfaced.
 - `config show` / `doctor` render from **`SecretSource` metadata**
   (`Scheme()` + `IsConfigured()`), never from a resolved value: e.g.
-  `client_secret: keyring (configured)`. They also report the **active profile** and
+  `client secret source: keyring (configured)`. They also report the **active profile** and
   **config source** (env-only vs. the config-file path). Never values, never the
   full ref, never `cmd` argv.
 
@@ -294,4 +294,4 @@ a test surface, not just docs polish. **(2)** `cmd:` (structured, timeout,
 kill-switch) + threat-model docs; **(3)** `keyring:` cgo-free backend (read);
 **(4)** fuller `config show`/`doctor` surfacing + config JSON schema + remaining docs. Fast-follows
 (separately, demand-validated): keyring **write** helper, native cgo keychain,
-SOPS conveniences, Windows DACL for `file:` secrets.
+SOPS conveniences.

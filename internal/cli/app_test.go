@@ -52,6 +52,42 @@ func TestConfigShowDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	}
 }
 
+func TestConfigShowWithProfileSecretRefDoesNotResolve(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeCLIConfig(t, `
+default_profile: prod
+profiles:
+  prod:
+    vanity_domain: example
+    client_id: client-id
+    client_secret_ref: env:PROFILE_SECRET_MUST_NOT_BE_READ
+`)
+	var out, errOut bytes.Buffer
+	app := cli.New(&out, &errOut, nil)
+
+	err := app.Run(context.Background(), []string{"--config", configPath, "--format", "json", "config", "show"})
+	if err != nil {
+		t.Fatalf("App.Run(config show profile ref) error = %v, want nil", err)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(config show profile ref) stderr = %q, want empty", errOut.String())
+	}
+	var safe config.SafeConfig
+	if err := json.Unmarshal(out.Bytes(), &safe); err != nil {
+		t.Fatalf("json.Unmarshal(config show) error = %v; body = %q", err, out.String())
+	}
+	if safe.Source != "config" || !safe.ConfigFileSet || safe.Profile != "prod" {
+		t.Fatalf("SafeConfig source/profile = %+v, want config file prod", safe)
+	}
+	if !safe.Credentials.ClientSecretSet || safe.Credentials.ClientSecretScheme != "env" {
+		t.Fatalf("SafeConfig credentials = %+v, want env secret source", safe.Credentials)
+	}
+	if strings.Contains(out.String(), "PROFILE_SECRET_MUST_NOT_BE_READ") {
+		t.Errorf("App.Run(config show) stdout = %q, want no raw secret ref name", out.String())
+	}
+}
+
 func TestDoctorDoesNotExposeEnvironmentSecrets(t *testing.T) {
 	t.Parallel()
 
@@ -2921,6 +2957,15 @@ func TestProductHelpListsItsResources(t *testing.T) {
 type dumpFixtureForCLI struct {
 	spec    resources.ResourceSpec
 	payload string
+}
+
+func writeCLIConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%s) error = %v, want nil", path, err)
+	}
+	return path
 }
 
 func writeCLIDiffDump(t *testing.T, fixture dumpFixtureForCLI) string {

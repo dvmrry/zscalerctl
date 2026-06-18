@@ -17,10 +17,12 @@ can modify tenant state.
 2. **Never guess resource names.** Enumerate first:
    `zscalerctl --format json schema list` (full catalog: products, resources,
    operations, fields) or `zscalerctl <product> --help` (one product's list).
-3. **Credentials:** `zscalerctl doctor` reports which `ZSCALERCTL_*`
-   variables are set or missing without contacting Zscaler. If any are
-   missing, ask the operator to set them — values are environment-specific;
-   do not invent them or hunt through shell config.
+3. **Credentials:** env variables are still first-class and override optional
+   owner-only YAML profiles (`--profile`, `--config`). `zscalerctl doctor`
+   reports which env values or profile-backed secret refs are set or missing
+   without contacting Zscaler. If any are missing, ask the operator to set them
+   — values are environment-specific; do not invent them or hunt through shell
+   config.
 4. **Read:** `zscalerctl --format json <product> <resource> list | get <id> | show`,
    e.g. `zscalerctl --format json zia locations list`. Pass `--format json`
    explicitly rather than relying on piped auto-JSON.
