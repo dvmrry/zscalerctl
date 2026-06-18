@@ -1,6 +1,13 @@
 # Config Profiles + Pluggable Secret Providers — Design
 
-**Status:** Approved 2026-06-17 (brainstorming). Pre-1.0. Implementation plan to follow (writing-plans).
+**Status:** Approved-in-concept 2026-06-17 (brainstorming); revised 2026-06-17 per
+implementation review. Pre-1.0. Implementation plan to follow (writing-plans).
+
+**Revision (review pass):** introduced an explicit `SecretSource` type to resolve
+the lazy-resolution vs. "same `Config`" contradiction; promoted Windows DACL
+validation of the config file to a **phase-1 requirement**; made `cmd:` a
+**structured** provider (`argv` array, no shell-like string) with a fetch timeout;
+tightened `keyring:` segment rules and `ZSCALERCTL_DISALLOW_CMD` parsing.
 
 ## Problem
 
@@ -23,6 +30,7 @@ on disk and without regressing the env-only security posture.
 - **No automatic plaintext fallback** — fail closed and loud.
 - **100% backward compatible:** env-only behavior is byte-for-byte unchanged, and
   env has the highest precedence.
+- **Cross-platform**, Windows included (config-file DACL validation in phase 1).
 
 ## Non-goals (v1 — explicit scope boundaries)
 
@@ -53,14 +61,44 @@ flag  >  env (ZSCALERCTL_*)  >  active profile  >  built-in default
 - Profile selection: `--profile NAME` > `ZSCALERCTL_PROFILE` > config `default_profile`.
 - **No config file present ⇒ identical to today.**
 
-### Secret-specific precedence
+### Config shape — `SecretSource` (resolves the lazy-vs-eager contradiction)
+
+The credential secret fields on `Config` change from concrete `secret.Secret` to a
+**`SecretSource`** — a small type that carries *provenance metadata* and can resolve
+to a `secret.Secret` on demand:
+
+```
+type SecretSource interface {
+    Scheme() string                 // "env" | "file" | "cmd" | "keyring" | "" (unset)
+    IsConfigured() bool             // a source exists (not whether it resolves)
+    Resolve(ctx context.Context) (secret.Secret, error)
+}
+```
+
+- **Env-inline and env-file resolve eagerly at load** (preserves today's behavior,
+  keeps fail-fast on a bad secret-file permission). Their `SecretSource` simply
+  wraps the already-resolved `secret.Secret`; `Resolve` returns it.
+- **Profile `*_ref` sources stay unresolved** — `Resolve` runs the provider
+  (`cmd:`/`keyring:`/`file:`/`env:`) only when called.
+- **`Resolve` is called exactly once, when `resourceReader` is constructed** (i.e.
+  a live API call). `doctor` / `config show` / `schema list` / `version` /
+  `completion` never call `Resolve`.
+
+This is the core implementation shape: `LoadEnv`/`LoadConfig` return a `Config`
+whose secret fields are `SecretSource`, not a mix of eager and lazy that pretends
+to be the same concrete type.
+
+### Secret-specific precedence (which source wins)
 
 ```
 inline env (e.g. ZSCALERCTL_CLIENT_SECRET)
   > env file (e.g. ZSCALERCTL_CLIENT_SECRET_FILE)
-  > profile secret_ref (resolved via provider)
+  > profile *_ref (deferred SecretSource)
   > unset
 ```
+
+The winning source becomes the field's `SecretSource`; only the winner is ever
+resolved.
 
 ## Config file
 
@@ -68,10 +106,20 @@ inline env (e.g. ZSCALERCTL_CLIENT_SECRET)
 - **Location:** `$XDG_CONFIG_HOME/zscalerctl/config.yaml` (default
   `~/.config/zscalerctl/config.yaml`); overridable with `--config PATH` or
   `ZSCALERCTL_CONFIG`.
-- **Owner-only, fail-closed:** validated exactly like `*_FILE` secret files (reject
-  group/world-readable; same Windows fail-closed posture until ACL support lands).
-  Enforced **even though it holds no secrets**, because it holds `cmd:` refs (see
-  threat model).
+- **Permission validation, fail-closed, on every platform — phase 1:**
+  - **POSIX (macOS/Linux):** reject group/world readable or writable (owner-only),
+    same primitive as `*_FILE` secret files.
+  - **Windows:** **DACL validation is required in phase 1** (not deferred). Accept a
+    file whose effective read/write access is limited to the **current user** plus
+    standard administrative principals (the file owner, `SYSTEM`, `Administrators`);
+    **reject** any DACL granting access to broad principals — `Everyone`, `Users`,
+    `Authenticated Users`, etc. It need not handle every exotic ACL; it must
+    correctly accept the normal owner-only case and reject the broad-grant cases.
+    Implemented via `golang.org/x/sys/windows` security-descriptor APIs (cgo-free).
+  - This validation is enforced **even though the file holds no secrets**, because
+    it holds `cmd:` argv (see threat model). The Windows DACL validator is written as
+    a reusable primitive so the `file:` secret provider can adopt it too (closing the
+    current Windows `*_FILE` gap as a follow-on — noted, not required for phase 1).
 - **Schema** (illustrative; full field set mirrors today's env vars per auth mode):
 
 ```yaml
@@ -82,7 +130,7 @@ profiles:
     vanity_domain: example
     cloud: PRODUCTION
     client_id: "..."             # identifier, not a secret
-    client_secret_ref: "keyring:zscalerctl/prod/client_secret"
+    client_secret_ref: "keyring:zscalerctl/prod-client-secret"
     zpa_customer_id: "..."
     zpa_microtenant_id: "..."    # optional
     # operational defaults (only fields with existing env equivalents) — Decision B
@@ -92,31 +140,46 @@ profiles:
     auth_mode: zia-legacy
     zia_username: "..."
     zia_password_ref: "file:/path/to/owner-only/pw"
-    zia_api_key_ref: "cmd:/usr/local/bin/get-zia-key --profile preprod"
+    zia_api_key_ref:             # cmd is STRUCTURED, never a shell string
+      cmd:
+        argv: ["/usr/local/bin/get-zia-key", "--profile", "preprod"]
+        timeout: 10s             # optional; bounds the secret fetch (default below)
     zia_cloud: "..."
 ```
 
 A **drift-gated JSON schema** for the config file ships under `docs/schema/`
 (matching the existing dump/diff/error schema discipline).
 
-## Secret providers
+## Secret references
 
-A secret reference is `scheme:value`, resolved to the existing protected
-`secret.Secret` type by a small dispatcher in `internal/secretref`.
+A secret reference is **either a string** (simple schemes) **or a structured map**
+(`cmd`). A custom `SecretRef` YAML unmarshaller accepts both forms and produces a
+`SecretSource`.
 
-| Scheme | Resolution | Notes |
-|--------|------------|-------|
-| `env:NAME` | read env var `NAME` | unset → error |
-| `file:/path` | existing `credentials.ReadOwnerOnlySecretFile` | strict perms; already implemented, just exposed as a scheme |
-| `cmd:prog [args]` | exec **directly, no shell**; trimmed stdout is the secret | no shell ⇒ no injection; pipes/SOPS go in a script the ref points at |
-| `keyring:service/key` | cgo-free OS keychain | Linux D-Bus, Windows wincred syscall, macOS `security` CLI |
+| Form | Provider | Resolution | Notes |
+|------|----------|------------|-------|
+| `"env:NAME"` | env | read env var `NAME` | unset → error |
+| `"file:/path"` | file | existing `ReadOwnerOnlySecretFile` (+ Windows DACL primitive) | strict perms; already implemented for POSIX |
+| `"keyring:service/key"` | keyring | cgo-free OS keychain | Linux D-Bus, Windows wincred syscall, macOS `security` CLI |
+| `{cmd: {argv: [...], timeout: D}}` | cmd | exec `argv[0]` with `argv[1:]`, **no shell**; trimmed stdout is the secret | deterministic argv across OSes; no quoting/splitting; pipes/SOPS go in a script that `argv` points at |
 
-- Unknown scheme → clear error. A bare value with no scheme → error
+Rules:
+- **Unknown scheme / bare value with no scheme → clear error**
   ("secret refs require a provider scheme").
+- **`keyring:` format:** exactly `keyring:<service>/<key>`. Split on the **first**
+  `/`. Both segments are required and **must not be empty or contain `/`** (reject
+  otherwise) — no escaping, no ambiguity.
+- **`cmd:` is structured-only.** No `"cmd:prog args"` string form — that would
+  require platform-dependent argv parsing. `argv` is a non-empty list; `argv[0]` is
+  the executable; nothing is shell-interpreted.
+- **`cmd:` timeout:** every `cmd:` resolution is bounded by a context timeout
+  (per-ref `timeout`, else a built-in default — **proposed 10s**). A hung provider
+  can never hang a live read. The timeout is independent of `--timeout` (which bounds
+  HTTP requests).
 - **No automatic fallback:** an unavailable `keyring:`/`cmd:` fails loud
   (`keyring backend unavailable on this host; use env:, file:, or cmd:`).
 - `keyring:` sits behind a **mockable interface** so CI never touches a real
-  keychain; the keychain is a desktop-interactive convenience on every OS (may
+  keychain. The keychain is a desktop-interactive convenience on every OS (may
   prompt; locked/headless sessions fail) — which is why `env`/`file`/`cmd` remain
   the headless path.
 
@@ -125,52 +188,74 @@ A secret reference is `scheme:value`, resolved to the existing protected
 `cmd:` turns the config file into a code-execution vector. Mitigation chain,
 written up as a dedicated `THREAT_MODEL.md` section:
 
-1. **Config is owner-only or we fail closed.** Same gate as secret files.
-2. **`cmd:` execs directly, never through a shell.** No shell-injection surface.
-3. **Reasoning:** if the config is owner-only, only *you* can add a `cmd:` ref, and
-   you could already run anything as yourself — so it grants no new privilege. The
-   only escalation ("attacker can write your owner-only config") already implies the
-   attacker owns your account (shell rc, PATH, …). This is exactly the AWS
+1. **Config permissions are validated or we fail closed** — POSIX owner-only and
+   Windows DACL (phase 1). Same gate, both platforms.
+2. **`cmd:` execs a structured `argv` directly, never through a shell.** No
+   shell-injection surface, no quoting ambiguity.
+3. **Bounded by a fetch timeout** so a hung/forked provider can't wedge a live read.
+4. **Reasoning:** if the config is writable only by you, only *you* can add a `cmd:`
+   ref, and you could already run anything as yourself — so it grants no new
+   privilege. The only escalation ("attacker can write your protected config")
+   already implies the attacker owns your account. This is the AWS
    `credential_process` model.
-4. **`ZSCALERCTL_DISALLOW_CMD` kill-switch** (opt-*out*) lets a hardened fleet forbid
-   `cmd:` entirely. No separate opt-in is required — the owner-only gate is the gate.
-   *(Decision C.)*
+5. **`ZSCALERCTL_DISALLOW_CMD` kill-switch** (opt-*out*) lets a hardened fleet forbid
+   `cmd:` entirely. Parsed with the **existing bool-env parser** (consistent
+   truthy/falsey handling); an invalid value fails **value-free** (`ErrInvalidConfig`
+   without echoing the value, per the leak-safe error posture). No separate opt-in is
+   required — the permission gate is the gate. *(Decision C.)*
 
 ## Lazy resolution & safe output
 
-- Secrets resolve **only when a live reader is constructed.** `doctor`,
-  `config show`, `schema list`, `version`, `completion` never resolve a secret — no
-  keychain prompts, no `cmd:` exec, nothing surfaced.
-- `config show` / `doctor` report: **active profile, config source (env-only vs
-  config-file path), and each secret's *provider scheme* + set/unset** — never
-  values, never the full ref string.
+- Secrets resolve **only when a live reader is constructed**, via
+  `SecretSource.Resolve`. `doctor`, `config show`, `schema list`, `version`,
+  `completion` never resolve a secret — no keychain prompts, no `cmd:` exec, nothing
+  surfaced.
+- `config show` / `doctor` render from **`SecretSource` metadata**
+  (`Scheme()` + `IsConfigured()`), never from a resolved value: e.g.
+  `client_secret: keyring (configured)`. They also report the **active profile** and
+  **config source** (env-only vs. the config-file path). Never values, never the
+  full ref, never `cmd` argv.
 
 ## Module boundaries
 
-- `internal/config` — add config-file + profile loading (`file.go`, `profile.go`);
-  still emits `config.Config`. Existing `LoadEnv` stays and is layered under env.
-- `internal/secretref` — provider dispatch (`Resolve(ref) (secret.Secret, error)`),
-  one small unit per scheme.
+- `internal/config` — add config-file + profile loading (`file.go`, `profile.go`)
+  and the `SecretSource` type; `LoadEnv` stays and is layered under env. Returns a
+  `Config` whose secret fields are `SecretSource`.
+- `internal/secretref` — `SecretRef` parsing (string|structured) and the provider
+  implementations (`env`/`file`/`cmd`/`keyring`), one small unit per scheme, each
+  producing a `SecretSource`.
 - `internal/keyring` — cgo-free backend behind a mockable interface.
-- CLI wiring — `--profile` / `--config` flags, precedence resolution, lazy secret
-  resolution at reader-build time.
+- `internal/credentials` (or a small `internal/fileperm`) — the POSIX owner-only and
+  **Windows DACL** validators, as a reusable primitive shared by the config loader
+  and the `file:` provider.
+- CLI wiring — `--profile` / `--config` flags, precedence resolution, and the single
+  `Resolve` call at reader-build time.
 
 ## Error handling
 
-Invalid config, bad permissions, unknown scheme, unavailable provider, or a missing
-required secret map to `ErrInvalidConfig` (exit 2 — usage) or the existing
-credential/usage codes, each with a clear, actionable message. **Never a silent
-fallback.**
+Invalid config, bad permissions/DACL, unknown scheme, unavailable provider, a hung
+provider (timeout), or a missing required secret map to `ErrInvalidConfig` (exit 2 —
+usage) or the existing credential codes, each with a clear, actionable message.
+Sensitive inputs (the `DISALLOW_CMD` value, secret values) are **never echoed**.
+**Never a silent fallback.**
 
 ## Testing
 
-- Table-driven provider tests (`env`/`file`/`cmd`/`keyring`).
-- Owner-only fail-closed enforcement on the config file (GOOS-injection trick for
-  the Windows path, mirroring the existing `credentials/files` test).
-- Precedence matrix (env overrides profile; flag overrides env).
+- Table-driven provider tests (`env`/`file`/`cmd`/`keyring`) producing `SecretSource`.
+- **`SecretSource` semantics:** env sources resolve eagerly and `Resolve` returns the
+  captured value; profile sources defer and `Resolve` runs the provider once; safe
+  output reads metadata without resolving.
+- **Permission enforcement, fail-closed:** POSIX group/world reject (GOOS-injection
+  trick where needed); **Windows DACL accept (owner/SYSTEM/Administrators) and reject
+  (`Everyone`/`Users`/`Authenticated Users`)** — the phase-1 Windows requirement,
+  testable via constructed security descriptors.
+- Precedence matrix (env overrides profile; flag overrides env; which source wins).
 - No-fallback + unknown-scheme + missing-secret error paths.
-- `cmd:` runs no shell (verify a pipe/`$()` in the ref is treated as literal argv).
+- **`cmd:` structured argv:** a `$()`/pipe inside an `argv` element is treated as a
+  literal argument (no shell); **timeout** fires on a hung provider.
+- **`keyring:` segment validation** (reject empty/`/`-containing segments).
 - `keyring:` behind a mock; real keychain never touched in CI.
+- **`ZSCALERCTL_DISALLOW_CMD`** truthy/falsey parsing + value-free error on garbage.
 - **Backward-compat:** every existing `LoadEnv` test passes unchanged.
 - Drift-gated config JSON schema test.
 
@@ -178,8 +263,8 @@ fallback.**
 
 - `docs/INSTALL.md` — profiles + providers section; keep the existing env/`*_FILE`
   guidance as the primary/CI path.
-- `THREAT_MODEL.md` — the `cmd:` code-execution section + config-file trust + the
-  no-plaintext / no-fallback guarantees + provider precedence.
+- `THREAT_MODEL.md` — the `cmd:` code-execution section + config-file trust (POSIX +
+  Windows DACL) + the no-plaintext / no-fallback guarantees + provider precedence.
 - `config show` / `doctor` doc updates.
 - `AGENTS.md` / skill — note that **agents continue to use env**; profiles are
   operator ergonomics (don't push agents onto config files).
@@ -187,12 +272,17 @@ fallback.**
 
 ## Backward compatibility
 
-No config file ⇒ identical to today. Env always overrides the profile. Existing
-env and `*_FILE` semantics are unchanged. The feature can ship dark (nobody who
-doesn't create a config file notices anything).
+No config file ⇒ identical to today. Env always overrides the profile. Existing env
+and `*_FILE` semantics are unchanged (now expressed through `SecretSource`, with the
+same resolved-eagerly behavior). The feature can ship dark — nobody who doesn't
+create a config file notices anything.
 
 ## Rollout
 
-Single coherent pre-1.0 feature. Fast-follows (separately, demand-validated):
-keyring **write** helper, native cgo keychain (only if the `security`-CLI hop
-proves insufficient), SOPS conveniences.
+Single coherent pre-1.0 feature. Likely phasing for the implementation plan:
+**(1)** `SecretSource` + config loader + POSIX & Windows permission validation +
+`env`/`file` providers + precedence + backward-compat; **(2)** `cmd:` (structured,
+timeout, kill-switch) + threat-model docs; **(3)** `keyring:` cgo-free backend;
+**(4)** `config show`/`doctor` surfacing + schema + remaining docs. Fast-follows
+(separately, demand-validated): keyring **write** helper, native cgo keychain,
+SOPS conveniences, Windows DACL for `file:` secrets.
