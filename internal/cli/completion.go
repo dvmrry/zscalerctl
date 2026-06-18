@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	completionFlags     = []string{"--profile", "--format", "--output", "--timeout", "--redaction", "--color", "--no-color", "--no-cache", "--log-level", "--fields", "--filter", "--search"}
+	completionFlags     = []string{"--profile", "--config", "--format", "--output", "--timeout", "--redaction", "--color", "--no-color", "--no-cache", "--log-level", "--fields", "--filter", "--search"}
 	completionDumpFlags = []string{"--out", "--products", "--resources", "--continue-on-error", "--force"}
 	completionDiffFlags = []string{"--products", "--resources", "--ignore-operational", "--detail", "--allow-partial", "--fail-on-drift"}
 	completionFormats   = []string{"auto", "table", "json", "ndjson", "pretty"}
@@ -164,6 +164,7 @@ func fishCompletion() string {
 	return fmt.Sprintf(`# fish completion for zscalerctl
 complete -c zscalerctl -f
 complete -c zscalerctl -l profile -r -d 'Profile name'
+complete -c zscalerctl -l config -r -d 'Config file path'
 complete -c zscalerctl -l format -x -a '%s' -d 'Output format'
 complete -c zscalerctl -l output -r -d 'Output path'
 complete -c zscalerctl -l timeout -r -d 'Request timeout'

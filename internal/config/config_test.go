@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -184,8 +185,15 @@ func TestLoadEnvLoadsOwnerOnlySecretFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEnv(secret file) error = %v, want nil", err)
 	}
-	if cfg.Credentials.ClientSecret.Reveal() != "file-secret" {
-		t.Errorf("LoadEnv(secret file).Credentials.ClientSecret = %q, want %q", cfg.Credentials.ClientSecret.Reveal(), "file-secret")
+	got, err := cfg.Credentials.ClientSecret.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("ClientSecret.Resolve() error = %v, want nil", err)
+	}
+	if got.Reveal() != "file-secret" {
+		t.Errorf("LoadEnv(secret file).Credentials.ClientSecret = %q, want %q", got.Reveal(), "file-secret")
+	}
+	if cfg.Credentials.ClientSecret.Scheme() != "file" {
+		t.Errorf("ClientSecret.Scheme() = %q, want file", cfg.Credentials.ClientSecret.Scheme())
 	}
 }
 
@@ -209,11 +217,19 @@ func TestLoadEnvLoadsOwnerOnlyZIALegacySecretFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEnv(ZIA legacy files) error = %v, want nil", err)
 	}
-	if cfg.ZIALegacy.Password.Reveal() != "legacy-password" {
-		t.Errorf("LoadEnv(ZIA legacy files).ZIALegacy.Password = %q, want legacy-password", cfg.ZIALegacy.Password.Reveal())
+	password, err := cfg.ZIALegacy.Password.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("ZIALegacy.Password.Resolve() error = %v, want nil", err)
 	}
-	if cfg.ZIALegacy.APIKey.Reveal() != "legacy-api-key" {
-		t.Errorf("LoadEnv(ZIA legacy files).ZIALegacy.APIKey = %q, want legacy-api-key", cfg.ZIALegacy.APIKey.Reveal())
+	if password.Reveal() != "legacy-password" {
+		t.Errorf("LoadEnv(ZIA legacy files).ZIALegacy.Password = %q, want legacy-password", password.Reveal())
+	}
+	apiKey, err := cfg.ZIALegacy.APIKey.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("ZIALegacy.APIKey.Resolve() error = %v, want nil", err)
+	}
+	if apiKey.Reveal() != "legacy-api-key" {
+		t.Errorf("LoadEnv(ZIA legacy files).ZIALegacy.APIKey = %q, want legacy-api-key", apiKey.Reveal())
 	}
 }
 

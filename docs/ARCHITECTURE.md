@@ -308,20 +308,22 @@ There is no `--redaction off`.
 Configuration precedence:
 
 ```text
-CLI non-secret flags > ZSCALERCTL_* environment > defaults
+CLI non-secret flags > ZSCALERCTL_* environment > active profile > defaults
 ```
 
 Credential sources:
 
 - `ZSCALERCTL_*` environment variables.
 - Strict-permission secret files.
-- Future keychain integration.
+- Optional owner-only profile secret references.
+- Future keychain integration via profile secret references.
 
 Secrets should not be accepted as ordinary CLI arguments.
 
 Secret files (the `*_FILE` variables) must be owner-only; the tool refuses to
-load a secret file with unsafe permissions. Configuration is environment-only
-today — there is no profile config file source.
+load a secret file with unsafe permissions, including broad Windows DACL grants.
+Profile files are optional, must be owner-only on every platform, and hold secret
+references rather than secret values.
 
 Resolved: `ZSCALERCTL_*` variables never interact with SDK-native variables.
 The adapter constructs SDK configuration explicitly from `ZSCALERCTL_*` values

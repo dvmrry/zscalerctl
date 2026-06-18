@@ -9,6 +9,7 @@ import (
 	"github.com/dvmrry/zscalerctl/internal/credentials"
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/secret"
+	"github.com/dvmrry/zscalerctl/internal/secretref"
 )
 
 const (
@@ -31,6 +32,7 @@ const (
 	EnvProxyFromEnv     = "ZSCALERCTL_PROXY_FROM_ENV"
 	EnvRedaction        = "ZSCALERCTL_REDACTION"
 	EnvNoCache          = "ZSCALERCTL_NO_CACHE"
+	EnvConfig           = "ZSCALERCTL_CONFIG"
 )
 
 type AuthMode string
@@ -46,6 +48,8 @@ const (
 var ErrInvalidConfig = errors.New("invalid configuration")
 
 type Config struct {
+	Source       string
+	ConfigFile   string
 	Profile      string
 	AuthMode     AuthMode
 	VanityDomain string
@@ -59,7 +63,7 @@ type Config struct {
 
 type Credentials struct {
 	ClientID         secret.Secret
-	ClientSecret     secret.Secret
+	ClientSecret     secretref.SecretSource
 	ClientSecretFile string
 }
 
@@ -70,9 +74,9 @@ type ZPAConfig struct {
 
 type ZIALegacyCredentials struct {
 	Username     secret.Secret
-	Password     secret.Secret
+	Password     secretref.SecretSource
 	PasswordFile string
-	APIKey       secret.Secret
+	APIKey       secretref.SecretSource
 	APIKeyFile   string
 	Cloud        string
 }
@@ -88,6 +92,8 @@ type Defaults struct {
 }
 
 type SafeConfig struct {
+	Source          string           `json:"source"`
+	ConfigFileSet   bool             `json:"config_file_set"`
 	Profile         string           `json:"profile"`
 	AuthMode        string           `json:"auth_mode"`
 	VanityDomainSet bool             `json:"vanity_domain_set"`
@@ -102,9 +108,10 @@ type SafeConfig struct {
 func (SafeConfig) OutputSafe() {}
 
 type CredentialStatus struct {
-	ClientIDSet         bool `json:"client_id_set"`
-	ClientSecretSet     bool `json:"client_secret_set"`
-	ClientSecretFileSet bool `json:"client_secret_file_set"`
+	ClientIDSet         bool   `json:"client_id_set"`
+	ClientSecretSet     bool   `json:"client_secret_set"`
+	ClientSecretFileSet bool   `json:"client_secret_file_set"`
+	ClientSecretScheme  string `json:"client_secret_scheme,omitempty"`
 }
 
 type ZPAStatus struct {
@@ -113,12 +120,14 @@ type ZPAStatus struct {
 }
 
 type ZIALegacyStatus struct {
-	UsernameSet     bool `json:"username_set"`
-	PasswordSet     bool `json:"password_set"`
-	PasswordFileSet bool `json:"password_file_set"`
-	APIKeySet       bool `json:"api_key_set"`
-	APIKeyFileSet   bool `json:"api_key_file_set"`
-	CloudSet        bool `json:"cloud_set"`
+	UsernameSet     bool   `json:"username_set"`
+	PasswordSet     bool   `json:"password_set"`
+	PasswordFileSet bool   `json:"password_file_set"`
+	PasswordScheme  string `json:"password_scheme,omitempty"`
+	APIKeySet       bool   `json:"api_key_set"`
+	APIKeyFileSet   bool   `json:"api_key_file_set"`
+	APIKeyScheme    string `json:"api_key_scheme,omitempty"`
+	CloudSet        bool   `json:"cloud_set"`
 }
 
 type ProxyStatus struct {
@@ -155,38 +164,48 @@ func LoadEnv(environ []string) (Config, error) {
 		return Config{}, err
 	}
 
-	clientSecret := secret.New(env[EnvClientSecret])
+	clientSecret := secretref.Unset()
+	if env[EnvClientSecret] != "" {
+		clientSecret = secretref.Resolved("env", secret.New(env[EnvClientSecret]))
+	}
 	if env[EnvClientSecretFile] != "" {
 		fileSecret, err := credentials.ReadOwnerOnlySecretFile(env[EnvClientSecretFile])
 		if err != nil {
 			return Config{}, fmt.Errorf("%w: load %s: %w", ErrInvalidConfig, EnvClientSecretFile, err)
 		}
-		if !clientSecret.IsSet() {
-			clientSecret = fileSecret
+		if !clientSecret.IsConfigured() {
+			clientSecret = secretref.Resolved("file", fileSecret)
 		}
 	}
-	ziaPassword := secret.New(env[EnvZIAPassword])
+	ziaPassword := secretref.Unset()
+	if env[EnvZIAPassword] != "" {
+		ziaPassword = secretref.Resolved("env", secret.New(env[EnvZIAPassword]))
+	}
 	if env[EnvZIAPasswordFile] != "" {
 		fileSecret, err := credentials.ReadOwnerOnlySecretFile(env[EnvZIAPasswordFile])
 		if err != nil {
 			return Config{}, fmt.Errorf("%w: load %s: %w", ErrInvalidConfig, EnvZIAPasswordFile, err)
 		}
-		if !ziaPassword.IsSet() {
-			ziaPassword = fileSecret
+		if !ziaPassword.IsConfigured() {
+			ziaPassword = secretref.Resolved("file", fileSecret)
 		}
 	}
-	ziaAPIKey := secret.New(env[EnvZIAAPIKey])
+	ziaAPIKey := secretref.Unset()
+	if env[EnvZIAAPIKey] != "" {
+		ziaAPIKey = secretref.Resolved("env", secret.New(env[EnvZIAAPIKey]))
+	}
 	if env[EnvZIAAPIKeyFile] != "" {
 		fileSecret, err := credentials.ReadOwnerOnlySecretFile(env[EnvZIAAPIKeyFile])
 		if err != nil {
 			return Config{}, fmt.Errorf("%w: load %s: %w", ErrInvalidConfig, EnvZIAAPIKeyFile, err)
 		}
-		if !ziaAPIKey.IsSet() {
-			ziaAPIKey = fileSecret
+		if !ziaAPIKey.IsConfigured() {
+			ziaAPIKey = secretref.Resolved("file", fileSecret)
 		}
 	}
 
 	cfg := Config{
+		Source:       "env",
 		Profile:      env[EnvProfile],
 		AuthMode:     authMode,
 		VanityDomain: strings.TrimSpace(env[EnvVanityDomain]),
@@ -228,14 +247,17 @@ func LoadEnv(environ []string) (Config, error) {
 
 func (c Config) Safe() SafeConfig {
 	return SafeConfig{
+		Source:          c.Source,
+		ConfigFileSet:   c.ConfigFile != "",
 		Profile:         c.Profile,
 		AuthMode:        string(c.EffectiveAuthMode()),
 		VanityDomainSet: c.VanityDomain != "",
 		Cloud:           c.Cloud,
 		Credentials: CredentialStatus{
 			ClientIDSet:         c.Credentials.ClientID.IsSet(),
-			ClientSecretSet:     c.Credentials.ClientSecret.IsSet(),
+			ClientSecretSet:     c.Credentials.ClientSecret.IsConfigured(),
 			ClientSecretFileSet: c.Credentials.ClientSecretFile != "",
+			ClientSecretScheme:  c.Credentials.ClientSecret.Scheme(),
 		},
 		ZPA: ZPAStatus{
 			CustomerIDSet:    c.ZPA.CustomerID != "",
@@ -243,10 +265,12 @@ func (c Config) Safe() SafeConfig {
 		},
 		ZIALegacy: ZIALegacyStatus{
 			UsernameSet:     c.ZIALegacy.Username.IsSet(),
-			PasswordSet:     c.ZIALegacy.Password.IsSet(),
+			PasswordSet:     c.ZIALegacy.Password.IsConfigured(),
 			PasswordFileSet: c.ZIALegacy.PasswordFile != "",
-			APIKeySet:       c.ZIALegacy.APIKey.IsSet(),
+			PasswordScheme:  c.ZIALegacy.Password.Scheme(),
+			APIKeySet:       c.ZIALegacy.APIKey.IsConfigured(),
 			APIKeyFileSet:   c.ZIALegacy.APIKeyFile != "",
+			APIKeyScheme:    c.ZIALegacy.APIKey.Scheme(),
 			CloudSet:        c.ZIALegacy.Cloud != "",
 		},
 		Proxy: ProxyStatus{
@@ -271,19 +295,19 @@ func (c Config) EffectiveAuthMode() AuthMode {
 }
 
 func (c Credentials) Configured(vanityDomain string) bool {
-	return c.ClientID.IsSet() && c.ClientSecret.IsSet() && strings.TrimSpace(vanityDomain) != ""
+	return c.ClientID.IsSet() && c.ClientSecret.IsConfigured() && strings.TrimSpace(vanityDomain) != ""
 }
 
 func (c Credentials) AnySet() bool {
-	return c.ClientID.IsSet() || c.ClientSecret.IsSet() || c.ClientSecretFile != ""
+	return c.ClientID.IsSet() || c.ClientSecret.IsConfigured() || c.ClientSecretFile != ""
 }
 
 func (c ZIALegacyCredentials) Configured() bool {
-	return c.Username.IsSet() && c.Password.IsSet() && c.APIKey.IsSet() && strings.TrimSpace(c.Cloud) != ""
+	return c.Username.IsSet() && c.Password.IsConfigured() && c.APIKey.IsConfigured() && strings.TrimSpace(c.Cloud) != ""
 }
 
 func (c ZIALegacyCredentials) AnySet() bool {
-	return c.Username.IsSet() || c.Password.IsSet() || c.PasswordFile != "" || c.APIKey.IsSet() || c.APIKeyFile != "" || strings.TrimSpace(c.Cloud) != ""
+	return c.Username.IsSet() || c.Password.IsConfigured() || c.PasswordFile != "" || c.APIKey.IsConfigured() || c.APIKeyFile != "" || strings.TrimSpace(c.Cloud) != ""
 }
 
 func parseAuthMode(value string) (AuthMode, error) {

@@ -62,7 +62,7 @@ func (a *App) runURLLookup(ctx context.Context, cfg config.Config, opts globalOp
 		}
 		lookupURLs = append(lookupURLs, sanitized)
 	}
-	reader, err := a.resourceReader(cfg, opts)
+	reader, err := a.resourceReader(ctx, cfg, opts)
 	if err != nil {
 		return err
 	}

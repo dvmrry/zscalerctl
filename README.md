@@ -89,7 +89,7 @@ export ZSCALERCTL_ZPA_CUSTOMER_ID=<zpa-customer-id>          # ZPA resources onl
 export ZSCALERCTL_ZPA_MICROTENANT_ID=<zpa-microtenant-id>   # optional, ZPA microtenants
 ```
 
-ZIA legacy credentials are supported for ZIA resources. Legacy, proxy, Windows, and secret-file details live in [docs/INSTALL.md](docs/INSTALL.md). Configuration is environment-only (no config file). Corporate proxy use is opt-in via `ZSCALERCTL_PROXY_FROM_ENV=true`.
+ZIA legacy credentials are supported for ZIA resources. Legacy, profile, proxy, Windows, and secret-file details live in [docs/INSTALL.md](docs/INSTALL.md). Environment variables remain the highest-precedence configuration path; optional owner-only profiles are for local operator convenience. Corporate proxy use is opt-in via `ZSCALERCTL_PROXY_FROM_ENV=true`.
 
 ## Automation contract
 

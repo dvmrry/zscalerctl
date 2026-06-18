@@ -16,7 +16,6 @@ import (
 // can never silently drift behind the flag set. This is the agent-facing twin of
 // TestManPageDocumentsFlagsAndCommands.
 var agentDocExemptFlags = map[string]string{
-	"--profile":  "cosmetic run label echoed in doctor/config show; selects no behavior (config is env-only)",
 	"--output":   "writes output to a file instead of stdout; agents read stdout, no effect on content",
 	"--color":    "human TTY styling; agents use --format json",
 	"--no-color": "human TTY styling; agents use --format json",

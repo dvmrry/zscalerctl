@@ -47,6 +47,6 @@ func skipOwnerOnlySecretFileTestOnWindows(t *testing.T) {
 	t.Helper()
 
 	if runtime.GOOS == "windows" {
-		t.Skip("owner-only secret files are unsupported on Windows until ACL checks are implemented")
+		t.Skip("POSIX mode-bit test; Windows DACL coverage lives in files_windows_test.go")
 	}
 }
