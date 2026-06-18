@@ -656,6 +656,14 @@ func TestDecodeUTF16LEAllNul(t *testing.T) {
 		t.Fatalf("all-NUL blob must decode to empty, got %q, %v", got, err)
 	}
 }
+func TestDecodeUTF16LEEmbeddedNul(t *testing.T) {
+	// "hi" NUL "x": must truncate at the first NUL (Windows blob convention).
+	// Pin this so a future "optimization" can't silently change it.
+	got, err := decodeUTF16LE([]byte{0x68, 0x00, 0x69, 0x00, 0x00, 0x00, 0x78, 0x00})
+	if err != nil || got != "hi" {
+		t.Fatalf("embedded NUL must truncate to %q, got %q, %v", "hi", got, err)
+	}
+}
 ```
 
 - [ ] **Step 2: Run — `go test ./internal/keyring/` → FAIL** (undefined: `decodeUTF16LE`).
@@ -675,6 +683,13 @@ import (
 
 // ErrNotFound is returned by Getter.Get when no credential exists for service/key.
 var ErrNotFound = errors.New("keyring item not found")
+
+// ErrUnavailable marks a backend that is present but cannot service the request
+// right now — a locked keychain, a stopped Secret Service, or a missing helper
+// (e.g. secret-tool not installed). Errors wrapping it carry a value-free,
+// actionable message BY CONTRACT, so resolveKeyring is allowed to surface that
+// message to the user (unlike unknown backend errors, which it suppresses).
+var ErrUnavailable = errors.New("keyring backend unavailable")
 
 const defaultKeyringTimeout = 10 * time.Second
 
@@ -728,8 +743,8 @@ func (f fakeGetter) Get(_ context.Context, _, _ string) (string, error) { return
 func TestResolveKeyringReturnsSecret(t *testing.T) {
 	r := NewResolver(ResolverOpts{Keyring: fakeGetter{val: "s3cr3t"}})
 	got, err := r.Resolve(context.Background(), SecretRef{Scheme: "keyring", Service: "svc", Key: "k"})
-	if err != nil || got.Value() != "s3cr3t" {
-		t.Fatalf("got %q, %v", got.Value(), err)
+	if err != nil || got.Reveal() != "s3cr3t" {
+		t.Fatalf("got %q, %v", got.Reveal(), err)
 	}
 }
 
@@ -757,7 +772,20 @@ func TestResolveKeyringNilGetter(t *testing.T) {
 		t.Fatal("nil Getter must error clearly")
 	}
 }
+
+func TestResolveKeyringUnavailableSurfacesHint(t *testing.T) {
+	// ErrUnavailable-wrapped errors carry a value-free, actionable message by
+	// contract, so the resolver DOES surface it (e.g. the install/start hint).
+	hint := fmt.Errorf("keyring: secret-tool not found; install libsecret-tools or use env:/file:/cmd: (%w)", keyring.ErrUnavailable)
+	r := NewResolver(ResolverOpts{Keyring: fakeGetter{err: hint}})
+	_, err := r.Resolve(context.Background(), SecretRef{Scheme: "keyring", Service: "svc", Key: "k"})
+	if err == nil || !strings.Contains(err.Error(), "libsecret-tools") {
+		t.Fatalf("ErrUnavailable hint must reach the user: %v", err)
+	}
+}
 ```
+
+> Test imports for this file: `context`, `errors`, `fmt`, `strings`, `testing`, plus `internal/keyring`.
 
 - [ ] **Step 5: Run → FAIL** (`ResolverOpts` has no `Keyring`; `keyring` import unused).
 - [ ] **Step 6: Implement in `resolver.go`.** Add the import `"github.com/dvmrry/zscalerctl/internal/keyring"`, extend `ResolverOpts`, and replace the stub:
@@ -784,7 +812,12 @@ func (r *Resolver) resolveKeyring(ctx context.Context, ref SecretRef) (secret.Se
 		if errors.Is(err, keyring.ErrNotFound) {
 			return secret.Secret{}, fmt.Errorf("%w: keyring has no entry for service=%q key=%q; store it or use env:/file:/cmd:", ErrInvalidRef, ref.Service, ref.Key)
 		}
-		// Value-free: never echo err.Error() — a buggy backend could embed output.
+		if errors.Is(err, keyring.ErrUnavailable) {
+			// ErrUnavailable carries a value-free, actionable message by contract
+			// (locked keychain / Secret Service down / helper missing) — safe to surface.
+			return secret.Secret{}, fmt.Errorf("%w: %s", ErrInvalidRef, err)
+		}
+		// Unknown backend error — never echo it (a buggy backend could embed output).
 		return secret.Secret{}, fmt.Errorf("%w: keyring lookup failed for service=%q key=%q", ErrInvalidRef, ref.Service, ref.Key)
 	}
 	if value == "" {
@@ -801,41 +834,114 @@ func (r *Resolver) resolveKeyring(ctx context.Context, ref SecretRef) (secret.Se
 
 **Files:** Create `internal/keyring/exec.go`; Test `internal/keyring/exec_test.go`.
 
-- [ ] **Step 1: Failing tests.** In `exec_test.go` (no shell; tests may pass `/usr/bin/env` or `/bin/sh` as a *real executable* — `runKeyringCmd` itself never shell-interprets args):
+- [ ] **Step 1: Failing tests.** In `exec_test.go`, using the **cross-platform test-binary helper pattern** (phase 2's `TestResolverCmdHelperProcess` style). `/usr/bin/env` and `/bin/sh` do NOT exist on the `windows-config` CI runner — this package is untagged and runs there — so re-exec the test binary itself as the stand-in command:
 
 ```go
-func TestRunKeyringCmdStripsZscalerctlEnv(t *testing.T) {
+// helperCmd builds an argv that re-execs THIS test binary as a stand-in command.
+func helperCmd(args ...string) []string {
+	return append([]string{os.Args[0], "-test.run=TestKeyringHelperProcess", "--"}, args...)
+}
+
+// TestKeyringHelperProcess is not a real test: when GO_KEYRING_HELPER=1 it acts
+// as the external command. Cross-platform — no POSIX paths.
+func TestKeyringHelperProcess(t *testing.T) {
+	if os.Getenv("GO_KEYRING_HELPER") != "1" {
+		return
+	}
+	args := os.Args
+	for i, a := range args {
+		if a == "--" {
+			args = args[i+1:]
+			break
+		}
+	}
+	switch args[0] {
+	case "echo":
+		fmt.Fprint(os.Stdout, args[1])
+	case "stderr":
+		fmt.Fprint(os.Stderr, args[1])
+		os.Exit(1)
+	case "exit":
+		n, _ := strconv.Atoi(args[1])
+		os.Exit(n)
+	case "sleep":
+		time.Sleep(5 * time.Second)
+	case "bigout":
+		fmt.Fprint(os.Stdout, strings.Repeat("x", 70*1024))
+	case "printenv":
+		for _, e := range os.Environ() {
+			fmt.Fprintln(os.Stdout, e)
+		}
+	}
+	os.Exit(0)
+}
+
+func TestRunKeyringCmdScrubsZscalerctlEnv(t *testing.T) {
+	t.Setenv("GO_KEYRING_HELPER", "1")
 	t.Setenv("ZSCALERCTL_CLIENT_SECRET", "leak-me")
-	out, _, code, err := runKeyringCmd(context.Background(), 5*time.Second, []string{"/usr/bin/env"})
+	out, _, code, err := runKeyringCmd(context.Background(), 5*time.Second, helperCmd("printenv"))
 	if err != nil || code != 0 {
-		t.Fatalf("env run failed: code=%d err=%v", code, err)
+		t.Fatalf("code=%d err=%v", code, err)
 	}
 	if strings.Contains(out, "leak-me") || strings.Contains(out, "ZSCALERCTL_") {
-		t.Fatalf("ZSCALERCTL_* must be stripped from child env")
+		t.Fatal("ZSCALERCTL_* must be scrubbed from the child env")
+	}
+	if !strings.Contains(out, "GO_KEYRING_HELPER=1") {
+		t.Fatal("non-ZSCALERCTL_ env must pass through")
 	}
 }
 
-func TestRunKeyringCmdNonZeroExitIsValueFree(t *testing.T) {
-	// /bin/sh is a legitimate executable here; runKeyringCmd does not shell-expand.
-	_, _, code, err := runKeyringCmd(context.Background(), 5*time.Second,
-		[]string{"/bin/sh", "-c", "echo TOKEN >&2; exit 7"})
-	if err != nil {
-		t.Fatalf("non-zero exit is NOT an exec error, got %v", err)
+func TestRunKeyringCmdNonZeroExit(t *testing.T) {
+	t.Setenv("GO_KEYRING_HELPER", "1")
+	_, _, code, err := runKeyringCmd(context.Background(), 5*time.Second, helperCmd("exit", "7"))
+	if err != nil || code != 7 {
+		t.Fatalf("non-zero exit is reported via code, not err: code=%d err=%v", code, err)
 	}
-	if code != 7 {
-		t.Fatalf("want exit code 7, got %d", code)
+}
+
+func TestRunKeyringCmdStderrStaysValueFree(t *testing.T) {
+	t.Setenv("GO_KEYRING_HELPER", "1")
+	_, stderr, code, err := runKeyringCmd(context.Background(), 5*time.Second, helperCmd("stderr", "TOKEN"))
+	if err != nil || code != 1 {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	if strings.Contains(summarizeStderr(stderr), "TOKEN") {
+		t.Fatal("summarizeStderr must omit stderr content")
 	}
 }
 
 func TestRunKeyringCmdTimeoutKillsProcess(t *testing.T) {
+	t.Setenv("GO_KEYRING_HELPER", "1")
 	start := time.Now()
-	_, _, _, err := runKeyringCmd(context.Background(), 10*time.Millisecond,
-		[]string{"/bin/sh", "-c", "sleep 5"})
+	_, _, _, err := runKeyringCmd(context.Background(), 50*time.Millisecond, helperCmd("sleep"))
 	if err == nil || time.Since(start) > 3*time.Second {
 		t.Fatalf("timeout must bound the run, took %s err=%v", time.Since(start), err)
 	}
 }
+
+func TestRunKeyringCmdStdoutOverflow(t *testing.T) { // bounded-output path (Kimi)
+	t.Setenv("GO_KEYRING_HELPER", "1")
+	_, _, _, err := runKeyringCmd(context.Background(), 5*time.Second, helperCmd("bigout"))
+	if err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("oversized stdout must be a clean value-free error: %v", err)
+	}
+}
+
+func TestRunKeyringCmdEmptyArgv(t *testing.T) { // must not panic on argv[0]
+	if _, _, _, err := runKeyringCmd(context.Background(), time.Second, nil); err == nil {
+		t.Fatal("empty argv must return an error, not panic")
+	}
+}
+
+func TestRunKeyringCmdStartFailureUnwrapsErrNotFound(t *testing.T) { // Linux missing-tool detection
+	_, _, _, err := runKeyringCmd(context.Background(), time.Second, []string{"/nonexistent-zscalerctl-bin"})
+	if err == nil || !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("start failure must unwrap exec.ErrNotFound: %v", err)
+	}
+}
 ```
+
+> Test imports: `context`, `errors`, `fmt`, `os`, `os/exec`, `strconv`, `strings`, `testing`, `time`.
 
 - [ ] **Step 2: Run → FAIL** (undefined: `runKeyringCmd`).
 - [ ] **Step 3: Implement `exec.go`** (mirrors `resolveCmd`'s leak-safety; `cappedWriter`/`summarizeStderr` duplicated here intentionally — keyring is a *lower* layer than `secretref` and cannot import it; a shared `execcapture` extraction is a deferred YAGNI cleanup):
@@ -860,6 +966,9 @@ import (
 // value-free error for exec-level failures only. A non-zero exit is reported
 // via exitCode, not err. It never includes stdout/stderr CONTENT in its error.
 func runKeyringCmd(ctx context.Context, timeout time.Duration, argv []string) (string, string, int, error) {
+	if len(argv) == 0 || strings.TrimSpace(argv[0]) == "" {
+		return "", "", -1, errors.New("keyring: empty command")
+	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -875,27 +984,33 @@ func runKeyringCmd(ctx context.Context, timeout time.Duration, argv []string) (s
 	cmd.Stderr = stderr
 
 	runErr := cmd.Run()
+	// Output overflow takes precedence: a capped writer makes cmd.Run() return the
+	// write error, which must NOT be misread as an exec start-failure.
 	if stdout.err != nil {
-		return "", "", -1, fmt.Errorf("keyring: %q output too large", argv[0])
+		return "", "", -1, fmt.Errorf("keyring: %q stdout too large", argv[0])
+	}
+	if stderr.err != nil {
+		return "", "", -1, fmt.Errorf("keyring: %q stderr too large", argv[0])
 	}
 	out := strings.TrimRight(stdout.String(), "\r\n")
-	errOut := stderr.String() // stderr overflow on success is harmless — we only use stdout
+	errOut := stderr.String()
 
 	if runErr != nil {
 		if errors.Is(cctx.Err(), context.DeadlineExceeded) {
-			return "", "", -1, fmt.Errorf("keyring: %q timed out after %s (keychain may be locked or require interaction)", argv[0], timeout)
+			// Locked/hung keychain: actionable + value-free, so resolveKeyring surfaces it.
+			return "", "", -1, fmt.Errorf("keyring: %q timed out after %s (keychain may be locked or require interaction); use env:/file:/cmd: (%w)", argv[0], timeout, ErrUnavailable)
 		}
 		if cctx.Err() != nil {
-			return "", "", -1, fmt.Errorf("keyring: %q cancelled", argv[0])
+			return "", "", -1, cctx.Err() // caller cancelled — propagate the context error
 		}
 		var exitErr *exec.ExitError
 		if errors.As(runErr, &exitErr) {
 			// Process ran and exited non-zero — hand the code back to the caller.
 			return out, errOut, exitErr.ExitCode(), nil
 		}
-		// Exec never started (binary missing / not executable). Wrap so callers
-		// can detect exec.ErrNotFound (e.g. secret-tool absent). Value-free.
-		return "", "", -1, fmt.Errorf("keyring: %q could not run: %w", argv[0], runErr)
+		// Exec never started (binary missing / not executable). Double-wrap so
+		// callers can detect BOTH exec.ErrNotFound and ErrUnavailable. Value-free.
+		return "", "", -1, fmt.Errorf("keyring: %q could not run: %w (%w)", argv[0], runErr, ErrUnavailable)
 	}
 	return out, errOut, 0, nil
 }
@@ -1060,15 +1175,15 @@ func TestLinuxGetServiceUnavailable(t *testing.T) {
 		return "", "Failed to connect to the D-Bus session bus", 1, nil
 	})
 	_, err := g.Get(context.Background(), "svc", "k")
-	if err == nil || errors.Is(err, ErrNotFound) {
-		t.Fatalf("D-Bus failure must be a hard error, not ErrNotFound: %v", err)
+	if err == nil || errors.Is(err, ErrNotFound) || !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("D-Bus failure must be ErrUnavailable, not ErrNotFound: %v", err)
 	}
 }
 func TestLinuxGetToolMissing(t *testing.T) {
 	g := &linuxGetter{run: nil, timeout: time.Second, lookPath: func(string) (string, error) { return "", exec.ErrNotFound }}
 	_, err := g.Get(context.Background(), "svc", "k")
-	if err == nil || errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), "libsecret-tools") {
-		t.Fatalf("missing tool must give an install hint, not ErrNotFound: %v", err)
+	if err == nil || errors.Is(err, ErrNotFound) || !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "libsecret-tools") {
+		t.Fatalf("missing tool must be ErrUnavailable with an install hint: %v", err)
 	}
 }
 ```
@@ -1100,7 +1215,7 @@ func newBackend() Getter {
 
 func (g *linuxGetter) Get(ctx context.Context, service, key string) (string, error) {
 	if _, err := g.lookPath("secret-tool"); err != nil {
-		return "", fmt.Errorf("keyring: secret-tool not found; install libsecret-tools (apt install libsecret-tools / dnf install libsecret) or use env:/file:/cmd:")
+		return "", fmt.Errorf("keyring: secret-tool not found; install libsecret-tools (apt install libsecret-tools / dnf install libsecret) or use env:/file:/cmd: (%w)", ErrUnavailable)
 	}
 	argv := []string{"secret-tool", "lookup", "service", service, "account", key}
 	stdout, stderr, code, err := g.run(ctx, g.timeout, argv)
@@ -1115,7 +1230,7 @@ func (g *linuxGetter) Get(ctx context.Context, service, key string) (string, err
 	}
 	if code == 1 && stdout == "" {
 		if looksLikeServiceUnavailable(stderr) {
-			return "", fmt.Errorf("keyring: Secret Service unavailable; ensure gnome-keyring or kwallet is running, or use env:/file:/cmd: for headless use")
+			return "", fmt.Errorf("keyring: Secret Service unavailable; ensure gnome-keyring or kwallet is running, or use env:/file:/cmd: for headless use (%w)", ErrUnavailable)
 		}
 		return "", ErrNotFound
 	}
@@ -1250,7 +1365,7 @@ func (windowsGetter) Get(ctx context.Context, service, key string) (string, erro
 	}
 	// Copy the blob into Go memory BEFORE CredFree fires, then decode UTF-16LE.
 	blob := make([]byte, blobSize)
-	copy(blob, unsafe.Slice((*byte)(unsafe.Pointer(cred.CredentialBlob)), blobSize))
+	copy(blob, unsafe.Slice(cred.CredentialBlob, blobSize)) // CredentialBlob is already *byte
 	value, derr := decodeUTF16LE(blob)
 	if derr != nil {
 		return "", fmt.Errorf("keyring: credential for service %q is corrupted", service)
@@ -1262,9 +1377,9 @@ func (windowsGetter) Get(ctx context.Context, service, key string) (string, erro
 }
 ```
 
-- [ ] **Step 4: Live-gated test** in `keyring_windows_test.go` (imports `os`, `testing`; `ZSCALERCTL_KEYRING_LIVE=1`, off in CI): pre-seed via `cmdkey /generic:zscalerctl-test/k /user:x /pass:hunter2`, assert `Get` returns `hunter2`, assert a missing target → `ErrNotFound`.
+- [ ] **Step 4: Live-gated test** in `keyring_windows_test.go` (imports `os`, `testing`; `ZSCALERCTL_KEYRING_LIVE=1`, off in CI): pre-seed via `cmdkey /generic:zscalerctl-test/k /user:x /pass:hunter2`, assert `Get` returns `hunter2`; **also seed a non-ASCII secret** (e.g. `näïve-pä$$wörd-🔑` — `cmdkey /pass` mangles non-ASCII, so seed this one via the Credential Manager GUI or PowerShell) and assert it round-trips byte-exact — that path, not ASCII, is the real UTF-16LE decode risk. Assert a missing target → `ErrNotFound`.
 - [ ] **Step 5: Run → PASS** (struct-layout test on the cross-compile; unit/live on the host). **Step 6: Commit** — `feat(keyring): Windows CredReadW backend`.
-- [ ] **Step 7: MANDATORY live acceptance on the operator's Windows host** (the merge gate for this task — see "Required before merge"). Empirically confirm the blob encoding: store via `cmdkey` AND via the Credential Manager GUI, read both back, confirm `decodeUTF16LE` yields the exact secret; confirm not-found → `ErrNotFound`. Record the result in the PR.
+- [ ] **Step 7: MANDATORY live acceptance on the operator's Windows host** (the merge gate for this task — see "Required before merge"). Empirically confirm the blob encoding: store via `cmdkey` AND via the Credential Manager GUI, read both back, confirm `decodeUTF16LE` yields the exact secret. **Include at least one non-ASCII secret** (the actual UTF-16LE risk) and confirm a byte-exact round-trip; confirm not-found → `ErrNotFound`. Record the result in the PR.
 
 ### Task 3.6: unsupported-platform backend + wire `keyring.New()` into `load.go` (test-first)
 
