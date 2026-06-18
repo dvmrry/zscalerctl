@@ -128,6 +128,27 @@ metadata plus secret references such as `env:NAME` or `file:/path`; the file is
 rejected unless it is owner-only. Secret values themselves do not belong in the
 profile file.
 
+Profiles can also reference a local secret command. `cmd` refs use a structured
+argv array and are executed directly — no shell, no quoting or expansion — with
+a 10 second timeout unless the ref sets a shorter or longer positive duration:
+
+```yaml
+profiles:
+  prod:
+    client_id: <client-id>
+    vanity_domain: <vanity-domain>
+    cloud: PRODUCTION
+    client_secret_ref:
+      cmd:
+        argv: ["/usr/local/bin/zscaler-secret", "prod", "client-secret"]
+        timeout: 5s
+```
+
+Use an absolute executable path when practical; otherwise `argv[0]` is resolved
+through the operator's `PATH`. If a workflow needs shell features, put them in a
+reviewed wrapper script and point `argv` at that script. Set
+`ZSCALERCTL_DISALLOW_CMD=true` to reject `cmd` refs fleet-wide.
+
 For CI, use the CI platform's protected environment or secret store and set the
 same variable names per job/environment. Do not commit env files, dump
 directories, or live-smoke artifacts.

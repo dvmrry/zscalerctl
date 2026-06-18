@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,10 @@ func LoadConfig(environ []string, opts LoadOptions) (Config, error) {
 	cfg, err := LoadEnv(environ)
 	if err != nil {
 		return Config{}, err
+	}
+	disallowCmd, err := parseBoolEnv(env[EnvDisallowCmd])
+	if err != nil {
+		return Config{}, fmt.Errorf("%w: parse %s: %w", ErrInvalidConfig, EnvDisallowCmd, err)
 	}
 
 	requestedProfile := strings.TrimSpace(opts.Profile)
@@ -52,7 +57,7 @@ func LoadConfig(environ []string, opts LoadOptions) (Config, error) {
 	}
 	resolver := opts.Resolver
 	if resolver == nil {
-		resolver = secretref.NewResolver(secretref.ResolverOpts{})
+		resolver = secretref.NewResolver(secretref.ResolverOpts{AllowCmd: !disallowCmd})
 	}
 	if err := applyProfile(&cfg, profile.data, env, resolver); err != nil {
 		return Config{}, err

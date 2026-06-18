@@ -33,6 +33,7 @@ const (
 	EnvRedaction        = "ZSCALERCTL_REDACTION"
 	EnvNoCache          = "ZSCALERCTL_NO_CACHE"
 	EnvConfig           = "ZSCALERCTL_CONFIG"
+	EnvDisallowCmd      = "ZSCALERCTL_DISALLOW_CMD"
 )
 
 type AuthMode string

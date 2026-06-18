@@ -20,9 +20,11 @@ can modify tenant state.
 3. **Credentials:** env variables are still first-class and override optional
    owner-only YAML profiles (`--profile`, `--config`). `zscalerctl doctor`
    reports which env values or profile-backed secret refs are set or missing
-   without contacting Zscaler. If any are missing, ask the operator to set them
-   — values are environment-specific; do not invent them or hunt through shell
-   config.
+   without contacting Zscaler. Profile secret refs can use `env:`, `file:`, or
+   structured `cmd:` providers; `cmd:` executes an operator-specified argv with
+   no shell and can be disabled with `ZSCALERCTL_DISALLOW_CMD=true`. If any are
+   missing, ask the operator to set them — values and provider commands are
+   environment-specific; do not invent them or hunt through shell config.
 4. **Read:** `zscalerctl --format json <product> <resource> list | get <id> | show`,
    e.g. `zscalerctl --format json zia locations list`. Pass `--format json`
    explicitly rather than relying on piped auto-JSON.
