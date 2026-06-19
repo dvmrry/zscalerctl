@@ -162,10 +162,18 @@ reviewed wrapper script and point `argv` at that script. Set
 
 ### Profiles and Secret Providers
 
-**Precedence (highest to lowest):** `--profile` / `--config` flags → `ZSCALERCTL_*`
-environment variables → profile file values → built-in defaults. A field set in
-the environment always wins over the same field in a profile; a field in a profile
-wins over the default. The Zscaler SDK's own environment variables are never read.
+**Source/profile selection:** `--config` (or `ZSCALERCTL_CONFIG`) chooses which
+config file to load; `--profile` (or `ZSCALERCTL_PROFILE`) chooses which named
+profile within that file to use.
+
+**Per-field value precedence (highest to lowest):** flag > `ZSCALERCTL_*`
+environment variable > profile value > built-in default. A field set as a flag
+or in the environment always wins over the same field in a profile; a field in a
+profile wins over the built-in default. The Zscaler SDK's own environment
+variables are never read.
+
+`--redaction` and `--no-cache` are applied after config load, overriding
+whatever the profile or environment set for those fields.
 
 Profile secret references can use `env:NAME`, `file:/path/to/secret`,
 structured `cmd:`, or `keyring:<service>/<key>`. If a referenced secret
@@ -252,7 +260,7 @@ to your account plus administrative principals:
 
 ```powershell
 $env:ZSCALERCTL_CLIENT_ID = '<client-id>'
-$env:ZSCALERCTL_CLIENT_SECRET_FILE = "$env:USERPROFILE\.config\zscalerctl\client-secret.txt"
+$env:ZSCALERCTL_CLIENT_SECRET_FILE = "$env:LOCALAPPDATA\zscalerctl\client-secret.txt"
 $env:ZSCALERCTL_VANITY_DOMAIN = '<vanity-domain>'
 $env:ZSCALERCTL_CLOUD = 'PRODUCTION'
 $env:ZSCALERCTL_ZPA_CUSTOMER_ID = '<zpa-customer-id>' # only for ZPA resources

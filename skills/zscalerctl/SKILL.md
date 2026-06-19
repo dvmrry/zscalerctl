@@ -21,7 +21,7 @@ can modify tenant state.
    operator ergonomics for interactive local workflows; env vars are the right
    agent path and always take precedence. `zscalerctl doctor`
    reports which env values or profile-backed secret refs are set or missing
-   without contacting Zscaler. Profile secret refs can use `env:`, `file:`, or
+   without contacting Zscaler. Profile secret refs can use `env:`, `file:`, `keyring:`, or
    structured `cmd:` providers; `cmd:` executes an operator-specified argv with
    no shell and can be disabled with `ZSCALERCTL_DISALLOW_CMD=true`. If any are
    missing, ask the operator to set them — values and provider commands are
