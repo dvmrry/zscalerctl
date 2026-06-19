@@ -129,7 +129,9 @@ Allowed secret sources:
   `ZSCALERCTL_DISALLOW_CMD=true`.
 - OS keychain references through `keyring:<service>/<key>`. This provider is
   read-only and value-free on failure. macOS reads with the absolute
-  `/usr/bin/security` helper, Linux reads with `secret-tool` using bounded
+  `/usr/bin/security` helper (`-w` primary; a second `-g` call only to
+  disambiguate hex-looking output, whose stderr is captured but never surfaced
+  raw), Linux reads with `secret-tool` using bounded
   no-shell execution and a `ZSCALERCTL_*`-scrubbed environment, and Windows
   reads directly through `CredReadW` from `advapi32.dll` loaded with
   `NewLazySystemDLL`. Locked or unavailable keychains fail with bounded,

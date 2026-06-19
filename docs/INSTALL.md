@@ -162,6 +162,10 @@ Store a macOS Keychain item with service and account matching the reference:
 security add-generic-password -s zscalerctl -a prod-client-secret -w '<secret>'
 ```
 
+Non-ASCII secret values round-trip correctly: `security -w` may emit such values
+as hex, which the reader transparently decodes while preserving a literal
+hex-looking secret unchanged.
+
 Then reference it as:
 
 ```yaml

@@ -72,13 +72,6 @@ func filterEnv(environ []string) []string {
 	return filtered
 }
 
-func summarizeStderr(s string) string {
-	if s == "" {
-		return "no stderr"
-	}
-	return fmt.Sprintf("stderr omitted (%d bytes)", len(s))
-}
-
 type cappedWriter struct {
 	buf      bytes.Buffer
 	limit    int

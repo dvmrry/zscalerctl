@@ -98,6 +98,41 @@ func TestDarwinGetHexPasswordErrorsOnUnrecognizedSecurityFormat(t *testing.T) {
 	}
 }
 
+// twoCallRunner returns a hex -w output on the first call (so Get makes the -g
+// disambiguation call), then the given result on the second (-g) call.
+func twoCallRunner(wHex, gStderr string, gCode int, gErr error) runnerFunc {
+	var calls int
+	return func(context.Context, time.Duration, []string) (string, string, int, error) {
+		calls++
+		if calls == 1 {
+			return wHex, "", 0, nil
+		}
+		return "", gStderr, gCode, gErr
+	}
+}
+
+func TestDarwinGetHexPasswordSecondCallNotFound(t *testing.T) {
+	// Item vanished between -w and -g (TOCTOU): surface ErrNotFound, not a value.
+	g := newDarwinWithRunner(twoCallRunner("c3a9c3a9", "", errSecItemNotFoundExit, nil))
+	if _, err := g.Get(context.Background(), "svc", "k"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("-g exit 44 must map to ErrNotFound, got %v", err)
+	}
+}
+
+func TestDarwinGetHexPasswordSecondCallLocked(t *testing.T) {
+	g := newDarwinWithRunner(twoCallRunner("c3a9c3a9", "", errSecInteractionNotAllowedExit, nil))
+	if _, err := g.Get(context.Background(), "svc", "k"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("-g exit 36 must map to ErrUnavailable, got %v", err)
+	}
+}
+
+func TestDarwinGetHexPasswordSecondCallRunError(t *testing.T) {
+	g := newDarwinWithRunner(twoCallRunner("c3a9c3a9", "", -1, ErrUnavailable))
+	if _, err := g.Get(context.Background(), "svc", "k"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("-g run error must propagate, got %v", err)
+	}
+}
+
 func TestDarwinGetEmptyValueErrors(t *testing.T) {
 	g := newDarwinWithRunner(func(context.Context, time.Duration, []string) (string, string, int, error) {
 		return "", "", 0, nil

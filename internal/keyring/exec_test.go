@@ -34,14 +34,22 @@ func TestRunKeyringCmdNonZeroExit(t *testing.T) {
 	}
 }
 
-func TestRunKeyringCmdStderrSummaryIsValueFree(t *testing.T) {
+func TestRunKeyringCmdErrorsNeverCarryStderr(t *testing.T) {
 	t.Setenv("GO_KEYRING_HELPER", "1")
+	// A non-zero exit with a secret on stderr is reported via exitCode with a NIL
+	// error; runKeyringCmd hands the raw stderr back to the caller (which must keep
+	// it out of its own errors), so no runKeyringCmd error can carry the secret.
 	_, stderr, code, err := runKeyringCmd(context.Background(), 5*time.Second, helperCmd("stderr", "TOKEN"))
 	if err != nil || code != 1 {
 		t.Fatalf("runKeyringCmd(stderr) code=%d err=%v, want 1 nil", code, err)
 	}
-	if strings.Contains(summarizeStderr(stderr), "TOKEN") {
-		t.Fatal("summarizeStderr(stderr) leaked stderr content")
+	if stderr != "TOKEN" {
+		t.Fatalf("runKeyringCmd must return raw stderr to the caller, got %q", stderr)
+	}
+	// runKeyringCmd's own error paths name only the command, never captured output.
+	_, _, _, startErr := runKeyringCmd(context.Background(), time.Second, []string{"/nonexistent-zscalerctl-bin"})
+	if startErr == nil || strings.Contains(startErr.Error(), "TOKEN") {
+		t.Fatalf("start-failure error must not carry captured output: %v", startErr)
 	}
 }
 
