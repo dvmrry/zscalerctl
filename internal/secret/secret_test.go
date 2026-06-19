@@ -117,3 +117,60 @@ func TestSecretLogValuerInterface(t *testing.T) {
 
 	var _ slog.LogValuer = secret.New("value")
 }
+
+// TestSecretRevealRoundTrip verifies that Reveal() returns the exact cleartext
+// passed to New(), and that none of the redacting interfaces (String,
+// MarshalJSON, MarshalYAML, MarshalText, GoString, LogValue) expose that value.
+func TestSecretRevealRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	const cleartext = "cleartext-round-trip-value"
+	s := secret.New(cleartext)
+
+	// Reveal must return the original value exactly.
+	if got := s.Reveal(); got != cleartext {
+		t.Errorf("Reveal() = %q, want %q", got, cleartext)
+	}
+
+	// Redacting interfaces must not expose the cleartext.
+	redactingOutputs := map[string]string{
+		"String()":   s.String(),
+		"GoString()": s.GoString(),
+		"LogValue":   s.LogValue().String(),
+	}
+
+	jsonBytes, err := s.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v, want nil", err)
+	}
+	redactingOutputs["MarshalJSON"] = string(jsonBytes)
+
+	textBytes, err := s.MarshalText()
+	if err != nil {
+		t.Fatalf("MarshalText() error = %v, want nil", err)
+	}
+	redactingOutputs["MarshalText"] = string(textBytes)
+
+	yamlVal, err := s.MarshalYAML()
+	if err != nil {
+		t.Fatalf("MarshalYAML() error = %v, want nil", err)
+	}
+	redactingOutputs["MarshalYAML"] = fmt.Sprintf("%v", yamlVal)
+
+	for name, output := range redactingOutputs {
+		if strings.Contains(output, cleartext) {
+			t.Errorf("%s leaked cleartext: got %q", name, output)
+		}
+	}
+}
+
+// TestSecretRevealUnset verifies that Reveal() on an unset Secret returns an
+// empty string (not a panic or a redaction marker).
+func TestSecretRevealUnset(t *testing.T) {
+	t.Parallel()
+
+	var s secret.Secret
+	if got := s.Reveal(); got != "" {
+		t.Errorf("Reveal() on unset Secret = %q, want empty string", got)
+	}
+}
