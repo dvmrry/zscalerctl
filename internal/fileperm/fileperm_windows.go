@@ -36,23 +36,28 @@ const volumeNameGUID = 0x1
 // validation.
 //
 // Bits included:
-//   - GENERIC_READ / FILE_GENERIC_READ / FILE_READ_DATA — read access
-//   - GENERIC_WRITE / FILE_GENERIC_WRITE / FILE_WRITE_DATA / FILE_APPEND_DATA — write
-//   - GENERIC_ALL — wildcard that implies read+write+execute
-//   - READ_CONTROL / WRITE_DAC / WRITE_OWNER / DELETE — security/ownership control
-//   - GENERIC_EXECUTE / FILE_EXECUTE — execute access; an ACE granting only
-//     execute to a foreign SID was previously skipped, leaving a gap in the
-//     owner-only invariant.  FILE_GENERIC_EXECUTE and FILE_READ_ATTRIBUTES are
-//     intentionally omitted: FILE_GENERIC_EXECUTE is a composite that includes
-//     FILE_READ_ATTRIBUTES (metadata-only; no data disclosed), and including it
-//     would false-reject benign metadata ACEs that don't grant data access.
+//   - GENERIC_READ / GENERIC_WRITE / GENERIC_ALL / GENERIC_EXECUTE — generic
+//     access wildcard bits; an ACE carrying any of these grants meaningful access.
+//   - FILE_READ_DATA / FILE_WRITE_DATA / FILE_APPEND_DATA / FILE_EXECUTE —
+//     concrete file-level data access bits (e.g. `icacls :R` grants FILE_READ_DATA).
+//   - READ_CONTROL / WRITE_DAC / WRITE_OWNER / DELETE — security/ownership control.
+//
+// Bits intentionally omitted:
+//   - FILE_GENERIC_READ and FILE_GENERIC_WRITE are composite constants that
+//     expand to include FILE_READ_ATTRIBUTES, FILE_READ_EA, and SYNCHRONIZE
+//     (metadata-only bits that disclose no file data). Including them would
+//     cause the mask to match metadata-only ACEs (e.g. an ACE granting only
+//     FILE_READ_ATTRIBUTES) and produce false rejects.  The non-composite
+//     variants (GENERIC_READ, FILE_READ_DATA, etc.) already cover every real
+//     data-read/write case without pulling in the metadata bits.
+//   - FILE_GENERIC_EXECUTE is similarly a composite that includes
+//     FILE_READ_ATTRIBUTES; GENERIC_EXECUTE and FILE_EXECUTE cover execute
+//     access without the metadata-bit contamination.
 const windowsCoveredAccessMask = windows.ACCESS_MASK(
 	windows.GENERIC_READ |
 		windows.GENERIC_WRITE |
 		windows.GENERIC_ALL |
 		windows.GENERIC_EXECUTE |
-		windows.FILE_GENERIC_READ |
-		windows.FILE_GENERIC_WRITE |
 		windows.FILE_READ_DATA |
 		windows.FILE_WRITE_DATA |
 		windows.FILE_APPEND_DATA |

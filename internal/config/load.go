@@ -45,12 +45,16 @@ func LoadConfig(environ []string, opts LoadOptions) (Config, error) {
 		return Config{}, err
 	}
 	if !loaded {
-		// A requested profile (via --profile or ZSCALERCTL_PROFILE) but no config
-		// file means the user is likely targeting the wrong tenant. Fail loudly
-		// rather than silently falling back to env credentials.
-		if requestedProfile != "" {
+		// When --profile (the explicit per-invocation flag) is set but no config
+		// file exists, fail loudly: the operator is clearly targeting a specific
+		// profile and silently falling back to env credentials would likely hit the
+		// wrong tenant. Only the FLAG is treated as "explicit intent"; the env var
+		// (ZSCALERCTL_PROFILE) is an ambient default that may be set in a shell
+		// profile and must not cause hard failures when no config file is present —
+		// those operators rely on env-credential fallback.
+		if strings.TrimSpace(opts.Profile) != "" {
 			return Config{}, fmt.Errorf("%w: profile %q was requested but no config file was found at %s",
-				ErrInvalidConfig, requestedProfile, configPath)
+				ErrInvalidConfig, opts.Profile, configPath)
 		}
 		return cfg, nil
 	}

@@ -1220,11 +1220,19 @@ func jsonSourceRecord[T any](item T) resources.SourceRecord {
 		// type in the SDK struct).  Log it so it shows up in diagnostic output;
 		// the caller cannot observe an error because the function signature is
 		// fixed by the 50+ registration sites in reader_zpa.go.
-		slog.Error("jsonSourceRecord: marshal failed", "error", err)
+		// Log the item type and error type only — never the raw error value,
+		// which could embed tenant data via a custom MarshalJSON implementation.
+		slog.Error("jsonSourceRecord: marshal failed",
+			"item_type", fmt.Sprintf("%T", item),
+			"error_type", fmt.Sprintf("%T", err),
+		)
 		return resources.NewSourceRecord(fields)
 	}
 	if err := json.Unmarshal(body, &fields); err != nil {
-		slog.Error("jsonSourceRecord: unmarshal failed", "error", err)
+		slog.Error("jsonSourceRecord: unmarshal failed",
+			"item_type", fmt.Sprintf("%T", item),
+			"error_type", fmt.Sprintf("%T", err),
+		)
 		return resources.NewSourceRecord(map[string]any{})
 	}
 	return resources.NewSourceRecord(fields)

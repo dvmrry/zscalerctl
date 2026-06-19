@@ -265,48 +265,54 @@ func TestLoadConfigExplicitMissingFileFails(t *testing.T) {
 	}
 }
 
-// TestLoadConfigRequestedProfileNoConfigFileErrors ensures that --profile (or
-// ZSCALERCTL_PROFILE) with no config file returns an actionable error rather
-// than silently falling back to env credentials and potentially targeting the
-// wrong tenant.
-func TestLoadConfigRequestedProfileNoConfigFileErrors(t *testing.T) {
+// TestLoadConfigFlagProfileNoConfigFileErrors ensures that --profile (the
+// explicit per-invocation flag) with no config file returns an actionable error
+// rather than silently falling back to env credentials and potentially
+// targeting the wrong tenant.
+func TestLoadConfigFlagProfileNoConfigFileErrors(t *testing.T) {
 	t.Parallel()
 
-	missingPath := filepath.Join(t.TempDir(), "missing.yaml")
-
-	// --profile flag path: non-explicit config path but profile explicitly requested.
-	// We use XDG_CONFIG_HOME pointing at a directory that has no config file so
-	// the config path is derived (non-explicit) yet there is no file.
+	// Use XDG_CONFIG_HOME pointing at a directory with no config file so the
+	// config path is derived (non-explicit) yet there is no file.
 	xdgDir := t.TempDir() // no config.yaml created here
 	_, err := config.LoadConfig(
 		[]string{"XDG_CONFIG_HOME=" + xdgDir},
 		config.LoadOptions{Profile: "prod"},
 	)
 	if err == nil {
-		t.Fatal("LoadConfig(--profile with no config file) error = nil, want error")
+		t.Fatal("LoadConfig(--profile flag, no config file) error = nil, want error")
 	}
 	if !errors.Is(err, config.ErrInvalidConfig) {
-		t.Fatalf("LoadConfig(--profile with no config file) error = %v, want ErrInvalidConfig", err)
+		t.Fatalf("LoadConfig(--profile flag, no config file) error = %v, want ErrInvalidConfig", err)
 	}
 	if !strings.Contains(err.Error(), "prod") {
-		t.Fatalf("LoadConfig(--profile with no config file) error = %q, want profile name in message", err.Error())
+		t.Fatalf("LoadConfig(--profile flag, no config file) error = %q, want profile name in message", err.Error())
 	}
-	_ = missingPath
+}
 
-	// ZSCALERCTL_PROFILE env var path.
-	xdgDir2 := t.TempDir()
-	_, err = config.LoadConfig(
-		[]string{"XDG_CONFIG_HOME=" + xdgDir2, config.EnvProfile + "=staging"},
+// TestLoadConfigEnvProfileNoConfigFileSucceeds verifies that ZSCALERCTL_PROFILE
+// set in the environment (an ambient shell default) does NOT cause a hard error
+// when no config file exists. Such operators rely on env-credential fallback and
+// must not be broken by an ambient profile variable.
+func TestLoadConfigEnvProfileNoConfigFileSucceeds(t *testing.T) {
+	t.Parallel()
+
+	xdgDir := t.TempDir() // no config.yaml created here
+	cfg, err := config.LoadConfig(
+		[]string{
+			"XDG_CONFIG_HOME=" + xdgDir,
+			config.EnvProfile + "=staging",
+			config.EnvClientID + "=env-client",
+			config.EnvClientSecret + "=env-secret",
+			config.EnvVanityDomain + "=env-vanity",
+		},
 		config.LoadOptions{},
 	)
-	if err == nil {
-		t.Fatal("LoadConfig(ZSCALERCTL_PROFILE with no config file) error = nil, want error")
+	if err != nil {
+		t.Fatalf("LoadConfig(ZSCALERCTL_PROFILE env var, no config file) error = %v, want nil (env fallback)", err)
 	}
-	if !errors.Is(err, config.ErrInvalidConfig) {
-		t.Fatalf("LoadConfig(ZSCALERCTL_PROFILE with no config file) error = %v, want ErrInvalidConfig", err)
-	}
-	if !strings.Contains(err.Error(), "staging") {
-		t.Fatalf("LoadConfig(ZSCALERCTL_PROFILE with no config file) error = %q, want profile name in message", err.Error())
+	if cfg.VanityDomain != "env-vanity" {
+		t.Errorf("VanityDomain = %q, want env-vanity", cfg.VanityDomain)
 	}
 }
 
