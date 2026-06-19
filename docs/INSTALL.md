@@ -160,12 +160,60 @@ through the operator's `PATH`. If a workflow needs shell features, put them in a
 reviewed wrapper script and point `argv` at that script. Set
 `ZSCALERCTL_DISALLOW_CMD=true` to reject `cmd` refs fleet-wide.
 
-### Secret Providers
+### Profiles and Secret Providers
+
+**Source/profile selection:** `--config` (or `ZSCALERCTL_CONFIG`) chooses which
+config file to load; `--profile` (or `ZSCALERCTL_PROFILE`) chooses which named
+profile within that file to use.
+
+**Per-field value precedence (highest to lowest):** flag > `ZSCALERCTL_*`
+environment variable > profile value > built-in default. A field set as a flag
+or in the environment always wins over the same field in a profile; a field in a
+profile wins over the built-in default. The Zscaler SDK's own environment
+variables are never read.
+
+`--redaction` and `--no-cache` are applied after config load, overriding
+whatever the profile or environment set for those fields.
 
 Profile secret references can use `env:NAME`, `file:/path/to/secret`,
-structured `cmd:`, or `keyring:<service>/<key>`. `keyring:` is intended for
-local operator desktops; agents and CI should continue to use protected
-environment variables or owner-only secret files.
+structured `cmd:`, or `keyring:<service>/<key>`. If a referenced secret
+cannot be resolved — the environment variable is unset, the file is missing or
+has wrong permissions, the command fails, or the keychain entry is absent —
+`zscalerctl` fails with a clear error. There is no silent fallback to a
+plaintext value or a weaker provider.
+
+`env:` and `file:` work in every environment. `keyring:` and `cmd:` require a
+desktop session or a helper binary; use `env:` or `file:` for headless
+environments such as CI runners and agent containers.
+
+A single profile can mix providers for different secrets:
+
+```yaml
+default_profile: prod
+profiles:
+  prod:
+    # Non-secret metadata
+    client_id: <client-id>
+    vanity_domain: <vanity-domain>
+    cloud: PRODUCTION
+    zpa_customer_id: <zpa-customer-id>
+
+    # env: reads from an environment variable; fails loud if unset
+    # Useful when a CI system injects the secret as an env var.
+    # client_secret_ref: env:MY_ZSCALER_SECRET
+
+    # file: reads from an owner-only file on a local fixed volume
+    client_secret_ref: file:/run/secrets/zscaler-client-secret
+
+    # keyring: reads from the OS keychain (desktop use; see storage commands below)
+    # client_secret_ref: keyring:zscalerctl/prod-client-secret
+
+    # cmd: execs an argv directly (no shell) and uses trimmed stdout as the secret
+    # client_secret_ref:
+    #   cmd:
+    #     argv: ["/usr/local/bin/zscaler-secret", "prod", "client-secret"]
+    #     timeout: 5s
+```
 
 Store a macOS Keychain item with service and account matching the reference:
 
@@ -212,7 +260,7 @@ to your account plus administrative principals:
 
 ```powershell
 $env:ZSCALERCTL_CLIENT_ID = '<client-id>'
-$env:ZSCALERCTL_CLIENT_SECRET_FILE = "$env:USERPROFILE\.config\zscalerctl\client-secret.txt"
+$env:ZSCALERCTL_CLIENT_SECRET_FILE = "$env:LOCALAPPDATA\zscalerctl\client-secret.txt"
 $env:ZSCALERCTL_VANITY_DOMAIN = '<vanity-domain>'
 $env:ZSCALERCTL_CLOUD = 'PRODUCTION'
 $env:ZSCALERCTL_ZPA_CUSTOMER_ID = '<zpa-customer-id>' # only for ZPA resources

@@ -17,10 +17,12 @@ can modify tenant state.
 2. **Never guess resource names.** Enumerate first:
    `zscalerctl --format json schema list` (full catalog: products, resources,
    operations, fields) or `zscalerctl <product> --help` (one product's list).
-3. **Credentials:** env variables are still first-class and override optional
-   owner-only YAML profiles (`--profile`, `--config`). `zscalerctl doctor`
+3. **Credentials:** Use `ZSCALERCTL_*` environment variables — not profiles.
+   Profiles and secret providers (`env:`, `file:`, `keyring:`, `cmd:`) are
+   operator ergonomics for interactive local workflows; env vars are the right
+   agent path and always take precedence. `zscalerctl doctor`
    reports which env values or profile-backed secret refs are set or missing
-   without contacting Zscaler. Profile secret refs can use `env:`, `file:`, or
+   without contacting Zscaler. Profile secret refs can use `env:`, `file:`, `keyring:`, or
    structured `cmd:` providers; `cmd:` executes an operator-specified argv with
    no shell and can be disabled with `ZSCALERCTL_DISALLOW_CMD=true`. If any are
    missing, ask the operator to set them — values and provider commands are
