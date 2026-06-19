@@ -5,6 +5,7 @@
   "description": "Schema for the owner-only YAML config file read by `zscalerctl --config` / `--profile`. The file must be readable only by the current user (mode 0600 on POSIX; restricted DACL on Windows). Secret values are never stored inline — only secret references (`env:`, `file:`, `keyring:`, or structured `cmd:`) belong in `*_ref` fields.",
   "type": "object",
   "additionalProperties": false,
+  "required": ["profiles"],
   "properties": {
     "default_profile": {
       "type": "string",
@@ -13,6 +14,7 @@
     "profiles": {
       "type": "object",
       "description": "Map of profile name to profile data. At least one profile is required.",
+      "minProperties": 1,
       "additionalProperties": { "$ref": "#/$defs/profile" }
     }
   },
@@ -74,7 +76,7 @@
         },
         "no_cache": {
           "type": "boolean",
-          "description": "Disable per-session in-memory caching of API responses when `true`. Overridden by `ZSCALERCTL_NO_CACHE`."
+          "description": "Disable per-session in-memory caching of API responses when `true`. Overridden by `ZSCALERCTL_NO_CACHE` or the `--no-cache` flag."
         }
       }
     },
@@ -84,7 +86,7 @@
         {
           "type": "string",
           "description": "Shorthand string ref. Supported forms:\n- `env:VARNAME` — read from the named environment variable; fails if the variable is unset.\n- `file:/absolute/path` — read from an owner-only file on a local fixed volume.\n- `keyring:service/key` — read from the OS keychain (macOS Keychain, Linux Secret Service, Windows Credential Manager). Intended for interactive desktops; agents and CI should use `env:` or `file:` instead.",
-          "pattern": "^(env:[^:].*)|(file:/.*)|(keyring:[^/]+/[^/]+)$"
+          "pattern": "^(?:env:.+|file:.+|keyring:[^/]+/[^/]+)$"
         },
         {
           "type": "object",
@@ -105,7 +107,7 @@
                 },
                 "timeout": {
                   "type": "string",
-                  "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+                  "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
                   "description": "Per-call timeout (Go duration string, e.g. `5s`, `30s`). Defaults to 10s if absent. The process is killed when the timeout fires."
                 }
               }
