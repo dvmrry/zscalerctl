@@ -30,15 +30,33 @@ const fileNameNormalizedDOS = 0
 // so this is the fallback when the DOS-name form fails.
 const volumeNameGUID = 0x1
 
-const windowsReadWriteMask = windows.ACCESS_MASK(
+// windowsCoveredAccessMask is the set of Windows access bits that constitute
+// meaningful access to a config/secret file.  An ACE whose Mask has none of
+// these bits set cannot read or execute the file and is skipped during DACL
+// validation.
+//
+// Bits included:
+//   - GENERIC_READ / FILE_GENERIC_READ / FILE_READ_DATA — read access
+//   - GENERIC_WRITE / FILE_GENERIC_WRITE / FILE_WRITE_DATA / FILE_APPEND_DATA — write
+//   - GENERIC_ALL — wildcard that implies read+write+execute
+//   - READ_CONTROL / WRITE_DAC / WRITE_OWNER / DELETE — security/ownership control
+//   - GENERIC_EXECUTE / FILE_EXECUTE — execute access; an ACE granting only
+//     execute to a foreign SID was previously skipped, leaving a gap in the
+//     owner-only invariant.  FILE_GENERIC_EXECUTE and FILE_READ_ATTRIBUTES are
+//     intentionally omitted: FILE_GENERIC_EXECUTE is a composite that includes
+//     FILE_READ_ATTRIBUTES (metadata-only; no data disclosed), and including it
+//     would false-reject benign metadata ACEs that don't grant data access.
+const windowsCoveredAccessMask = windows.ACCESS_MASK(
 	windows.GENERIC_READ |
 		windows.GENERIC_WRITE |
 		windows.GENERIC_ALL |
+		windows.GENERIC_EXECUTE |
 		windows.FILE_GENERIC_READ |
 		windows.FILE_GENERIC_WRITE |
 		windows.FILE_READ_DATA |
 		windows.FILE_WRITE_DATA |
 		windows.FILE_APPEND_DATA |
+		windows.FILE_EXECUTE |
 		windows.READ_CONTROL |
 		windows.DELETE |
 		windows.WRITE_DAC |
@@ -114,13 +132,13 @@ func validateSecurityDescriptor(path string, sd *windows.SECURITY_DESCRIPTOR) er
 			return fmt.Errorf("read DACL ACE: %w", err)
 		}
 		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
-			if isUnsupportedAllowACEType(ace.Header.AceType) && ace.Mask&windowsReadWriteMask != 0 {
+			if isUnsupportedAllowACEType(ace.Header.AceType) && ace.Mask&windowsCoveredAccessMask != 0 {
 				return fmt.Errorf("%w: %s has an unsupported Windows allow ACE type %d; reset its permissions:  icacls %q /inheritance:r /grant:r \"%%USERNAME%%:F\"",
 					ErrInsecurePermissions, path, ace.Header.AceType, path)
 			}
 			continue
 		}
-		if ace.Mask&windowsReadWriteMask == 0 {
+		if ace.Mask&windowsCoveredAccessMask == 0 {
 			continue
 		}
 		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))

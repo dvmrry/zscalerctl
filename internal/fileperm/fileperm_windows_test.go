@@ -58,6 +58,41 @@ func TestWindowsDACLRejectsBroadPrincipal(t *testing.T) {
 	}
 }
 
+// TestWindowsDACLRejectsExecuteOnlyForeignSID verifies that an ACE granting
+// GENERIC_EXECUTE or FILE_EXECUTE only (no read/write bits) to a broad
+// principal is still rejected.  Prior to Fix 2 the mask did not include the
+// execute bits, so such an ACE was silently skipped, leaving a gap in the
+// owner-only invariant.  SDDL "GX" encodes GENERIC_EXECUTE (0x20000000);
+// "WD" is the Everyone (S-1-1-0) well-known SID shorthand.
+func TestWindowsDACLRejectsExecuteOnlyForeignSID(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		sddl string
+	}{
+		// GENERIC_EXECUTE granted to Everyone — the primary gap case.
+		{name: "Everyone:GX", sddl: "O:BAD:P(A;;GX;;;WD)"},
+		// FILE_EXECUTE (0x0020) granted to Everyone, expressed as a hex rights
+		// mask in SDDL.  SDDL accepts 0x-prefixed hex for rights fields.
+		{name: "Everyone:FILE_EXECUTE", sddl: "O:BAD:P(A;;0x20;;;WD)"},
+		// GENERIC_EXECUTE granted to a non-admin domain account SID — ensures
+		// the check is not limited to well-known blocked SIDs.
+		{name: "DomainUser:GX", sddl: "O:BAD:P(A;;GX;;;S-1-5-21-1-2-3-500)"},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sd := securityDescriptorFromString(t, tc.sddl)
+			err := validateSecurityDescriptor(testPath, sd)
+			if !errors.Is(err, ErrInsecurePermissions) {
+				t.Fatalf("validateSecurityDescriptor(%q) error = %v, want ErrInsecurePermissions (execute-only foreign SID must be rejected)", tc.sddl, err)
+			}
+			assertRemediation(t, tc.name, err)
+		})
+	}
+}
+
 func TestWindowsDACLRejectsUnsupportedAllowACE(t *testing.T) {
 	t.Parallel()
 
