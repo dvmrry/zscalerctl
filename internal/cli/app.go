@@ -1204,15 +1204,18 @@ func (a *App) resourceReader(ctx context.Context, cfg config.Config, opts global
 	}
 	clientSecret, err := cfg.Credentials.ClientSecret.Resolve(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: resolve client secret: %w", zscaler.ErrMissingCredentials, err)
+		// Phrase the credential AFTER the cause (parenthesized). A "<secret>: <cause>"
+		// shape makes the redactor read the nested diagnostic as a key:value secret
+		// and redact the cause, hiding the real failure (redact secret_assignment rule).
+		return nil, fmt.Errorf("%w: %w (while resolving the client secret)", zscaler.ErrMissingCredentials, err)
 	}
 	ziaPassword, err := cfg.ZIALegacy.Password.Resolve(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: resolve ZIA legacy password: %w", zscaler.ErrMissingCredentials, err)
+		return nil, fmt.Errorf("%w: %w (while resolving the ZIA legacy password)", zscaler.ErrMissingCredentials, err)
 	}
 	ziaAPIKey, err := cfg.ZIALegacy.APIKey.Resolve(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: resolve ZIA legacy API key: %w", zscaler.ErrMissingCredentials, err)
+		return nil, fmt.Errorf("%w: %w (while resolving the ZIA legacy API key)", zscaler.ErrMissingCredentials, err)
 	}
 	// Surface SDK retry/backoff and session/token-renewal activity only when the
 	// operator opts in with --log-level debug; otherwise the reader installs a

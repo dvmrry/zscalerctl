@@ -44,6 +44,30 @@ func TestRedactorRemovesCredentialPatterns(t *testing.T) {
 	}
 }
 
+// Resolve-failure errors mention the credential being resolved AND carry a
+// diagnostic cause. The credential phrase must trail the cause (parenthesized)
+// so the redactor does not read "<secret>: <cause>" as a key:value assignment
+// and eat the diagnostic. Guards the app.go resourceReader wrappers.
+func TestRedactorPreservesResolveErrorDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct{ in, keep string }{
+		{"missing credentials: unsafe file permissions: broad Windows owner S-1-1-0 (while resolving the client secret)", "unsafe file permissions"},
+		{"missing credentials: keyring is not available in this build (while resolving the ZIA legacy password)", "keyring is not available"},
+		{"missing credentials: env ref is not set: ZS_CLIENT (while resolving the ZIA legacy API key)", "env ref is not set"},
+	}
+	r := redact.New(redact.ModeStandard)
+	for _, tc := range cases {
+		got := r.String(tc.in)
+		if strings.Contains(got, "<REDACTED") {
+			t.Errorf("Redactor.String(%q) = %q, want no marker (diagnostic is not a secret)", tc.in, got)
+		}
+		if !strings.Contains(got, tc.keep) {
+			t.Errorf("Redactor.String(%q) = %q, want diagnostic %q preserved", tc.in, got, tc.keep)
+		}
+	}
+}
+
 func TestRedactorRemovesNonBearerAuthSchemes(t *testing.T) {
 	t.Parallel()
 
