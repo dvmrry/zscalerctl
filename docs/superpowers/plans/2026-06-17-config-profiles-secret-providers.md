@@ -594,6 +594,11 @@ A deferred secret that fails to `Resolve` at reader-build time (bad `cmd:`, disa
 
 **Outcome:** `keyring:` refs resolve from the OS keychain — macOS Keychain via `/usr/bin/security`, Linux Secret Service via `secret-tool`, Windows Credential Manager via the `CredReadW` syscall — all cgo-free, **zero new Go dependencies**, static binary intact, behind a mockable `Getter` interface. Mergeable `semver:minor` PR.
 
+> **AS-BUILT (2026-06-19) — implemented in PR #199, live-validated.** Where the pre-implementation plan below differs, the shipped code + #199 + DAV-29 are authoritative:
+> - **macOS uses `-w` with a `-g` hex-disambiguation fallback** (NOT "never `-g`"). Live testing revealed `security -w` emits some non-ASCII secrets as hex; the backend falls back to `security -g` to decode `0x…` bytes while preserving literal hex-looking secrets. That call's stderr is captured but never surfaced raw.
+> - **Windows backend is build-tagged `windows && (amd64 || arm64)`** (windows/386 fails closed rather than compiling a wrong `CREDENTIALW` ABI) and calls `runtime.KeepAlive(targetPtr)` after `CredReadW` (`LazyProc.Call` is not the special-cased `syscall.Syscall`).
+> - **Live-host acceptance is DONE, not pending:** macOS (real login keychain) and Windows (real host: `cmdkey` + `CredWriteW` + Credential Manager GUI, non-ASCII byte-exact) both pass; no Windows analog of the macOS hex bug.
+
 ### Backend approach — DECIDED: zero new dependencies (hand-roll all three)
 
 Each backend uses only the stdlib (`os/exec` for macOS/Linux) or an already-vendored dependency (`golang.org/x/sys/windows`, present since the phase-1 DACL work). Rationale:
@@ -607,7 +612,7 @@ Each backend uses only the stdlib (`os/exec` for macOS/Linux) or an already-vend
 
 | OS | Read invocation | Not-found signal | Secret encoding | How operator stores the credential |
 |----|-----------------|------------------|-----------------|-------------------------------------|
-| **macOS** | `/usr/bin/security find-generic-password -s <service> -a <key> -w` (absolute path, anti-hijack; `-w` routes **only** the raw password to stdout — never `-g`, which leaks it to stderr) | Exit code **44** (low byte of `errSecItemNotFound` OSStatus `0xFFFF9D2C`) | Raw bytes + trailing LF; `strings.TrimRight(stdout, "\r\n")` | `security add-generic-password -s <service> -a <key> -w` or Keychain Access.app → File ▸ New Password Item ("Keychain Item Name" = service, "Account Name" = key) |
+| **macOS** | `/usr/bin/security find-generic-password -s <service> -a <key> -w` (absolute path, anti-hijack; `-w` primary, with a `-g` fallback only to decode hex output for non-ASCII secrets — see AS-BUILT note; that call's stderr is captured, never surfaced raw) | Exit code **44** (low byte of `errSecItemNotFound` OSStatus `0xFFFF9D2C`) | Raw bytes + trailing LF; `strings.TrimRight(stdout, "\r\n")` | `security add-generic-password -s <service> -a <key> -w` or Keychain Access.app → File ▸ New Password Item ("Keychain Item Name" = service, "Account Name" = key) |
 | **Linux** | `secret-tool lookup service <service> account <key>` (PATH-resolved; `exec.LookPath` first for a clear install-hint if absent) | Exit **1** AND trimmed stdout empty. Exit 1 + non-empty stdout = hard error; D-Bus language in stderr + empty stdout = "Secret Service unavailable" hard error | UTF-8, no trailing newline in libsecret ≥ 0.18 (trim `\r\n` defensively) | `secret-tool store --label="zscalerctl: <service>/<key>" service <service> account <key>` (type secret at prompt) |
 | **Windows** | `CredReadW` via `advapi32.dll` `NewLazySystemDLL` + `NewProc` (System32-only load; no subprocess, no PATH) | `r1 == 0` and `lastErr == windows.ERROR_NOT_FOUND` (`syscall.Errno(1168)`) | UTF-16LE blob, no guaranteed NUL terminator; decode via pure-Go `decodeUTF16LE` (Task 3.1) | `cmdkey /generic:<service>/<key> /user:<service>/<key> /pass:<secret>` or Credential Manager → Windows Credentials ▸ Add a generic credential (address = `<service>/<key>`) |
 | **Other** | N/A — `Get` returns a hard "not supported on this platform" error | N/A | N/A | N/A |
@@ -1315,7 +1320,7 @@ func looksLikeServiceUnavailable(stderr string) bool {
 - [ ] **Step 1: Failing struct-layout test** (amd64-specific; the 4-byte pad is the single highest-risk detail):
 
 ```go
-//go:build windows && amd64
+//go:build windows && (amd64 || arm64)
 
 package keyring
 
