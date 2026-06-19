@@ -38,6 +38,11 @@ counts (metadata only — never record values or secrets).
 
 ## Credentials
 
+**Agents use `ZSCALERCTL_*` environment variables — not profiles.** Profiles and
+secret providers (`env:`, `file:`, `keyring:`, `cmd:`) are operator ergonomics for
+interactive local workflows; the right agent path is to inject credentials via
+env vars, which always take precedence over any profile setting.
+
 Configuration is `ZSCALERCTL_*` env-first, with optional owner-only YAML
 profiles selected by `--profile` and `--config`. Env variables always win over
 profiles, and the Zscaler SDK's own variables are never read. Profile secret
