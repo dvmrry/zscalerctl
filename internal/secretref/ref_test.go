@@ -98,13 +98,16 @@ func TestSecretRefStructuredCmdRejectsInvalidTimeout(t *testing.T) {
 func TestSecretRefStructuredCmdRejectsUnknownKeys(t *testing.T) {
 	t.Parallel()
 
-	// Unknown key under cmd: must be rejected, not silently ignored.
+	// Unknown keys at EITHER level — under cmd: or as a top-level sibling of
+	// cmd: — must be rejected, not silently ignored.
 	cases := []struct {
 		name string
 		yaml string
 	}{
 		{name: "typo timeout", yaml: "cmd:\n  argv: [\"/bin/x\"]\n  timeoutt: 5s\n"},
 		{name: "stray key", yaml: "cmd:\n  argv: [\"/bin/x\"]\n  bogus: 1\n"},
+		{name: "misplaced timeout sibling", yaml: "cmd:\n  argv: [\"/bin/x\"]\ntimeout: 5s\n"},
+		{name: "top-level stray key", yaml: "cmd:\n  argv: [\"/bin/x\"]\nbogus: 1\n"},
 	}
 	for _, tc := range cases {
 		tc := tc

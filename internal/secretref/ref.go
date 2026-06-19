@@ -81,15 +81,20 @@ func checkCmdKeys(node *yaml.Node) error {
 }
 
 func (r *SecretRef) parseStructured(node *yaml.Node) error {
-	// Validate that the cmd: mapping contains only known keys before decoding,
-	// so typos (e.g. "timeoutt:") are caught rather than silently ignored.
-	// Walk the outer mapping to find the cmd value node.
+	// Reject unknown keys at BOTH levels before decoding so typos ("timeoutt:")
+	// and misplaced siblings of cmd: (e.g. a top-level "timeout:") are caught
+	// rather than silently ignored — matching the published schema
+	// (additionalProperties:false on both the structured-ref object and the cmd
+	// object). Errors never surface a key's value, only its name.
 	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == "cmd" && node.Content[i+1].Kind == yaml.MappingNode {
+		key := node.Content[i].Value
+		if key != "cmd" {
+			return fmt.Errorf("%w: cmd secret ref: unknown key %q", ErrInvalidRef, key)
+		}
+		if node.Content[i+1].Kind == yaml.MappingNode {
 			if err := checkCmdKeys(node.Content[i+1]); err != nil {
 				return fmt.Errorf("%w: %s", ErrInvalidRef, err.Error())
 			}
-			break
 		}
 	}
 
