@@ -5,6 +5,7 @@ package fileperm
 import (
 	"fmt"
 	"os"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -15,6 +16,17 @@ const (
 	accessAllowedCallbackACEType       = 0x9
 	accessAllowedCallbackObjectACEType = 0xb
 )
+
+// Flags for GetFinalPathNameByHandleW. Both are 0 in the Win32 headers
+// (FILE_NAME_NORMALIZED, VOLUME_NAME_DOS) but x/sys/windows does not export
+// named constants for them, so we spell the value out with this name.
+const fileNameNormalizedDOS = 0
+
+// volumeNameGUID (VOLUME_NAME_GUID) asks GetFinalPathNameByHandleW for the
+// volume-GUID form (`\\?\Volume{GUID}\...`). A local fixed volume always has a
+// GUID even when it has no drive letter (letterless / folder-mounted volumes),
+// so this is the fallback when the DOS-name form fails.
+const volumeNameGUID = 0x1
 
 const windowsReadWriteMask = windows.ACCESS_MASK(
 	windows.GENERIC_READ |
@@ -32,22 +44,42 @@ const windowsReadWriteMask = windows.ACCESS_MASK(
 )
 
 func validate(path string) error {
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	// Open a handle so the volume check and the security-descriptor read see
+	// the same object (TOCTOU-consistent with the handle-based entry point).
+	//
+	// This intentionally follows reparse points / junctions and validates the
+	// TARGET's volume + DACL: os.Open resolves symlinks/junctions, and the
+	// volume gate then runs against whatever the handle actually backs, so a
+	// junction pointing at a UNC/removable target is caught there. Windows has
+	// no O_NOFOLLOW equivalent for this path, so we validate the resolved
+	// target rather than refusing to follow.
+	file, err := os.Open(path) // #nosec G304 -- caller-supplied config/secret path; the security descriptor is validated on the opened handle before any reads.
 	if err != nil {
-		return fmt.Errorf("read file security descriptor: %w", err)
+		return err
 	}
-	return validateSecurityDescriptor(sd)
+	defer func() { _ = file.Close() }()
+	return validateOpenFile(file)
 }
 
 func validateOpenFile(file *os.File) error {
-	sd, err := windows.GetSecurityInfo(windows.Handle(file.Fd()), windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	path := file.Name()
+	handle := windows.Handle(file.Fd())
+
+	// Run the volume restriction BEFORE the DACL check so a network/removable/
+	// non-NTFS/UNC file produces the clear remediation message instead of a
+	// cryptic SID error (DAV-38: NFS/SMB/FAT files surface as opaque SIDs).
+	if err := validateLocalFixedNTFS(handle, path); err != nil {
+		return err
+	}
+
+	sd, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		return fmt.Errorf("read file security descriptor: %w", err)
 	}
-	return validateSecurityDescriptor(sd)
+	return validateSecurityDescriptor(path, sd)
 }
 
-func validateSecurityDescriptor(sd *windows.SECURITY_DESCRIPTOR) error {
+func validateSecurityDescriptor(path string, sd *windows.SECURITY_DESCRIPTOR) error {
 	if sd == nil {
 		return fmt.Errorf("%w: missing security descriptor", ErrInsecurePermissions)
 	}
@@ -59,7 +91,7 @@ func validateSecurityDescriptor(sd *windows.SECURITY_DESCRIPTOR) error {
 		return fmt.Errorf("%w: missing owner", ErrInsecurePermissions)
 	}
 	if sidIsBlocked(owner) {
-		return fmt.Errorf("%w: broad Windows owner %s", ErrInsecurePermissions, owner.String())
+		return rejectSID(path, owner)
 	}
 	dacl, _, err := sd.DACL()
 	if err != nil {
@@ -81,7 +113,8 @@ func validateSecurityDescriptor(sd *windows.SECURITY_DESCRIPTOR) error {
 		}
 		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
 			if isUnsupportedAllowACEType(ace.Header.AceType) && ace.Mask&windowsReadWriteMask != 0 {
-				return fmt.Errorf("%w: unsupported Windows allow ACE type %d", ErrInsecurePermissions, ace.Header.AceType)
+				return fmt.Errorf("%w: %s has an unsupported Windows allow ACE type %d; reset its permissions:  icacls %q /inheritance:r /grant:r \"%%USERNAME%%:F\"",
+					ErrInsecurePermissions, path, ace.Header.AceType, path)
 			}
 			continue
 		}
@@ -90,17 +123,160 @@ func validateSecurityDescriptor(sd *windows.SECURITY_DESCRIPTOR) error {
 		}
 		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
 		if sidIsBlocked(sid) {
-			return fmt.Errorf("%w: broad Windows principal %s has read/write access", ErrInsecurePermissions, sid.String())
+			return rejectSID(path, sid)
 		}
 		if sidInSet(sid, allowed) {
 			continue
 		}
-		if ace.Header.AceFlags&windows.INHERITED_ACE != 0 {
-			return fmt.Errorf("%w: inherited non-owner principal %s has read/write access", ErrInsecurePermissions, sid.String())
-		}
-		return fmt.Errorf("%w: non-owner principal %s has read/write access", ErrInsecurePermissions, sid.String())
+		return rejectSID(path, sid)
 	}
 	return nil
+}
+
+// rejectSID builds a value-free rejection error that names both the friendly
+// principal and its raw SID, and appends the verified icacls remediation
+// (DAV-38 A9). It carries only the path, the principal, and a fixed command —
+// never a secret value.
+func rejectSID(path string, sid *windows.SID) error {
+	return fmt.Errorf("%w: %s is accessible by %s (%s); make it owner-only:  icacls %q /inheritance:r /grant:r \"%%USERNAME%%:F\"",
+		ErrInsecurePermissions, path, friendlyName(sid), sid.String(), path)
+}
+
+// friendlyName resolves a SID to a human-readable "DOMAIN\account" principal
+// via LookupAccountSid. On ANY error (unmapped SID, RPC failure, etc.) or an
+// empty result it falls back to the raw SID string. It never panics.
+func friendlyName(sid *windows.SID) string {
+	if sid == nil {
+		return "<nil SID>"
+	}
+	account, domain, _, err := sid.LookupAccount("")
+	if err != nil || account == "" {
+		return sid.String()
+	}
+	if domain == "" {
+		return account
+	}
+	return domain + "\\" + account
+}
+
+// validateLocalFixedNTFS rejects config/secret files that do not live on a
+// local, fixed, NTFS volume. DAV-38 confirmed the NTFS-DACL read cannot see
+// SMB share permissions (false-ACCEPT risk) and mis-maps remote/NFS/removable
+// identities (false-REJECT). We restrict to DRIVE_FIXED + NTFS + non-UNC so
+// the user gets one clear message instead of an opaque SID error.
+//
+// Everything is handle-based (TOCTOU-safe): the file is already open.
+func validateLocalFixedNTFS(handle windows.Handle, path string) error {
+	// 1) Filesystem must be NTFS or ReFS. ReFS (Win11 Dev Drive, data volumes)
+	// uses the same NTFS-style ACL/SID model this code validates, so rejecting
+	// it would false-reject legitimate local files.
+	fsName, err := fileSystemName(handle)
+	if err != nil {
+		return fmt.Errorf("read file system name: %w", err)
+	}
+	if !strings.EqualFold(fsName, "NTFS") && !strings.EqualFold(fsName, "ReFS") {
+		return rejectVolume(path, fsName)
+	}
+
+	// 2) Recover the canonical path; reject UNC outright. A path we cannot
+	// resolve is unverifiable as a local fixed volume, so reject it with the
+	// same actionable message rather than a raw errno.
+	//
+	// Known fail-closed edge: a volume not registered with Mount Manager (some
+	// third-party encrypted / virtual local volumes) can fail GetFinalPathNameByHandle
+	// in BOTH the DOS and GUID forms; such a file is rejected, never falsely
+	// accepted. Affected users keep config/secret files on %LOCALAPPDATA% (or
+	// another Mount-Manager-backed local volume), or pass --config.
+	finalPath, err := finalPathName(handle)
+	if err != nil {
+		return rejectVolume(path, fsName)
+	}
+	if isUNCPath(finalPath) {
+		return rejectVolume(path, fsName)
+	}
+
+	// 3) The volume must be a fixed local drive.
+	root := volumeRootFromFinalPath(finalPath)
+	if root == "" {
+		return rejectVolume(path, fsName)
+	}
+	rootPtr, err := windows.UTF16PtrFromString(root)
+	if err != nil {
+		return fmt.Errorf("convert volume root: %w", err)
+	}
+	if windows.GetDriveType(rootPtr) != windows.DRIVE_FIXED {
+		return rejectVolume(path, fsName)
+	}
+	return nil
+}
+
+func rejectVolume(path, fsName string) error {
+	return fmt.Errorf("%w: %s must be on a local fixed NTFS or ReFS volume (move it to %%LOCALAPPDATA%%\\zscalerctl or pass --config with a local path); network, removable, and UNC paths can't be securely validated on Windows [filesystem seen: %s]",
+		ErrInsecurePermissions, path, fsNameOrUnknown(fsName))
+}
+
+func fsNameOrUnknown(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	return s
+}
+
+// fileSystemName returns the file-system name (e.g. "NTFS") for the volume that
+// backs the open handle, via GetVolumeInformationByHandleW.
+func fileSystemName(handle windows.Handle) (string, error) {
+	fsNameBuf := make([]uint16, windows.MAX_PATH+1)
+	err := windows.GetVolumeInformationByHandle(
+		handle,
+		nil, // volume name buffer (unused)
+		0,
+		nil, // serial number (unused)
+		nil, // max component length (unused)
+		nil, // file system flags (unused)
+		&fsNameBuf[0],
+		uint32(len(fsNameBuf)),
+	)
+	if err != nil {
+		return "", err
+	}
+	return windows.UTF16ToString(fsNameBuf), nil
+}
+
+// finalPathName returns the canonical path for the open handle, via
+// GetFinalPathNameByHandleW. It tries the normalized DOS form first
+// (`\\?\C:\...` for a local file, `\\?\UNC\server\share\...` for UNC). A
+// letterless / folder-mounted volume has no DOS path, so on error it retries
+// with the volume-GUID form (`\\?\Volume{GUID}\...`), which always exists for a
+// local volume. If both fail it returns the original DOS error.
+func finalPathName(handle windows.Handle) (string, error) {
+	p, dosErr := finalPathNameFlags(handle, fileNameNormalizedDOS)
+	if dosErr == nil {
+		return p, nil
+	}
+	if p, err := finalPathNameFlags(handle, volumeNameGUID); err == nil {
+		return p, nil
+	}
+	return "", dosErr
+}
+
+// finalPathNameFlags runs the two-call GetFinalPathNameByHandleW sizing dance
+// for the given VOLUME_NAME_* flags.
+func finalPathNameFlags(handle windows.Handle, flags uint32) (string, error) {
+	// First call sizes the buffer (returns required length excluding the NUL).
+	n, err := windows.GetFinalPathNameByHandle(handle, nil, 0, flags)
+	if err != nil {
+		return "", err
+	}
+	buf := make([]uint16, n+1)
+	n, err = windows.GetFinalPathNameByHandle(handle, &buf[0], uint32(len(buf)), flags)
+	if err != nil {
+		return "", err
+	}
+	if int(n) >= len(buf) {
+		// Path grew between calls; treat as unverifiable rather than truncating.
+		return "", fmt.Errorf("final path length %d exceeds buffer %d", n, len(buf))
+	}
+	return windows.UTF16ToString(buf[:n]), nil
 }
 
 func openOwnerOnly(path string) (*os.File, error) {

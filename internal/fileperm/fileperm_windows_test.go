@@ -4,10 +4,16 @@ package fileperm
 
 import (
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows"
 )
+
+const testPath = `C:\Users\test\config.yaml`
 
 func TestWindowsDACLAcceptsOwnerAdminSystemOnly(t *testing.T) {
 	t.Parallel()
@@ -19,7 +25,7 @@ func TestWindowsDACLAcceptsOwnerAdminSystemOnly(t *testing.T) {
 		t.Run(sddl, func(t *testing.T) {
 			t.Parallel()
 			sd := securityDescriptorFromString(t, sddl)
-			if err := validateSecurityDescriptor(sd); err != nil {
+			if err := validateSecurityDescriptor(testPath, sd); err != nil {
 				t.Fatalf("validateSecurityDescriptor(%q) error = %v, want nil", sddl, err)
 			}
 		})
@@ -41,9 +47,13 @@ func TestWindowsDACLRejectsBroadPrincipal(t *testing.T) {
 		t.Run(sddl, func(t *testing.T) {
 			t.Parallel()
 			sd := securityDescriptorFromString(t, sddl)
-			if err := validateSecurityDescriptor(sd); !errors.Is(err, ErrInsecurePermissions) {
+			err := validateSecurityDescriptor(testPath, sd)
+			if !errors.Is(err, ErrInsecurePermissions) {
 				t.Fatalf("validateSecurityDescriptor(%q) error = %v, want ErrInsecurePermissions", sddl, err)
 			}
+			// Every reject must carry the actionable icacls remediation and the
+			// file path, and must not leak any value (only path + command).
+			assertRemediation(t, sddl, err)
 		})
 	}
 }
@@ -62,8 +72,87 @@ func TestWindowsDACLRejectsUnsupportedAllowACE(t *testing.T) {
 	}
 	ace.Header.AceType = accessAllowedObjectACEType
 
-	if err := validateSecurityDescriptor(sd); !errors.Is(err, ErrInsecurePermissions) {
-		t.Fatalf("validateSecurityDescriptor(object ACE) error = %v, want ErrInsecurePermissions", err)
+	verr := validateSecurityDescriptor(testPath, sd)
+	if !errors.Is(verr, ErrInsecurePermissions) {
+		t.Fatalf("validateSecurityDescriptor(object ACE) error = %v, want ErrInsecurePermissions", verr)
+	}
+	assertRemediation(t, "unsupported ACE", verr)
+}
+
+// TestOpenOwnerOnlyAcceptsLocalOwnerOnlyFile is the single guard that the
+// ACCEPT path isn't broken. The other tests call validateSecurityDescriptor
+// directly and bypass validateLocalFixedNTFS/validateOpenFile; this exercises
+// the full stack — volume gate (local fixed NTFS/ReFS on the CI/host runner)
+// PLUS the DACL check — against a normal local owner-only file, and asserts it
+// is accepted. It MUST run on the DAV-38 Windows host.
+func TestOpenOwnerOnlyAcceptsLocalOwnerOnlyFile(t *testing.T) {
+	dir := t.TempDir() // local fixed NTFS on the host / CI runner
+	file := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(file, []byte("token: x\n"), 0o600); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	// Make it owner-only via the verified A9 remediation (icacls): reset
+	// inheritance and grant the current user full control only.
+	user := os.Getenv("USERNAME")
+	if user == "" {
+		t.Skip("USERNAME not set; cannot run icacls remediation")
+	}
+	out, err := exec.Command("icacls", file, "/inheritance:r", "/grant:r", user+":F").CombinedOutput()
+	if err != nil {
+		t.Fatalf("icacls remediation failed: %v\n%s", err, out)
+	}
+
+	f, err := OpenOwnerOnly(file)
+	if err != nil {
+		t.Fatalf("OpenOwnerOnly(local owner-only file) error = %v, want nil (accept path)", err)
+	}
+	if f == nil {
+		t.Fatalf("OpenOwnerOnly(local owner-only file) returned nil *os.File, want non-nil")
+	}
+	_ = f.Close()
+}
+
+// TestFriendlyNameFallsBackToSIDString verifies friendlyName never panics and
+// degrades to the raw SID string for an unmapped (synthetic) SID, returns the
+// fixed sentinel for nil, and resolves a friendly form for a well-known SID.
+func TestFriendlyNameFallsBackToSIDString(t *testing.T) {
+	t.Parallel()
+
+	// (a) Unmapped synthetic SID: must fall back to the raw SID string exactly.
+	sid, err := windows.StringToSid("S-1-5-21-1-2-3-1234")
+	if err != nil {
+		t.Fatalf("StringToSid() error = %v, want nil", err)
+	}
+	if got := friendlyName(sid); got != sid.String() {
+		t.Fatalf("friendlyName(unmapped) = %q, want raw SID string %q", got, sid.String())
+	}
+
+	// (b) nil SID: fixed sentinel.
+	if got := friendlyName(nil); got != "<nil SID>" {
+		t.Fatalf("friendlyName(nil) = %q, want %q", got, "<nil SID>")
+	}
+
+	// (c) Well-known SID (LocalSystem): a friendly form must resolve, i.e. the
+	// result must NOT equal the raw SID string.
+	system, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	if err != nil {
+		t.Fatalf("CreateWellKnownSid() error = %v, want nil", err)
+	}
+	if got := friendlyName(system); got == system.String() {
+		t.Fatalf("friendlyName(well-known) = raw SID %q, want a resolved friendly name", got)
+	}
+}
+
+// assertRemediation checks that a reject message names the path, includes the
+// icacls remediation, and embeds the %USERNAME%:F grant.
+func assertRemediation(t *testing.T, label string, err error) {
+	t.Helper()
+	msg := err.Error()
+	for _, want := range []string{testPath, "icacls", "/inheritance:r", "%USERNAME%:F"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("reject %q message %q missing %q", label, msg, want)
+		}
 	}
 }
 
