@@ -121,6 +121,29 @@ func TestSecretRefStructuredCmdRejectsUnknownKeys(t *testing.T) {
 	}
 }
 
+func TestSecretRefStructuredCmdRejectsUnknownKeyViaAlias(t *testing.T) {
+	t.Parallel()
+
+	// cmd: *anchor where the anchor is a mapping carrying an unknown key. The
+	// aliased value has Kind AliasNode (not MappingNode), so parseStructured
+	// must follow node.Alias to still key-check it rather than let node.Decode
+	// silently resolve the alias and drop the unknown key.
+	target := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+		{Kind: yaml.ScalarNode, Value: "argv"},
+		{Kind: yaml.SequenceNode, Content: []*yaml.Node{{Kind: yaml.ScalarNode, Value: "/bin/x"}}},
+		{Kind: yaml.ScalarNode, Value: "bogus"},
+		{Kind: yaml.ScalarNode, Value: "1"},
+	}}
+	refNode := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+		{Kind: yaml.ScalarNode, Value: "cmd"},
+		{Kind: yaml.AliasNode, Alias: target},
+	}}
+	var ref SecretRef
+	if err := ref.UnmarshalYAML(refNode); err == nil {
+		t.Fatal("UnmarshalYAML(cmd: *alias with unknown key) error = nil, want error")
+	}
+}
+
 func TestSecretRefStructuredCmdAcceptsKnownKeys(t *testing.T) {
 	t.Parallel()
 

@@ -91,8 +91,15 @@ func (r *SecretRef) parseStructured(node *yaml.Node) error {
 		if key != "cmd" {
 			return fmt.Errorf("%w: cmd secret ref: unknown key %q", ErrInvalidRef, key)
 		}
-		if node.Content[i+1].Kind == yaml.MappingNode {
-			if err := checkCmdKeys(node.Content[i+1]); err != nil {
+		// Resolve YAML aliases (cmd: *anchor) before the key check: an aliased
+		// mapping has Kind AliasNode, so without this it would skip checkCmdKeys
+		// while node.Decode still resolves the alias and drops unknown keys.
+		cmdNode := node.Content[i+1]
+		for cmdNode.Kind == yaml.AliasNode && cmdNode.Alias != nil {
+			cmdNode = cmdNode.Alias
+		}
+		if cmdNode.Kind == yaml.MappingNode {
+			if err := checkCmdKeys(cmdNode); err != nil {
 				return fmt.Errorf("%w: %s", ErrInvalidRef, err.Error())
 			}
 		}
