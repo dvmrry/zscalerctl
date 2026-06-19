@@ -21,13 +21,14 @@ func TestWindowsDACLAcceptsOwnerAdminSystemOnly(t *testing.T) {
 	for _, sddl := range []string{
 		"O:BAD:P(A;;GRGW;;;BA)(A;;GRGW;;;SY)",
 		// Stock Windows file: owner = Administrators (BA), with Administrators
-		// and SYSTEM carrying FA (Full Access = GENERIC_ALL), and the Owner
-		// well-known SID (OW) also granted FA.  BA and SY are in the allowed-SID
-		// set; OW resolves to the same owner SID which is also allowed.
-		// This case proves the mask change (removing FILE_GENERIC_READ /
-		// FILE_GENERIC_WRITE composites) does not false-reject the execute/full
-		// bits that real Windows files carry for these trusted principals.
-		"O:BAG:BAD:P(A;;FA;;;BA)(A;;FA;;;SY)(A;;FA;;;OW)",
+		// and SYSTEM carrying FA (Full Access = GENERIC_ALL). BA and SY are in
+		// the allowed-SID set. This case proves the mask change (removing the
+		// FILE_GENERIC_READ / FILE_GENERIC_WRITE composites and adding the
+		// execute bits) does not false-reject the execute/full bits that real
+		// Windows files carry for these trusted principals.
+		// (No OWNER RIGHTS / S-1-3-4 ACE: that is a distinct well-known SID, not
+		// the owner, and is correctly rejected as a non-allowed principal.)
+		"O:BAG:BAD:P(A;;FA;;;BA)(A;;FA;;;SY)",
 	} {
 		sddl := sddl
 		t.Run(sddl, func(t *testing.T) {
