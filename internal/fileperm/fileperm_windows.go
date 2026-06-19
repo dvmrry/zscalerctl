@@ -179,8 +179,14 @@ func validateLocalFixedNTFS(handle windows.Handle, path string) error {
 	}
 
 	// 2) Recover the canonical path; reject UNC outright. A path we cannot
-	// resolve is unverifiable as a local fixed drive, so reject it with the
+	// resolve is unverifiable as a local fixed volume, so reject it with the
 	// same actionable message rather than a raw errno.
+	//
+	// Known fail-closed edge: a volume not registered with Mount Manager (some
+	// third-party encrypted / virtual local volumes) can fail GetFinalPathNameByHandle
+	// in BOTH the DOS and GUID forms; such a file is rejected, never falsely
+	// accepted. Affected users keep config/secret files on %LOCALAPPDATA% (or
+	// another Mount-Manager-backed local volume), or pass --config.
 	finalPath, err := finalPathName(handle)
 	if err != nil {
 		return rejectVolume(path, fsName)
@@ -205,7 +211,7 @@ func validateLocalFixedNTFS(handle windows.Handle, path string) error {
 }
 
 func rejectVolume(path, fsName string) error {
-	return fmt.Errorf("%w: %s must be on a local fixed NTFS or ReFS drive (move it to %%LOCALAPPDATA%%\\zscalerctl or pass --config with a local path); network, removable, and UNC paths can't be securely validated on Windows [filesystem seen: %s]",
+	return fmt.Errorf("%w: %s must be on a local fixed NTFS or ReFS volume (move it to %%LOCALAPPDATA%%\\zscalerctl or pass --config with a local path); network, removable, and UNC paths can't be securely validated on Windows [filesystem seen: %s]",
 		ErrInsecurePermissions, path, fsNameOrUnknown(fsName))
 }
 
