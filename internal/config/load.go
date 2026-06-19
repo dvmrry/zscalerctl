@@ -45,8 +45,12 @@ func LoadConfig(environ []string, opts LoadOptions) (Config, error) {
 		return Config{}, err
 	}
 	if !loaded {
-		if opts.Profile != "" {
-			cfg.Profile = opts.Profile
+		// A requested profile (via --profile or ZSCALERCTL_PROFILE) but no config
+		// file means the user is likely targeting the wrong tenant. Fail loudly
+		// rather than silently falling back to env credentials.
+		if requestedProfile != "" {
+			return Config{}, fmt.Errorf("%w: profile %q was requested but no config file was found at %s",
+				ErrInvalidConfig, requestedProfile, configPath)
 		}
 		return cfg, nil
 	}
