@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/dvmrry/zscalerctl/internal/keyring"
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/secret"
 	"github.com/dvmrry/zscalerctl/internal/secretref"
@@ -58,7 +59,10 @@ func LoadConfig(environ []string, opts LoadOptions) (Config, error) {
 	}
 	resolver := opts.Resolver
 	if resolver == nil {
-		resolver = secretref.NewResolver(secretref.ResolverOpts{AllowCmd: !disallowCmd})
+		resolver = secretref.NewResolver(secretref.ResolverOpts{
+			AllowCmd: !disallowCmd,
+			Keyring:  keyring.New(),
+		})
 	}
 	if err := applyProfile(&cfg, profile.data, env, resolver); err != nil {
 		return Config{}, err
