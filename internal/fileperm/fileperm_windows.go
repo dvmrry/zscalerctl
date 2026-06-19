@@ -30,15 +30,38 @@ const fileNameNormalizedDOS = 0
 // so this is the fallback when the DOS-name form fails.
 const volumeNameGUID = 0x1
 
-const windowsReadWriteMask = windows.ACCESS_MASK(
+// windowsCoveredAccessMask is the set of Windows access bits that constitute
+// meaningful access to a config/secret file.  An ACE whose Mask has none of
+// these bits set cannot read or execute the file and is skipped during DACL
+// validation.
+//
+// Bits included:
+//   - GENERIC_READ / GENERIC_WRITE / GENERIC_ALL / GENERIC_EXECUTE — generic
+//     access wildcard bits; an ACE carrying any of these grants meaningful access.
+//   - FILE_READ_DATA / FILE_WRITE_DATA / FILE_APPEND_DATA / FILE_EXECUTE —
+//     concrete file-level data access bits (e.g. `icacls :R` grants FILE_READ_DATA).
+//   - READ_CONTROL / WRITE_DAC / WRITE_OWNER / DELETE — security/ownership control.
+//
+// Bits intentionally omitted:
+//   - FILE_GENERIC_READ and FILE_GENERIC_WRITE are composite constants that
+//     expand to include FILE_READ_ATTRIBUTES, FILE_READ_EA, and SYNCHRONIZE
+//     (metadata-only bits that disclose no file data). Including them would
+//     cause the mask to match metadata-only ACEs (e.g. an ACE granting only
+//     FILE_READ_ATTRIBUTES) and produce false rejects.  The non-composite
+//     variants (GENERIC_READ, FILE_READ_DATA, etc.) already cover every real
+//     data-read/write case without pulling in the metadata bits.
+//   - FILE_GENERIC_EXECUTE is similarly a composite that includes
+//     FILE_READ_ATTRIBUTES; GENERIC_EXECUTE and FILE_EXECUTE cover execute
+//     access without the metadata-bit contamination.
+const windowsCoveredAccessMask = windows.ACCESS_MASK(
 	windows.GENERIC_READ |
 		windows.GENERIC_WRITE |
 		windows.GENERIC_ALL |
-		windows.FILE_GENERIC_READ |
-		windows.FILE_GENERIC_WRITE |
+		windows.GENERIC_EXECUTE |
 		windows.FILE_READ_DATA |
 		windows.FILE_WRITE_DATA |
 		windows.FILE_APPEND_DATA |
+		windows.FILE_EXECUTE |
 		windows.READ_CONTROL |
 		windows.DELETE |
 		windows.WRITE_DAC |
@@ -114,13 +137,13 @@ func validateSecurityDescriptor(path string, sd *windows.SECURITY_DESCRIPTOR) er
 			return fmt.Errorf("read DACL ACE: %w", err)
 		}
 		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
-			if isUnsupportedAllowACEType(ace.Header.AceType) && ace.Mask&windowsReadWriteMask != 0 {
+			if isUnsupportedAllowACEType(ace.Header.AceType) && ace.Mask&windowsCoveredAccessMask != 0 {
 				return fmt.Errorf("%w: %s has an unsupported Windows allow ACE type %d; reset its permissions:  icacls %q /inheritance:r /grant:r \"%%USERNAME%%:F\"",
 					ErrInsecurePermissions, path, ace.Header.AceType, path)
 			}
 			continue
 		}
-		if ace.Mask&windowsReadWriteMask == 0 {
+		if ace.Mask&windowsCoveredAccessMask == 0 {
 			continue
 		}
 		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
