@@ -95,6 +95,69 @@ func TestSecretRefStructuredCmdRejectsInvalidTimeout(t *testing.T) {
 	}
 }
 
+func TestSecretRefStructuredCmdRejectsUnknownKeys(t *testing.T) {
+	t.Parallel()
+
+	// Unknown key under cmd: must be rejected, not silently ignored.
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{name: "typo timeout", yaml: "cmd:\n  argv: [\"/bin/x\"]\n  timeoutt: 5s\n"},
+		{name: "stray key", yaml: "cmd:\n  argv: [\"/bin/x\"]\n  bogus: 1\n"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var ref SecretRef
+			if err := ref.UnmarshalYAML(yamlNode(t, tc.yaml)); err == nil {
+				t.Fatalf("UnmarshalYAML(%q) error = nil, want error for unknown key", tc.name)
+			}
+		})
+	}
+}
+
+func TestSecretRefStructuredCmdAcceptsKnownKeys(t *testing.T) {
+	t.Parallel()
+
+	// Both known forms must continue to parse without error.
+	cases := []struct {
+		name string
+		yaml string
+		want SecretRef
+	}{
+		{
+			name: "argv only",
+			yaml: "cmd:\n  argv: [\"/bin/x\"]\n",
+			want: SecretRef{Scheme: "cmd", Argv: []string{"/bin/x"}},
+		},
+		{
+			name: "argv and timeout",
+			yaml: "cmd:\n  argv: [\"/bin/x\"]\n  timeout: 3s\n",
+			want: SecretRef{Scheme: "cmd", Argv: []string{"/bin/x"}, Timeout: 3 * time.Second},
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var got SecretRef
+			if err := got.UnmarshalYAML(yamlNode(t, tc.yaml)); err != nil {
+				t.Fatalf("UnmarshalYAML(%q) error = %v, want nil", tc.name, err)
+			}
+			if got.Scheme != tc.want.Scheme || got.Timeout != tc.want.Timeout || len(got.Argv) != len(tc.want.Argv) {
+				t.Fatalf("UnmarshalYAML(%q) = %+v, want %+v", tc.name, got, tc.want)
+			}
+			for i := range tc.want.Argv {
+				if got.Argv[i] != tc.want.Argv[i] {
+					t.Fatalf("Argv[%d] = %q, want %q", i, got.Argv[i], tc.want.Argv[i])
+				}
+			}
+		})
+	}
+}
+
 func yamlScalar(value string) *yaml.Node {
 	return &yaml.Node{Kind: yaml.ScalarNode, Value: value}
 }

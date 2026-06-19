@@ -62,7 +62,37 @@ func (r *SecretRef) parseString(raw string) error {
 	return nil
 }
 
+// knownCmdKeys is the exhaustive set of keys permitted under cmd:.
+var knownCmdKeys = map[string]struct{}{
+	"argv":    {},
+	"timeout": {},
+}
+
+// checkCmdKeys returns an error if the MappingNode that is the value of cmd:
+// contains any key not in knownCmdKeys.  It never surfaces the key's value.
+func checkCmdKeys(node *yaml.Node) error {
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		if _, ok := knownCmdKeys[key]; !ok {
+			return fmt.Errorf("cmd secret ref: unknown key %q", key)
+		}
+	}
+	return nil
+}
+
 func (r *SecretRef) parseStructured(node *yaml.Node) error {
+	// Validate that the cmd: mapping contains only known keys before decoding,
+	// so typos (e.g. "timeoutt:") are caught rather than silently ignored.
+	// Walk the outer mapping to find the cmd value node.
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "cmd" && node.Content[i+1].Kind == yaml.MappingNode {
+			if err := checkCmdKeys(node.Content[i+1]); err != nil {
+				return fmt.Errorf("%w: %s", ErrInvalidRef, err.Error())
+			}
+			break
+		}
+	}
+
 	var model struct {
 		Cmd *struct {
 			Argv    []string `yaml:"argv"`
