@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows && (amd64 || arm64)
 
 package keyring
 
@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -60,6 +61,10 @@ func (windowsGetter) Get(ctx context.Context, service, key string) (string, erro
 		0,
 		uintptr(unsafe.Pointer(&cred)),
 	)
+	// LazyProc.Call is not the compiler-special-cased syscall.Syscall, so the
+	// input buffer is otherwise dead after the uintptr conversion and could be
+	// collected mid-syscall. Keep it alive until CredReadW returns.
+	runtime.KeepAlive(targetPtr)
 	if r1 == 0 {
 		if errors.Is(lastErr, windows.ERROR_NOT_FOUND) {
 			return "", ErrNotFound
