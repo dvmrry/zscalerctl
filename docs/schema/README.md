@@ -5,6 +5,7 @@ These are the stable, versioned JSON Schemas for the machine-readable output
 
 | Artifact | Where | Schema | `schema` id |
 | --- | --- | --- | --- |
+| Config file | `~/.config/zscalerctl/config.yaml` (or `--config PATH`) | [config.schema.json](config.schema.json) | — (YAML; no in-payload schema id) |
 | Manifest | `manifest.json` in the dump | [manifest.schema.json](manifest.schema.json) | `zscalerctl.dump.manifest.v2` |
 | Redaction report | `redaction_report.json` in the dump | [redaction-report.schema.json](redaction-report.schema.json) | `zscalerctl.redaction_report.v1` |
 | Error record | each line of `errors.ndjson` in the dump | [dump-error.schema.json](dump-error.schema.json) | `zscalerctl.dump.error.v1` |
@@ -38,3 +39,6 @@ structs and these files cannot drift apart silently.
 `internal/diff/published_schema_test.go` applies the same field-name and
 schema-id guard to the diff report. The stderr error envelope has the same guard in
 `cmd/zscalerctl/main_test.go`.
+`internal/config/published_schema_test.go` applies the same guard to the config
+file schema: every YAML-tagged field on `profileFile` and `profileData` must
+appear in `config.schema.json`, and vice versa.

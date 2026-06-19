@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dvmrry/zscalerctl/blob/main/docs/schema/config.schema.json",
+  "title": "zscalerctl config file",
+  "description": "Schema for the owner-only YAML config file read by `zscalerctl --config` / `--profile`. The file must be readable only by the current user (mode 0600 on POSIX; restricted DACL on Windows). Secret values are never stored inline — only secret references (`env:`, `file:`, `keyring:`, or structured `cmd:`) belong in `*_ref` fields.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "default_profile": {
+      "type": "string",
+      "description": "Name of the profile to select when `--profile` is not given. Falls back to the name `default` when absent."
+    },
+    "profiles": {
+      "type": "object",
+      "description": "Map of profile name to profile data. At least one profile is required.",
+      "additionalProperties": { "$ref": "#/$defs/profile" }
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-profile settings. All fields are optional; missing fields fall back to environment variables and built-in defaults.",
+      "properties": {
+        "auth_mode": {
+          "type": "string",
+          "enum": ["oneapi", "zia-legacy"],
+          "description": "Authentication mode. `oneapi` (default) uses the OAuth client-credential flow; `zia-legacy` uses ZIA username/password/API-key for read-only ZIA resources."
+        },
+        "vanity_domain": {
+          "type": "string",
+          "description": "Zscaler vanity domain (e.g. `acme`). Overridden by `ZSCALERCTL_VANITY_DOMAIN`."
+        },
+        "cloud": {
+          "type": "string",
+          "description": "Zscaler cloud region, e.g. `PRODUCTION`. Overridden by `ZSCALERCTL_CLOUD`."
+        },
+        "client_id": {
+          "type": "string",
+          "description": "OneAPI OAuth client ID. Overridden by `ZSCALERCTL_CLIENT_ID`."
+        },
+        "client_secret_ref": {
+          "$ref": "#/$defs/secretRef",
+          "description": "Secret reference for the OneAPI OAuth client secret. Overridden by `ZSCALERCTL_CLIENT_SECRET` / `ZSCALERCTL_CLIENT_SECRET_FILE`."
+        },
+        "zpa_customer_id": {
+          "type": "string",
+          "description": "ZPA customer ID, required for ZPA resources. Overridden by `ZSCALERCTL_ZPA_CUSTOMER_ID`."
+        },
+        "zpa_microtenant_id": {
+          "type": "string",
+          "description": "ZPA microtenant ID (optional). Overridden by `ZSCALERCTL_ZPA_MICROTENANT_ID`."
+        },
+        "zia_username": {
+          "type": "string",
+          "description": "ZIA legacy username (used when `auth_mode` is `zia-legacy`). Overridden by `ZSCALERCTL_ZIA_USERNAME`."
+        },
+        "zia_password_ref": {
+          "$ref": "#/$defs/secretRef",
+          "description": "Secret reference for the ZIA legacy password. Overridden by `ZSCALERCTL_ZIA_PASSWORD` / `ZSCALERCTL_ZIA_PASSWORD_FILE`."
+        },
+        "zia_api_key_ref": {
+          "$ref": "#/$defs/secretRef",
+          "description": "Secret reference for the ZIA legacy API key. Overridden by `ZSCALERCTL_ZIA_API_KEY` / `ZSCALERCTL_ZIA_API_KEY_FILE`."
+        },
+        "zia_cloud": {
+          "type": "string",
+          "description": "ZIA cloud name for legacy auth (e.g. `zscaler`, `zscalertwo`). Overridden by `ZSCALERCTL_ZIA_CLOUD`."
+        },
+        "redaction": {
+          "type": "string",
+          "enum": ["standard", "share", "paranoid"],
+          "description": "Default redaction mode for dump and list commands. Overridden by `ZSCALERCTL_REDACTION` or the `--redaction` flag."
+        },
+        "no_cache": {
+          "type": "boolean",
+          "description": "Disable per-session in-memory caching of API responses when `true`. Overridden by `ZSCALERCTL_NO_CACHE`."
+        }
+      }
+    },
+    "secretRef": {
+      "description": "A secret reference — either a string shorthand (`env:VAR`, `file:/abs/path`, `keyring:service/key`) or a structured `cmd` mapping. Secret values are never stored here; the ref is resolved at credential-read time.",
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Shorthand string ref. Supported forms:\n- `env:VARNAME` — read from the named environment variable; fails if the variable is unset.\n- `file:/absolute/path` — read from an owner-only file on a local fixed volume.\n- `keyring:service/key` — read from the OS keychain (macOS Keychain, Linux Secret Service, Windows Credential Manager). Intended for interactive desktops; agents and CI should use `env:` or `file:` instead.",
+          "pattern": "^(env:[^:].*)|(file:/.*)|(keyring:[^/]+/[^/]+)$"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cmd"],
+          "description": "Structured `cmd` ref. The binary is exec'd directly — no shell, no expansion — with no inherited `ZSCALERCTL_*` environment. Stdout (trimmed of trailing newlines) is the secret.",
+          "properties": {
+            "cmd": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["argv"],
+              "properties": {
+                "argv": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "minItems": 1,
+                  "description": "Argument vector. `argv[0]` is the binary (absolute path recommended; otherwise resolved via `PATH`). No shell metacharacters are interpreted."
+                },
+                "timeout": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+                  "description": "Per-call timeout (Go duration string, e.g. `5s`, `30s`). Defaults to 10s if absent. The process is killed when the timeout fires."
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
