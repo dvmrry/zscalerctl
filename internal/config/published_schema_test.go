@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/dvmrry/zscalerctl/internal/secretref"
 )
 
 // configSchemaNode reads docs/schema/config.schema.json and walks to the node
@@ -94,6 +96,54 @@ func configSetDiff(a, b []string) []string {
 		}
 	}
 	return out
+}
+
+// TestPublishedConfigSchemaFieldTypes guards that the schema TYPE for each
+// profileData field matches the Go field type, catching *bool→string drift.
+func TestPublishedConfigSchemaFieldTypes(t *testing.T) {
+	t.Parallel()
+
+	typ := reflect.TypeOf(profileData{})
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		tag := field.Tag.Get("yaml")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		if idx := strings.IndexByte(tag, ','); idx >= 0 {
+			tag = tag[:idx]
+		}
+		if tag == "" {
+			continue
+		}
+
+		node := configSchemaNode(t, []string{"$defs", "profile", "properties", tag})
+
+		// Dereference pointer to get the base kind.
+		ft := field.Type
+		if ft.Kind() == reflect.Ptr {
+			ft = ft.Elem()
+		}
+
+		t.Run(tag, func(t *testing.T) {
+			t.Parallel()
+			switch {
+			case field.Type == reflect.TypeOf((*secretref.SecretRef)(nil)):
+				// *secretref.SecretRef → schema must use $ref
+				if _, ok := node["$ref"]; !ok {
+					t.Errorf("schema property %q: Go type is *secretref.SecretRef but schema node has no \"$ref\" key (got %v)", tag, node)
+				}
+			case ft.Kind() == reflect.Bool:
+				if got, _ := node["type"].(string); got != "boolean" {
+					t.Errorf("schema property %q: Go kind is bool but schema type = %q, want \"boolean\"", tag, got)
+				}
+			case ft.Kind() == reflect.String:
+				if got, _ := node["type"].(string); got != "string" {
+					t.Errorf("schema property %q: Go kind is string but schema type = %q, want \"string\"", tag, got)
+				}
+			}
+		})
+	}
 }
 
 // TestPublishedConfigSchemaMatchesStructs asserts that every YAML-tagged field
