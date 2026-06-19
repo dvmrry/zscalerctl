@@ -31,33 +31,41 @@ func isUNCPath(p string) bool {
 	return strings.HasPrefix(q, `\\`)
 }
 
-// volumeRootFromFinalPath extracts the drive root (e.g. `C:\`) from a path as
-// returned by GetFinalPathNameByHandleW. It returns "" when no drive-letter
-// root can be determined (e.g. a UNC path), in which case the caller must not
-// treat the volume as a local fixed drive.
+// volumeRootFromFinalPath extracts the volume root from a path as returned by
+// GetFinalPathNameByHandleW, suitable to pass to GetDriveTypeW. It returns ""
+// when no local volume root can be determined (e.g. a UNC path), in which case
+// the caller must not treat the volume as a local fixed drive.
 //
 // Recognized inputs:
 //
-//	\\?\C:\Users\me\file   -> C:\
-//	\\.\C:\Users\me\file   -> C:\
-//	C:\Users\me\file       -> C:\
-//	\\server\share\file    -> "" (UNC, no drive letter)
+//	\\?\C:\Users\me\file       -> C:\
+//	\\.\C:\Users\me\file       -> C:\
+//	C:\Users\me\file           -> C:\
+//	\\?\Volume{GUID}\me\file   -> \\?\Volume{GUID}\   (letterless / folder-mounted volume)
+//	\\server\share\file        -> "" (UNC, no local root)
 func volumeRootFromFinalPath(p string) string {
 	if p == "" {
 		return ""
 	}
 	q := strings.ReplaceAll(p, "/", `\`)
 
-	// Strip a \\?\ or \\.\ extended-length prefix, but leave UNC paths alone
-	// so they fall through to the "no drive letter" result.
+	// Volume-GUID form: a fixed local volume with no assigned drive letter.
+	// GetFinalPathNameByHandleW returns this when there is no drive letter to use;
+	// GetDriveTypeW accepts it with a trailing backslash. Return up to and
+	// including the `\` after `}`.
+	if hasPrefixFold(q, `\\?\Volume{`) || hasPrefixFold(q, `\\.\Volume{`) {
+		if i := strings.IndexByte(q, '}'); i >= 0 && i+1 < len(q) && q[i+1] == '\\' {
+			return q[:i+2]
+		}
+		return ""
+	}
+
 	if strings.HasPrefix(q, `\\?\`) || strings.HasPrefix(q, `\\.\`) {
 		if hasPrefixFold(q[4:], `UNC\`) {
 			return ""
 		}
 		q = q[4:]
 	}
-
-	// At this point a local volume must look like "X:\..." or "X:".
 	if len(q) >= 2 && isDriveLetter(q[0]) && q[1] == ':' {
 		return string(q[0]) + `:\`
 	}

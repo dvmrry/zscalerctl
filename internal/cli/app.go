@@ -1204,6 +1204,7 @@ func (a *App) resourceReader(ctx context.Context, cfg config.Config, opts global
 	}
 	clientSecret, err := cfg.Credentials.ClientSecret.Resolve(ctx)
 	if err != nil {
+		// Invariant: keep the credential noun LAST (parenthetical, trailing). Appending text after it can reintroduce the redactor over-redaction (see redact secret_phrase/secret_assignment rules).
 		// Phrase the credential AFTER the cause (parenthesized). A "<secret>: <cause>"
 		// shape makes the redactor read the nested diagnostic as a key:value secret
 		// and redact the cause, hiding the real failure (redact secret_assignment rule).

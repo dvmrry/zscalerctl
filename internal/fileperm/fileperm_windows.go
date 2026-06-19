@@ -22,6 +22,12 @@ const (
 // named constants for them, so we spell the value out with this name.
 const fileNameNormalizedDOS = 0
 
+// volumeNameGUID (VOLUME_NAME_GUID) asks GetFinalPathNameByHandleW for the
+// volume-GUID form (`\\?\Volume{GUID}\...`). A local fixed volume always has a
+// GUID even when it has no drive letter (letterless / folder-mounted volumes),
+// so this is the fallback when the DOS-name form fails.
+const volumeNameGUID = 0x1
+
 const windowsReadWriteMask = windows.ACCESS_MASK(
 	windows.GENERIC_READ |
 		windows.GENERIC_WRITE |
@@ -40,6 +46,13 @@ const windowsReadWriteMask = windows.ACCESS_MASK(
 func validate(path string) error {
 	// Open a handle so the volume check and the security-descriptor read see
 	// the same object (TOCTOU-consistent with the handle-based entry point).
+	//
+	// This intentionally follows reparse points / junctions and validates the
+	// TARGET's volume + DACL: os.Open resolves symlinks/junctions, and the
+	// volume gate then runs against whatever the handle actually backs, so a
+	// junction pointing at a UNC/removable target is caught there. Windows has
+	// no O_NOFOLLOW equivalent for this path, so we validate the resolved
+	// target rather than refusing to follow.
 	file, err := os.Open(path) // #nosec G304 -- caller-supplied config/secret path; the security descriptor is validated on the opened handle before any reads.
 	if err != nil {
 		return err
@@ -154,42 +167,53 @@ func friendlyName(sid *windows.SID) string {
 //
 // Everything is handle-based (TOCTOU-safe): the file is already open.
 func validateLocalFixedNTFS(handle windows.Handle, path string) error {
-	// 1) Filesystem must be NTFS.
+	// 1) Filesystem must be NTFS or ReFS. ReFS (Win11 Dev Drive, data volumes)
+	// uses the same NTFS-style ACL/SID model this code validates, so rejecting
+	// it would false-reject legitimate local files.
 	fsName, err := fileSystemName(handle)
 	if err != nil {
 		return fmt.Errorf("read file system name: %w", err)
 	}
-	if !strings.EqualFold(fsName, "NTFS") {
-		return rejectVolume(path)
+	if !strings.EqualFold(fsName, "NTFS") && !strings.EqualFold(fsName, "ReFS") {
+		return rejectVolume(path, fsName)
 	}
 
-	// 2) Recover the canonical path; reject UNC outright.
+	// 2) Recover the canonical path; reject UNC outright. A path we cannot
+	// resolve is unverifiable as a local fixed drive, so reject it with the
+	// same actionable message rather than a raw errno.
 	finalPath, err := finalPathName(handle)
 	if err != nil {
-		return fmt.Errorf("resolve final path: %w", err)
+		return rejectVolume(path, fsName)
 	}
 	if isUNCPath(finalPath) {
-		return rejectVolume(path)
+		return rejectVolume(path, fsName)
 	}
 
 	// 3) The volume must be a fixed local drive.
 	root := volumeRootFromFinalPath(finalPath)
 	if root == "" {
-		return rejectVolume(path)
+		return rejectVolume(path, fsName)
 	}
 	rootPtr, err := windows.UTF16PtrFromString(root)
 	if err != nil {
 		return fmt.Errorf("convert volume root: %w", err)
 	}
 	if windows.GetDriveType(rootPtr) != windows.DRIVE_FIXED {
-		return rejectVolume(path)
+		return rejectVolume(path, fsName)
 	}
 	return nil
 }
 
-func rejectVolume(path string) error {
-	return fmt.Errorf("%w: %s must be on a local fixed NTFS drive (e.g. %%LOCALAPPDATA%%\\zscalerctl); network, removable, and UNC paths can't be securely validated on Windows",
-		ErrInsecurePermissions, path)
+func rejectVolume(path, fsName string) error {
+	return fmt.Errorf("%w: %s must be on a local fixed NTFS or ReFS drive (move it to %%LOCALAPPDATA%%\\zscalerctl or pass --config with a local path); network, removable, and UNC paths can't be securely validated on Windows [filesystem seen: %s]",
+		ErrInsecurePermissions, path, fsNameOrUnknown(fsName))
+}
+
+func fsNameOrUnknown(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	return s
 }
 
 // fileSystemName returns the file-system name (e.g. "NTFS") for the volume that
@@ -212,17 +236,33 @@ func fileSystemName(handle windows.Handle) (string, error) {
 	return windows.UTF16ToString(fsNameBuf), nil
 }
 
-// finalPathName returns the normalized DOS path for the open handle, via
-// GetFinalPathNameByHandleW. The result looks like `\\?\C:\...` for a local
-// file or `\\?\UNC\server\share\...` for a UNC path.
+// finalPathName returns the canonical path for the open handle, via
+// GetFinalPathNameByHandleW. It tries the normalized DOS form first
+// (`\\?\C:\...` for a local file, `\\?\UNC\server\share\...` for UNC). A
+// letterless / folder-mounted volume has no DOS path, so on error it retries
+// with the volume-GUID form (`\\?\Volume{GUID}\...`), which always exists for a
+// local volume. If both fail it returns the original DOS error.
 func finalPathName(handle windows.Handle) (string, error) {
+	p, dosErr := finalPathNameFlags(handle, fileNameNormalizedDOS)
+	if dosErr == nil {
+		return p, nil
+	}
+	if p, err := finalPathNameFlags(handle, volumeNameGUID); err == nil {
+		return p, nil
+	}
+	return "", dosErr
+}
+
+// finalPathNameFlags runs the two-call GetFinalPathNameByHandleW sizing dance
+// for the given VOLUME_NAME_* flags.
+func finalPathNameFlags(handle windows.Handle, flags uint32) (string, error) {
 	// First call sizes the buffer (returns required length excluding the NUL).
-	n, err := windows.GetFinalPathNameByHandle(handle, nil, 0, fileNameNormalizedDOS)
+	n, err := windows.GetFinalPathNameByHandle(handle, nil, 0, flags)
 	if err != nil {
 		return "", err
 	}
 	buf := make([]uint16, n+1)
-	n, err = windows.GetFinalPathNameByHandle(handle, &buf[0], uint32(len(buf)), fileNameNormalizedDOS)
+	n, err = windows.GetFinalPathNameByHandle(handle, &buf[0], uint32(len(buf)), flags)
 	if err != nil {
 		return "", err
 	}

@@ -17,6 +17,9 @@ func TestIsUNCPath(t *testing.T) {
 		{``, false},
 		{`relative\path`, false},
 
+		// Volume-GUID form is a LOCAL volume, not UNC.
+		{`\\?\Volume{11111111-1111-1111-1111-111111111111}\Users\me\file`, false},
+
 		// UNC / network paths — must be flagged.
 		{`\\server\share\config.yaml`, true},
 		{`\\?\UNC\server\share\config.yaml`, true},
@@ -47,6 +50,11 @@ func TestVolumeRootFromFinalPath(t *testing.T) {
 		{`C:\Users\me\config.yaml`, `C:\`},
 		{`c:\users\me\config.yaml`, `c:\`},
 		{`Z:`, `Z:\`},
+
+		// Volume-GUID form: letterless / folder-mounted local fixed volume.
+		{`\\?\Volume{11111111-1111-1111-1111-111111111111}\Users\me\file`, `\\?\Volume{11111111-1111-1111-1111-111111111111}\`},
+		{`\\?\Volume{11111111-1111-1111-1111-111111111111}\`, `\\?\Volume{11111111-1111-1111-1111-111111111111}\`},  // root, no trailing component
+		{`\\?\volume{11111111-1111-1111-1111-111111111111}\x`, `\\?\volume{11111111-1111-1111-1111-111111111111}\`}, // case-insensitive marker
 
 		// UNC and non-drive inputs: no local drive root.
 		{`\\server\share\config.yaml`, ``},
