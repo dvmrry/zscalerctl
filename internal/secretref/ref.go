@@ -62,7 +62,49 @@ func (r *SecretRef) parseString(raw string) error {
 	return nil
 }
 
+// knownCmdKeys is the exhaustive set of keys permitted under cmd:.
+var knownCmdKeys = map[string]struct{}{
+	"argv":    {},
+	"timeout": {},
+}
+
+// checkCmdKeys returns an error if the MappingNode that is the value of cmd:
+// contains any key not in knownCmdKeys.  It never surfaces the key's value.
+func checkCmdKeys(node *yaml.Node) error {
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		if _, ok := knownCmdKeys[key]; !ok {
+			return fmt.Errorf("cmd secret ref: unknown key %q", key)
+		}
+	}
+	return nil
+}
+
 func (r *SecretRef) parseStructured(node *yaml.Node) error {
+	// Reject unknown keys at BOTH levels before decoding so typos ("timeoutt:")
+	// and misplaced siblings of cmd: (e.g. a top-level "timeout:") are caught
+	// rather than silently ignored — matching the published schema
+	// (additionalProperties:false on both the structured-ref object and the cmd
+	// object). Errors never surface a key's value, only its name.
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		if key != "cmd" {
+			return fmt.Errorf("%w: cmd secret ref: unknown key %q", ErrInvalidRef, key)
+		}
+		// Resolve YAML aliases (cmd: *anchor) before the key check: an aliased
+		// mapping has Kind AliasNode, so without this it would skip checkCmdKeys
+		// while node.Decode still resolves the alias and drops unknown keys.
+		cmdNode := node.Content[i+1]
+		for cmdNode.Kind == yaml.AliasNode && cmdNode.Alias != nil {
+			cmdNode = cmdNode.Alias
+		}
+		if cmdNode.Kind == yaml.MappingNode {
+			if err := checkCmdKeys(cmdNode); err != nil {
+				return fmt.Errorf("%w: %s", ErrInvalidRef, err.Error())
+			}
+		}
+	}
+
 	var model struct {
 		Cmd *struct {
 			Argv    []string `yaml:"argv"`
