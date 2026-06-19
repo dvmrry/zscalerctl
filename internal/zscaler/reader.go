@@ -1203,13 +1203,36 @@ func newLegacyZIAClient(cfg *sdkzia.Configuration) (*sdkzia.Client, error) {
 // omitted before they ever reach the projector (the common ZIA convention).
 //
 // jsonSourceRecord marshals via JSON tags into a flat map of output keys.
+//
+// Float64 round-trip note: marshaling the typed SDK struct to JSON bytes and
+// then unmarshaling into map[string]any routes all JSON numbers through float64
+// (the default json.Unmarshal representation for JSON numbers). This is latent
+// for all current ZPA catalog fields: IDs are typed string, timestamps are
+// string, and collection counts (e.g. ApplicationIDs slice lengths) are small
+// integers well within float64's exact range (< 2^53). If a future SDK field
+// carries an integer that exceeds 2^53 this would silently lose precision; the
+// correct fix at that point is a pipeline-wide json.Decoder+UseNumber approach.
 func jsonSourceRecord[T any](item T) resources.SourceRecord {
 	fields := map[string]any{}
 	body, err := json.Marshal(item)
 	if err != nil {
+		// A marshal failure here is a programming error (e.g. an unserializable
+		// type in the SDK struct).  Log it so it shows up in diagnostic output;
+		// the caller cannot observe an error because the function signature is
+		// fixed by the 50+ registration sites in reader_zpa.go.
+		// Log the item type and error type only — never the raw error value,
+		// which could embed tenant data via a custom MarshalJSON implementation.
+		slog.Error("jsonSourceRecord: marshal failed",
+			"item_type", fmt.Sprintf("%T", item),
+			"error_type", fmt.Sprintf("%T", err),
+		)
 		return resources.NewSourceRecord(fields)
 	}
 	if err := json.Unmarshal(body, &fields); err != nil {
+		slog.Error("jsonSourceRecord: unmarshal failed",
+			"item_type", fmt.Sprintf("%T", item),
+			"error_type", fmt.Sprintf("%T", err),
+		)
 		return resources.NewSourceRecord(map[string]any{})
 	}
 	return resources.NewSourceRecord(fields)
