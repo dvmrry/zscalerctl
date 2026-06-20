@@ -1,129 +1,119 @@
-# Design: Migrate the zscalerctl CLI dispatch to Cobra
+# Design: Migrate the zscalerctl CLI dispatch to Cobra (revised)
 
-Status: **Design (approved in shape, pending written-spec review)**
+Status: **Design v2 — revised after 3 cross-family review rounds (5 model families, ~50 findings) and a full `app.go`/`main.go` surface inventory.**
 Date: 2026-06-20
 Owner: Dave (maintainer)
-Precedes: a phased implementation plan (writing-plans), then a private `dvmrry/zscalerctl-dev` spike + clean phased PRs to `main`.
+Precedes: a phased implementation plan; spike in public `dvmrry/zscalerctl-dev`; clean phased PRs to `main`.
+
+> **Why a v2:** the v1 draft was written from an incomplete read of the real CLI surface. Cross-family review (Codex, Gemini, Kimi, Deepseek, GLM) plus a direct code inventory corrected several fundamentals: the real command tree is product-scoped, the no-leak/exit boundary already exists in `cmd/zscalerctl/main.go` (and stays), the global-flag surface is too nuanced to re-parse in pflag, and per-command redaction mode and format allowlists are non-uniform and security-relevant. This document is the corrected design.
 
 ## 1. Context & motivation
 
-`zscalerctl` is a read-only, security-first Go CLI (ZIA/ZPA/ZTW/ZCC/Zidentity). Its command dispatch is hand-rolled: `internal/cli/app.go` is **2,364 lines** of nested `case` switches (`doctor`/`auth`/`config`/`schema`/`dump`/`diff`/`list`/`get`/`show`/`version`/`completion`/`product`), plus a **449-line** hand-written 4-shell `completion.go`. Each new local command (`config init`, future `config validate`, `schema show`, `diff summarize`) adds another manual routing branch, another set of hand-written completion cases, and more drift between the README, the (nonexistent) manpages, the completions, and the actual surface.
+`zscalerctl` is a read-only, security-first Go CLI. Its dispatch is hand-rolled: `internal/cli/app.go` (~2.4k LOC) routes via nested switches; `internal/cli/completion.go` (449 LOC) hand-writes four shells. Each new command adds another manual routing branch, completion case, and doc-drift surface. We migrate to Cobra **pre-1.0** (no external consumers; clean revert point) to get per-command help, an introspectable command tree, generated completions, generated docs/manpages, and standard flag/error hooks — **without** changing observable behavior beyond a bounded set of opt-in "inline wins."
 
-This is a **pre-1.0** migration with no external consumers yet (0.x is a per-change counter). We have a clean revert point (the adversarial-review fixes just landed), and we want this done **before 1.0** and **well before** any TUI work. A CLI framework dissolves the hand-rolled routing and gives us per-command help, inherited persistent flags, generated completions, generated docs/manpages, standard flag/error hooks, and an introspectable command tree (valuable for agent-facing docs and generated references).
+## 2. Framework: Cobra
 
-## 2. Framework decision: Cobra
-
-We evaluated the real field for this project's needs (Go; machine-first/no-leak; wants 4-shell completion generation, Markdown/manpage doc-gen, and an introspectable tree):
-
-| Framework | Completion gen | Doc/manpage gen | Introspection | Deps | Notes |
-|---|---|---|---|---|---|
-| **Cobra** (+pflag) | 4 shells | md/man/rest | yes | moderate | standard (kubectl/gh/docker/helm); imperative; auto-help we must silence |
-| Kong | 3rd-party only | none built-in | struct *is* the model | light | declarative, less hidden behavior; but re-hand-rolls the generators |
-| urfave/cli v3 | basic | md/man | partial | light–mod | dominated by Cobra for our goals |
-| fang (Charm, wraps Cobra) | Cobra's | Cobra's | yes | heavy | styled output; would fight machine-first |
-
-**Decision: Cobra.** The maintainer's top motivations — native multi-shell completion generation, Markdown/manpage doc-gen, the introspectable tree, and the largest/most-audited ecosystem — are precisely Cobra's strengths. The lighter alternatives (Kong) trade away exactly the generators we are trying to stop hand-rolling. Cobra's dependency weight is justified by its audit pedigree, and the project already ships a curated dependency set (Charm `lipgloss`/`termenv`/`x/term`, `zscaler-sdk-go`, `golang.org/x/sys`, `yaml.v3`) — so the posture is *deliberate* deps, not *zero* deps. Cobra (`spf13/cobra` + `spf13/pflag` + `inconshreveable/mousetrap` on Windows) joins that set as a single line-item we accept knowingly.
-
-The one scenario that would have flipped the decision to Kong — prioritizing minimal-deps/declarative-auditability **above** the doc/completion generators — does not hold here, because the generators are half the motivation.
+Decision unchanged from v1: Cobra (`spf13/cobra` + `spf13/pflag`, + `inconshreveable/mousetrap` on Windows). It uniquely covers the maintainer's goals (4-shell completion gen, md/man doc gen, introspectable tree, ecosystem). Kong/urfave/fang were considered; Cobra wins for these goals. **Pin a reviewed Cobra version during the Phase-0 spike and record the exact version before vendoring — do not `go get @latest` in the plan.**
 
 ## 3. Scope & non-goals
 
-**In scope** — a surface-preserving refactor *plus* Cobra's "free wins" adopted inline:
-- Reimplement the **exact current command/flag surface** on Cobra.
-- Adopt Cobra's no-extra-work wins during the move: per-command `--help`, inherited persistent flags, did-you-mean suggestions, standard unknown-flag handling, command aliases, and help `Example` blocks.
-- Replace the hand-written completion with Cobra-generated completions + dynamic catalog hooks.
-- Add Cobra doc/manpage generation + a CI drift check.
+**In scope:** reimplement the **exact current surface** on Cobra, plus Cobra's no-extra-work inline wins (per-command `--help`, did-you-mean, aliases, examples, introspectable tree). Replace hand-written completion with Cobra-generated + dynamic catalog hooks. Add doc/manpage generation + a CI drift check.
 
-**Non-goals (explicitly deferred):**
-- **No command renames / restructuring.** `auth status`, `doctor`, `version` keep natural verbs; `list/get/show` stay resource-only (honoring the locked "don't over-normalize" decision).
-- **No braille spinners / animated "loaders."** Deferred to a later, TTY-gated, opt-in polish effort. The migration is structural; a spinner is TTY-only output that must never touch machine/agent/piped streams, and adding it mid-migration would muddy the "nothing regressed" proof. It slots in cleanly afterward, behind the same TTY gate as the pretty renderer.
-- **No history reset / "tabula rasa" 1.0.** A post-migration, 1.0-time decision. If wanted, the clean-1.0 *face* is achieved by the README + `v1.0.0` tag/release (the repo "front page" is README + releases, not the commit log); if the maintainer additionally wants main's commit *line* fresh, an in-repo `archive/pre-1.0` tag at the pre-reset HEAD preserves every old commit, release tag, and memory SHA *in the same repo* (reachable, auditable, off the first-parent line). No second repo is needed for the archive. None of this gates the migration.
-- **No behavior redesign** beyond Cobra's free wins. Anything that changes *what* a command does (vs how it's routed) is out.
+**Non-goals / explicitly deferred:**
+- No command renames; `list/get/show` stay resource-only verbs under products.
+- No braille spinners (TTY-gated polish, later).
+- No 1.0 history-reset / `zctl` rename (1.0-time; `zctl` persona is preserved as-is — see §5d).
+- No behavior redesign beyond the bounded inline wins.
+- **Globals are NOT re-parsed by pflag** (see §4a) — a deliberate risk-reduction, not laziness.
 
-## 4. Architecture: the command tree
+## 4. Command tree (the real surface)
 
-Root command `zscalerctl` carries the **persistent (global) flags once**, inherited by all subcommands:
-`--format`, `--profile`, `--config`, `--timeout`, `--redaction`, `--fields`, `--filter`, `--search`, `--output`, `--no-cache`, `--color`/`--no-color`, `--log-level`.
+The tree is **product-scoped**. Root `zscalerctl`:
+- **Product commands** `zia`, `zpa`, `ztw`, `zcc`, `zidentity` — each takes positional args `<resource> <list|get|show> [id]` (catalog-driven; `runProduct`, `app.go:804`). Resource/op completion via `ValidArgsFunc` over the catalog.
+- **`zia url-lookup <url> [url...]`** — a diagnostic verb under `zia`, NOT a catalog resource (`app.go:812`, `url_lookup.go`). Out-of-catalog; strict trailing-token handling (see §5c).
+- **Flat commands:** `doctor`, `auth status`, `config init|show`, `schema list` (NOT `show`), `dump`, `diff`, `version`, `completion`.
 
-Subcommands (surface preserved):
-- `list` / `get` / `show <resource>` — catalog-driven; resource names/keys supplied via Cobra `ValidArgsFunc` (dynamic completion).
-- `dump`, `diff`
-- `config` → `init`, `show` (room for future `validate`)
-- `schema` → `show`
-- `auth` → `status`
-- `doctor`, `version`, `completion`
-- `<product> help` topics
+Operation arity is enforced (`list`/`show` take no id; `get` takes one), matching `runProduct` exactly. `zctl` stays a thin alias (§5d). **No top-level `list/get/show`** — that was the v1 error.
 
-`zctl` remains a **thin alias** — one binary, the pretty persona selected by flipping the default output mode (the pretty renderer already lives behind the format switch). No second Cobra root; no duplicated command tree.
+### 4a. Global flag handling (key architectural decision)
 
-The command tree is constructed in small, focused files (one per command group) rather than one monolith, replacing the 2,364-line `app.go` dispatch. Each command group is independently understandable and testable.
+The global surface (`parseGlobal` + `splitGlobalArgs`, `app.go:412`) has behavior pflag cannot reproduce: positional extraction (globals before/between/after the subcommand), single-dash long flags (`-format`, `-profile`, …), comma-separated `--fields` (`parseFieldsList`), repeatable `--filter` (a `Var`), the `redactionSet` "was-it-provided" sentinel, `--no-color` overriding tri-state `--color`, and `30s`/`auto`/`off` defaults.
 
-## 5. No-leak & exit-code preservation (the load-bearing part)
+**Decision: keep `parseGlobal`/`splitGlobalArgs` as the canonical global parser, unchanged.** Cobra persistent flags mirroring the globals are registered on the root **for help, completion, and introspection only** — Cobra never parses them, because `App.Run` strips globals via `splitGlobalArgs` before handing command args to Cobra, and `RunE` reads globals from the already-parsed `globalOptions` (carried on the `App`/context), not from `cmd.Flags()`. A single source-of-truth table (name → type → default → help → completion values) drives both `parseGlobal` and the Cobra persistent-flag registration; a test asserts they cannot drift.
 
-Cobra's defaults conflict with the no-leak ethos: it prints errors and usage to its own writers and can drive `os.Exit`. We take that control back at a single chokepoint:
+**Consequence:** this eliminates an entire risk class — every global-flag finding (single-dash, positional, `--format=auto`, tri-state `--color`, repeatable `--filter`, comma `--fields`, one-way `--no-cache`, flag-defaults-clobbering-config via `redactionSet`, `-format`-as-short-cluster) is moot, because global parsing is byte-identical to today. The cost is that the global-flag *help text* is now Cobra-rendered (an intentional inline win, captured in the golden snapshot).
 
-- **`SilenceErrors: true` + `SilenceUsage: true`** on the root command. Cobra never prints an error or usage block itself.
-- Every command's `RunE` **returns** its error (never prints/exits inline).
-- **One top-level handler** (wrapping `rootCmd.Execute()`) catches the returned error and routes it through the **existing redacting error writer** (`writeError` → `ScanRenderedString`). This means the no-leak invariant holds on *every* exit path — including unknown-flag and usage errors, which previously did not flow through the redactor and now do (a strict improvement).
-- The **exit-code contract** (`0` ok, `1` internal, `2` usage/invalid-config, `3` credentials/missing-credentials, `4` not-found, `5` live-fail, `6` partial-dump, `7` drift) is mapped from the error type **at that single handler**, not via scattered `os.Exit` calls. Cobra/pflag flag-parse and unknown-command errors map to `2`.
-- **`muteProcessOutput`** (stray stdout/stderr/log → `/dev/null` during execution) and the **machine-first stdout** discipline are unchanged. Cobra writes command output through our writers; help renders to stdout (since `--help` is an explicit request), errors via the handler to stderr.
-- **Agentic default unchanged:** no color, no spinner, machine-first — color/pretty only when TTY + opted in (the `zctl`/`--format` path).
+## 5. No-leak & exit-code boundary (the load-bearing part — corrected)
 
-This handler is the single riskiest unit; Phase 1 proves it end-to-end on a tiny surface (`version` + `doctor`) before any bulk migration.
+**The boundary already exists in `cmd/zscalerctl/main.go:run()` and stays unchanged:** it acquires `muteProcessOutput` (swaps `os.Stdout`/`os.Stderr` → `/dev/null`), recovers panics → exit 1, captures the **original** writers as parameters *before* muting, computes `errorFormat(args, stdout)` from **raw args** (so a parse error renders in the requested format), calls `app.Run(ctx, args)`, maps the returned error via the **12-case** `exitCodeForError`, suppresses the duplicate partial-dump error in non-JSON modes, and renders via `writeError` (always `redact.ModeStandard`).
+
+**The migration changes only `App.Run`'s internals:**
+- `App.Run` still has signature `(ctx, args) error` (preserving ~115 test call sites). It calls `parseGlobal` (§4a), then for a **migrated** command builds and executes the Cobra root (`SilenceErrors: true`, `SilenceUsage: true`) and returns the `RunE` error; for an **un-migrated** command it calls the existing `runParsed` logic. The hybrid routes on the already-parsed command token (`rest[0]`), so globals are never stripped by Cobra (they're already parsed). Each phase leaves the tool fully working.
+- **Error → sentinel wrapping:** Cobra/pflag errors are plain; they must be mapped to the existing sentinels so `exitCodeForError` works. Install `root.SetFlagErrorFunc(… → UsageError{…})`; make every `Args`/`ValidArgs`/validation function return `UsageError`; wrap Cobra "unknown command" in `UsageError`. `UsageError{}` already satisfies `errors.Is(err, cli.ErrUsage)`. Do NOT re-introduce a second exit-code map in `App` — the 12-case map stays solely in `main.go`.
+- **`App.Main` is NOT introduced.** (v1 error.) The production entrypoint stays `cmd/zscalerctl/main.go:run`.
+
+### 5a. Cobra output must not bypass the redactor
+
+Cobra prints help/usage and completion scripts to its configured writers, bypassing the data-path redactor. Wrap them: `root.SetOut(redact.NewWriter(out, redact.ModeStandard))` and `SetErr` likewise. **`redact.NewWriter` does not exist yet** — it must be built: a buffering `io.Writer` that applies redaction on flush and never splits a redaction pattern across writes (`internal/redact/writer.go`). **TTY/width must be detected from the raw `*os.File` BEFORE wrapping** (`output.IsTerminal`/`TerminalWidth` need an `*os.File`); the redactor wrapper would report non-TTY/zero-width and kill the pretty persona. Decide and test help-text over-redaction (help examples may contain pattern-shaped strings); default to redacting help and add a no-over-redaction test on the committed help text.
+
+### 5b. Per-command redaction source is a preserved contract
+
+Redaction mode is **non-uniform** and must be preserved exactly (a single renderer factory would silently narrow redaction on tenant data — a no-leak regression):
+- **`redact.ModeStandard` hardcoded:** `version`, `diff`, `completion`, and all command-boundary error envelopes (`main.go:writeError`).
+- **`cfg.Defaults.Redaction` (the resolved `--redaction`/env/profile mode):** `doctor`, `auth status`, `config show`, `schema list`, `zia url-lookup`, and resource reads (`runProduct` → `ProjectRecords/RecordAndVerify(spec, cfg.Defaults.Redaction, …)`).
+
+The spec carries this table; each Cobra `RunE` sources its renderer from the same place as today; a redaction-invariant test exists per group.
+
+### 5c. Per-command format allowlist is a preserved contract
+
+The `--format` allowlist is per-command and asymmetric:
+- **`json|ndjson|table|pretty`:** `list/get/show` (ndjson is the documented SIEM stream).
+- **`json|table|pretty` (ndjson rejected via `rejectUnsupportedFormat`):** `version`, `doctor`, `auth status`, `config show`, `schema list`, `zia url-lookup`, `diff`.
+- **text-only (ndjson rejected early; other formats pass to a text writer):** `completion`, `dump`.
+
+Each Cobra `RunE` replicates its `rejectUnsupportedFormat` guard (or a shared helper keyed by command class); a golden case per command × `{json,ndjson,table,pretty}` boundary verifies it.
+
+### 5d. `zctl` persona
+
+`App.New` has no argv0 input; format resolution checks `stdoutTTY`/`--output`/`--format`. The migration **preserves current single-binary behavior**; the `zctl` rename/persona is a 1.0-time decision (§3). The migration must not assume the binary name changes.
 
 ## 6. Completion
 
-Cobra generates bash/zsh/fish/powershell from the command tree, retiring the 449-line hand-written `completion.go`. The **dynamic** parts — resource names/keys from the catalog — become `ValidArgsFunc` hooks on `list`/`get`/`show` (and any other catalog-aware args). Net: far less hand-written shell, equal-or-better dynamic completion, and no separate per-shell drift to maintain.
+Cobra generates bash/zsh/fish/powershell from the tree, retiring `completion.go`. Dynamic resource/op completion via `ValidArgsFunc` over the catalog. **Hard constraint:** every `ValidArgsFunc` may read only the static catalog (`resources.Catalog()`/`FindSpec`) — it must never construct the reader, resolve secret refs, call `config.LoadConfig`, or dial the API (a live call during `<TAB>` would resolve credentials and could leak). A test runs completion with empty env/no config and asserts catalog names with no error. The existing completion security tests (no-credential-leak, catalog/product coverage, url-lookup, log-level values, PowerShell parsing) are **adapted to Cobra output, not deleted** (§8). Completion output always uses `ModeStandard`.
 
-## 7. The inline "wins" (bounded)
+## 7. Inline wins (bounded)
 
-Adopted during the migration because they are no-extra-work with Cobra and improve the surface without changing command behavior:
-- Per-command `--help` from command metadata (replacing custom help branches).
-- Inherited persistent/global flags (defined once on root).
-- Did-you-mean suggestions for mistyped commands.
-- Standard unknown-flag / unknown-command handling (mapped to exit `2`, redacted).
-- Command aliases + `Example` blocks in help.
+Per-command `--help`, did-you-mean (`SuggestionsMinimumDistance`), aliases, `Example` blocks, and the introspectable tree. The global-flag help is now Cobra-rendered. Everything else (deprecation frameworks, restructured commands) is a follow-up.
 
-Anything beyond this list (deprecation frameworks, hidden-flag schemes, restructured commands) is a follow-up, not part of the migration.
+## 8. Cobra configuration reference (exact root settings)
 
-## 8. Verification gates (both must stay green)
+To preserve the surface, the root command sets: `SilenceErrors: true`, `SilenceUsage: true`, `TraverseChildren: true` (so globals can appear between product and resource args), `EnablePrefixMatching = false` (legacy is exact-match; `doc`≠`doctor`), `CompletionOptions.DisableDefaultCmd: true` (Phase 1–4; removed in Phase 5 when we own completion), `SetFlagErrorFunc` (→ `UsageError`), and on the doc generator `DisableAutoGenTag = true` (Cobra's timestamp footer would make the doc-drift check always fail). Decide `--version`/`-v` deliberately: today only the `version` command exists; leave `root.Version` unset unless `--version` is intentionally added and re-blessed. Disable/override Cobra's auto `help` command to avoid conflict with the existing `help` handling.
 
-Because we adopt inline wins (so user-visible behavior intentionally shifts), "prove nothing regressed" needs a hard baseline:
+## 9. Verification gates (both stay green, corrected)
 
-1. **Golden CLI-surface snapshot.** Before any migration commit, capture each command's `--help`, representative output on fixed inputs, and exit code as committed `testdata`. A snapshot test then flags *every* delta, so each change is reviewed as **intentional** (Cobra-win) rather than **accidental** (regression). The snapshot is updated deliberately, per phase, with the diff reviewed.
-2. **Agentic-coverage eval (DAV-10).** The migration must not lower the measured agent-friendliness floor; the introspectable command tree should *raise* it. The eval runs per phase as a gate.
+- **Golden CLI-surface snapshot — through the REAL boundary.** The harness must exercise `cmd/zscalerctl/main.go:run` (mute + panic-recovery + raw-arg `errorFormat` + 12-case exit + partial-dump suppression), NOT an internal entrypoint — preferably by exec'ing the built test binary (in-process testing fights the global `os.Stdout` swap). Each case asserts **`wantCode` explicitly in Go** (never let `-update` bless an exit-code change) and snapshots only stdout/stderr, **scrubbed** for SHAs/dates/abs-paths/`time=`. Cases use the real tree (`zia locations list`, not `list users`). Add a **command-tree-inventory golden** (paths, aliases, flags, defaults, hidden, examples, args policy) + a `surface_changes` manifest (case, old, new, reason, category) as the durable intentional-vs-accidental gate.
+- **Agentic-coverage eval (DAV-10).** Per-phase floor; the introspectable tree should raise it.
+- **`windows-config` CI must cover `internal/cli`.** Today it runs only `fileperm`/`secretref`/`keyring`, so the "windows-config green" gate proves nothing about the migration. Phase 1 extends it to `go build ./...` + a Windows `internal/cli` smoke (`version`, `doctor`, `config init --help`, `completion bash`). Mousetrap's double-click guard is a documented no-op for this read-only CLI.
 
-The existing `internal/cli` test suite (currently `app_test.go` at 3,098 lines) is expected to pass essentially unchanged where it asserts behavior; tests that assert hand-rolled-dispatch internals are migrated alongside the code they cover.
+## 10. Phases (each ships a working tool)
 
-## 9. Workflow
-
-- **Spike sandbox:** a public `dvmrry/zscalerctl-dev` fork holds the messy, throwaway migration churn (proving the no-leak handler + Cobra wiring). It is open-source like the parent (no source secret to protect); the only discipline carried over is the existing one — no real tenant identifier / live-runtime artifact / real credential in committed fixtures, which is trivial for structural routing work. The sandbox is disposable (delete at 1.0).
-- **Landing:** the validated approach for each phase lands as a **clean, golden-snapshot-gated phased PR in the main repo** (off current `main`), squash-merged like every other PR. The sandbox's churn never merges into `main`; `main`'s history stays clean. Drift is handled by periodically pulling `main` into the sandbox.
-
-## 10. Phases (~6, each ships a working tool)
-
-1. **Foundation.** Cobra root + all persistent flags + the §5 no-leak/exit handler, proven end-to-end on `version` + `doctor`. The golden-surface snapshot baseline lands here. Gate: snapshot + agentic eval + full suite.
-2. **Resources.** `list`/`get`/`show` migrated, with dynamic catalog `ValidArgsFunc`.
-3. **dump + diff.**
-4. **config + schema + auth + product/help.**
-5. **Completion overhaul.** Replace `completion.go` with Cobra-generated completions + the dynamic hooks; retire the hand-written file.
-6. **Docs.** Cobra Markdown/manpage generation + a CI drift check reconciling README ⇄ manpage ⇄ completion ⇄ actual surface.
-
-Each phase is an independently reviewable, individually-verifiable PR that leaves the tool fully working — matching the project's established phased pattern (config-profiles was 4 phases).
+**Phase 0 — Sandbox + real-boundary golden harness.** Create `dvmrry/zscalerctl-dev`; build `internal/redact` `NewWriter` (needed by §5a); stand up the golden harness through the exec'd binary with explicit `wantCode` + scrubbing + the tree-inventory golden; freeze the baseline.
+**Phase 1 — Foundation + hybrid.** Cobra root with all §8 settings; the global-flag mirror + sync test (§4a); the redacting writers + raw-`*os.File` TTY detection (§5a); `SetFlagErrorFunc`/`UsageError` mapping (§5); the hybrid dispatch in `App.Run` (migrated→Cobra, else `runParsed`); extend `windows-config` CI (§9); migrate `version` + `doctor` (note their redaction sources differ — §5b). Prove parse-error→exit-2 for every class.
+**Phase 2 — Products + resources.** `zia/zpa/ztw/zcc/zidentity` with `<resource> <op>` args + catalog `ValidArgsFunc` (catalog-only, §6); `zia url-lookup` as an explicit non-catalog child (§5c); preserve per-command format allowlist + redaction source. Product help lands here.
+**Phase 3 — `dump` + `diff`.** Declare each runner's **local** flags (`--out`/`--products`/`--resources`/`--continue-on-error`/`--force`; `--ignore-operational`/`--detail`/`--allow-partial`/`--fail-on-drift`) as Cobra local flags and call the extracted runner with a constructed options struct — never delegate raw argv (Cobra would strip/reject them). `--out` (dump-local) ≠ `--output` (global wrapper). Decide `--`-after-local-flags behavior (legacy parses locals after `--`; Cobra makes them positional) — document as an intentional change or stitch `cmd.Flags().Args()` back.
+**Phase 4 — `config` + `schema list` + `auth status` + `--output` wrapper.** `--output` is a **security execution wrapper** (buffer stdout → owner-only atomic file → reject with `dump` → suppress color for file sinks → still emit diff on drift), modeled at the boundary, not as a plain pflag. Keep config-free commands config-free; shared narrowing-validation in root `PersistentPreRunE` with config-load lazy inside `RunE` (avoid the PersistentPreRunE-shadowing trap — no child `PersistentPreRunE`).
+**Phase 5 — Completion overhaul.** Before deleting `completion.go`, **relocate the flag inventory** (`completionFlags`/`completionDumpFlags`/`completionDiffFlags`) to a non-deleted file or derive it from the Cobra tree — `man_test.go` and `agent_docs_test.go` source their drift inventory from it. Replace with Cobra-generated completion + the catalog `ValidArgsFunc`; **adapt** (don't delete) the completion security tests; remove `DisableDefaultCmd`.
+**Phase 6 — Docs/manpages + drift + packaging.** Generate md/man via `cobra/doc` with `DisableAutoGenTag = true`; rewrite `man_test.go` to assert against the **generated multi-file** tree (replacing the hand-written `man/zscalerctl.1` subset test); update `.goreleaser.yaml`, `release.yml`, and `verify-release-artifacts.sh` to package + verify the generated man/completion/doc set; add the regenerate-and-`git diff --exit-code` CI drift check.
 
 ## 11. Risks & mitigations
 
-- **No-leak/exit regression (highest risk).** Mitigation: the §5 handler is proven on `version`+`doctor` in Phase 1 before any bulk migration; the golden snapshot catches any stdout/stderr/exit-code drift; redaction-invariant tests cover the error paths.
-- **Dependency addition.** Mitigation: Cobra is among the most-audited Go deps; vendored + pinned + covered by the existing `govulncheck`/`gitleaks`/license gates.
-- **Dynamic completion fidelity.** Mitigation: `ValidArgsFunc` hooks tested against the catalog; completion behavior captured in the golden snapshot where feasible.
-- **Doc/manpage drift.** Mitigation: generation is checked in CI (the Phase 6 drift check), so README/manpage/completion can't silently diverge from the surface.
-- **Scope creep into redesign.** Mitigation: the §3 non-goals are explicit; the snapshot review surfaces any accidental behavior change for an intentional-or-revert decision.
+- **No-leak regression (highest):** preserved per-command redaction source (§5b) + redacting Cobra writers (§5a) + redaction-invariant tests + the golden boundary harness.
+- **Global-flag regression:** eliminated by keeping `parseGlobal` (§4a) + the mirror sync test.
+- **Mid-migration breakage:** the hybrid (§5) keeps every phase working; the boundary is unchanged.
+- **Dynamic completion leak/live-call:** the catalog-only `ValidArgsFunc` constraint (§6) + a no-env test.
+- **CI false-confidence:** `windows-config` extended to cover `internal/cli` (§9); the doc-drift check pinned with `DisableAutoGenTag`.
+- **Dep add:** pinned, vendored, gated.
 
 ## 12. Testing
 
-- Golden CLI-surface snapshot (`testdata`) — per-command `--help`, fixed-input output, exit code; updated deliberately per phase.
-- Existing `internal/cli` behavior tests pass; dispatch-internal tests migrate with their code.
-- Per-command unit tests for the new command files; `RunE` error → exit-code mapping tests at the §5 handler.
-- Redaction-invariant tests on the error path (including unknown-flag/usage errors now flowing through the redactor).
-- Agentic-coverage eval (DAV-10) as a per-phase gate.
-- `make check` (gofmt, vet, staticcheck, govulncheck, semgrep, gitleaks, verify-docs, verify-actions-pinned, sync-agents-skill, verify-release-artifacts) green per phase; `windows-config` CI exercises any platform-tagged paths.
+Golden boundary harness (§9); the ~115 existing `App.Run` behavior tests pass unchanged; per-command unit tests; parse-error→exit-code tests for every class; redaction-invariant tests per group (§5b); format-allowlist golden per command×format (§5c); the global-flag mirror sync test (§4a); the completion catalog-only/no-leak tests (§6); the man/agent-docs drift gates re-pointed (Phase 5/6); agentic-coverage eval; `make check` + the corrected `windows-config` job green per phase.

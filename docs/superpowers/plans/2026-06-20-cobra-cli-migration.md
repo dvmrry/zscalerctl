@@ -1,348 +1,157 @@
-# Cobra CLI Migration Implementation Plan
+# Cobra CLI Migration Implementation Plan (revised v2)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Replace `zscalerctl`'s hand-rolled command dispatch (`internal/cli/app.go`, ~2.4k LOC, + 449-line `completion.go`) with a Cobra command tree, surface-preserving plus Cobra's free inline wins, without weakening the machine-first/no-leak ethos or the exit-code contract.
+**Goal:** Replace `zscalerctl`'s hand-rolled dispatch with a Cobra command tree, surface-preserving + bounded inline wins, with zero no-leak / exit-code / global-flag regression.
 
-**Architecture:** A Cobra root command holds all persistent/global flags; subcommands live in small per-group files. Cobra's auto error/usage printing is fully silenced; every command's `RunE` returns an error, and one top-level handler routes errors through the existing redactor and maps them to exit codes 0–7. Built thin-slice: foundation + no-leak handler proven on `version`+`doctor`, then command groups one PR at a time, then completion, then docs.
+**Architecture (corrected — see spec v2):** `cmd/zscalerctl/main.go:run()` (mute, panic-recovery, raw-arg `errorFormat`, 12-case `exitCodeForError`, partial-dump suppression, redacting `writeError`) **stays unchanged**. `App.Run(ctx,args) error` keeps its signature; it parses globals via the existing `parseGlobal` (canonical), then routes migrated commands through a Cobra root (`SilenceErrors`/`SilenceUsage`, returning `UsageError`-wrapped sentinels) and un-migrated commands through the existing `runParsed`. Cobra owns the command tree + per-command local flags + help/completion/doc generation; globals are mirrored as persistent flags for help/completion/introspection only (parsed by `parseGlobal`, not Cobra).
 
-**Tech Stack:** Go, `spf13/cobra` + `spf13/pflag` (new deps), existing `internal/redact`, `internal/config`, `internal/zscaler`, the resource catalog, and the existing `lipgloss`/`termenv` pretty stack.
-
----
-
-## Reference: spec & locked decisions
-
-Spec: `docs/superpowers/specs/2026-06-20-cobra-cli-migration-design.md`. Locked: Cobra; surface-preserving refactor + inline wins; thin-slice phasing; golden-snapshot + agentic-coverage gates; **no command renames**, **spinners deferred**, **no 1.0 history-reset**, **rename-to-`zctl` deferred to 1.0**. Keep the §5 handler fang-retrofit-friendly (errors redacted at the boundary; exit code = pure function of error type).
-
-## Conventions for every task
-
-- **No `Co-Authored-By` lines in commits** (strict repo rule).
-- **Spike-then-land:** experiment in the public `dvmrry/zscalerctl-dev` fork; each phase lands as a clean, squash-merged PR to `main` in `dvmrry/zscalerctl`.
-- **Value-free:** no real tenant identifiers / live-runtime artifacts / real credentials in committed fixtures.
-- **TDD:** write the failing test, see it fail, implement minimally, see it pass, commit.
-- **Frequent commits** at each green step.
-
-## Per-phase gate (run before opening each phase PR)
-
-- [ ] `go test -mod=vendor ./...` green
-- [ ] Golden CLI-surface snapshot: every delta vs the committed baseline reviewed and re-blessed as **intentional** (`go test ./internal/cli -run TestGoldenSurface -update` only after manual diff review)
-- [ ] Agentic-coverage eval (DAV-10) ≥ baseline floor
-- [ ] `make check` green (gofmt, vet, staticcheck, govulncheck, semgrep, gitleaks, verify-docs, verify-actions-pinned, sync-agents-skill, verify-release-artifacts)
-- [ ] `CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...` (and the `windows-config` CI job) green
-- [ ] PR opened against `main`, `semver:minor` (behavior shifts via inline wins), draft until the gate passes
+**Tech Stack:** Go, `spf13/cobra`+`pflag` (pinned), existing `internal/redact`/`config`/`zscaler`/`output`/catalog.
 
 ---
 
-## Phase 0 — Spike sandbox + golden-surface baseline
+## Reference & conventions
 
-**Goal:** a private-to-churn workspace and a frozen record of today's exact CLI surface, so every later change is provably intentional.
+Spec: `docs/superpowers/specs/2026-06-20-cobra-cli-migration-design.md` (v2). **No `Co-Authored-By`.** Spike in public `dvmrry/zscalerctl-dev`; clean squash-merged PRs to `main`. Value-free fixtures. TDD; frequent commits.
 
-### Task 0.1: Create the spike sandbox
-
-- [ ] **Step 1: Fork to the public dev sandbox**
-
-```bash
-gh repo fork dvmrry/zscalerctl --clone=false --fork-name zscalerctl-dev
-# if same-owner fork is rejected, seed a fresh repo instead:
-#   gh repo create dvmrry/zscalerctl-dev --public --source=. --remote=dev --push
-```
-
-- [ ] **Step 2: Verify it exists and carries full history**
-
-Run: `gh repo view dvmrry/zscalerctl-dev --json name,isFork,visibility`
-Expected: `name=zscalerctl-dev`, public, fork (or seeded clone with full `git log`).
-
-(No commit — infra only. The sandbox is throwaway, deleted at 1.0.)
-
-### Task 0.2: Golden CLI-surface snapshot harness
-
-**Files:**
-- Create: `internal/cli/golden_surface_test.go`
-- Create: `internal/cli/testdata/surface/` (generated `.golden` files)
-
-- [ ] **Step 1: Write the snapshot test (initially capturing today's hand-rolled surface)**
-
-```go
-package cli_test
-
-// TestGoldenSurface freezes the user-visible CLI surface: for each invocation,
-// it records combined stdout, stderr, and exit code into a .golden file. Run
-// with -update to re-bless after a reviewed, intentional change. A failing diff
-// means the surface changed; the diff must be reviewed as intentional or reverted.
-func TestGoldenSurface(t *testing.T) {
-	cases := []struct{ name string; args []string; env []string }{
-		{"root_help", []string{"--help"}, nil},
-		{"no_args", nil, nil},
-		{"version", []string{"version"}, nil},
-		{"doctor_help", []string{"doctor", "--help"}, nil},
-		{"dump_help", []string{"dump", "--help"}, nil},
-		{"diff_help", []string{"diff", "--help"}, nil},
-		{"list_help", []string{"list", "--help"}, nil},
-		{"get_help", []string{"get", "--help"}, nil},
-		{"show_help", []string{"show", "--help"}, nil},
-		{"config_help", []string{"config", "--help"}, nil},
-		{"config_init_help", []string{"config", "init", "--help"}, nil},
-		{"schema_help", []string{"schema", "--help"}, nil},
-		{"auth_help", []string{"auth", "--help"}, nil},
-		{"auth_status_help", []string{"auth", "status", "--help"}, nil},
-		{"completion_help", []string{"completion", "--help"}, nil},
-		{"unknown_command", []string{"frobnicate"}, nil},
-		{"unknown_flag", []string{"version", "--nonexistent"}, nil},
-		{"missing_creds", []string{"list", "users"}, nil}, // no config/env → exit 3, redacted
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			var out, errOut bytes.Buffer
-			app := cli.New(&out, &errOut, tc.env)
-			code := app.Main(context.Background(), tc.args) // returns the resolved exit code
-			got := fmt.Sprintf("=== exit: %d\n=== stdout:\n%s\n=== stderr:\n%s", code, out.String(), errOut.String())
-			golden := filepath.Join("testdata", "surface", tc.name+".golden")
-			if *update {
-				_ = os.WriteFile(golden, []byte(got), 0o644)
-				return
-			}
-			want, err := os.ReadFile(golden)
-			if err != nil { t.Fatalf("read golden %s: %v (run -update to create)", golden, err) }
-			if got != string(want) {
-				t.Errorf("surface changed for %q:\n--- want\n%s\n--- got\n%s", tc.name, want, got)
-			}
-		})
-	}
-}
-
-var update = flag.Bool("update", false, "update golden surface files")
-```
-
-- [ ] **Step 2: Add a thin `App.Main` exit-code entrypoint if one is not already exposed**
-
-If `internal/cli` does not already expose a function returning the resolved exit code (vs calling `os.Exit`), add one so the test can assert codes. Check `cmd/zscalerctl/main.go` — the exit-code resolution must be callable without exiting. (If it already returns a code, reuse it.)
-
-- [ ] **Step 3: Generate the baseline**
-
-Run: `go test ./internal/cli -run TestGoldenSurface -update`
-Then `go test ./internal/cli -run TestGoldenSurface` → PASS (baseline matches itself).
-
-- [ ] **Step 4: Review the generated `.golden` files**
-
-Manually read each `testdata/surface/*.golden`. Confirm none contains a real secret/tenant value (they should be help text, usage, and redacted errors). This is the frozen contract.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add internal/cli/golden_surface_test.go internal/cli/testdata/surface/
-git commit -m "test(cli): freeze golden CLI-surface baseline before Cobra migration"
-```
+**Per-phase gate (before each phase PR):**
+- [ ] `go test -mod=vendor ./...` green; the ~115 existing `App.Run` behavior tests pass unchanged.
+- [ ] Golden boundary snapshot: every delta reviewed + re-blessed as intentional (via the `surface_changes` manifest); exit codes asserted in Go, never `-update`-blessed.
+- [ ] Agentic-coverage eval (DAV-10) ≥ floor.
+- [ ] `make check` green.
+- [ ] The **corrected** `windows-config` CI job (now covering `internal/cli`) green; `CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...` green.
+- [ ] PR vs `main`, `semver:minor`, draft until the gate passes.
 
 ---
 
-## Phase 1 — Foundation: Cobra root + persistent flags + the no-leak/exit handler
+## Phase 0 — Sandbox + `redact.NewWriter` + real-boundary golden harness
 
-**Goal:** stand up the Cobra root, all global flags, and the single error→redactor→exit-code chokepoint, and migrate `version` + `doctor` onto it. Proves the load-bearing §5 design on a tiny surface. The golden surface for these commands must match (or change only intentionally).
+### Task 0.1: Spike sandbox
+- [ ] `gh repo fork dvmrry/zscalerctl --fork-name zscalerctl-dev --clone=false` (fallback: `gh repo create dvmrry/zscalerctl-dev --public --source=. --push`). Verify `gh repo view dvmrry/zscalerctl-dev`. Throwaway; deleted at 1.0.
 
-**Files:**
-- Create: `internal/cli/root.go` (root command + persistent flags + the execute/error handler)
-- Create: `internal/cli/exitcode.go` (error→exit-code mapping, pure function)
-- Create: `internal/cli/cmd_version.go`, `internal/cli/cmd_doctor.go`
-- Modify: `cmd/zscalerctl/main.go` (call the new entrypoint)
-- Test: `internal/cli/exitcode_test.go`, `internal/cli/root_test.go`
-
-### Task 1.1: Add Cobra and vendor it
-
-- [ ] **Step 1: Add the dependency**
-
-Run: `go get github.com/spf13/cobra@latest && go mod tidy && go mod vendor`
-Expected: `spf13/cobra`, `spf13/pflag`, `inconshreveable/mousetrap` appear in `go.mod`/`vendor/`.
-
-- [ ] **Step 2: Verify license + vuln gates accept it**
-
-Run: `make verify-licenses && make vuln`
-Expected: PASS (Cobra is Apache-2.0; no advisories).
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add go.mod go.sum vendor/
-git commit -m "build: vendor spf13/cobra for the CLI migration"
-```
-
-### Task 1.2: Exit-code mapping (pure function — keeps the fang seam clean)
-
-- [ ] **Step 1: Write the failing test**
-
+### Task 0.2: Build `redact.NewWriter` (required by §5a — does not exist yet)
+**Files:** Create `internal/redact/writer.go`, `internal/redact/writer_test.go`.
+- [ ] **Step 1: Failing test** — a writer that redacts across write boundaries:
 ```go
-func TestExitCodeForError(t *testing.T) {
-	cases := []struct{ name string; err error; want int }{
-		{"nil", nil, 0},
-		{"internal", errors.New("boom"), 1},
-		{"usage", cli.UsageError{Message: "bad flag"}, 2},
-		{"invalid_config", config.ErrInvalidConfig, 2},
-		{"missing_creds", zscaler.ErrMissingCredentials, 3},
-		{"not_found", cli.ErrNotFound, 4},
-		{"live_fail", cli.ErrLiveAccessFailed, 5},
-		{"partial_dump", cli.ErrPartialDump, 6},
-		{"drift", cli.ErrDrift, 7},
-	}
-	for _, tc := range cases {
-		if got := cli.ExitCodeForError(tc.err); got != tc.want {
-			t.Errorf("ExitCodeForError(%s) = %d, want %d", tc.name, got, tc.want)
-		}
+func TestRedactingWriterRedactsAcrossWrites(t *testing.T) {
+	var buf bytes.Buffer
+	w := redact.NewWriter(&buf, redact.ModeStandard)
+	io.WriteString(w, "token=AKIA")          // pattern split across writes
+	io.WriteString(w, "abcdef1234567890XYZ\n")
+	w.(io.Closer).Close()                    // flush
+	if strings.Contains(buf.String(), "AKIAabcdef1234567890XYZ") {
+		t.Fatalf("secret leaked across write boundary: %q", buf.String())
 	}
 }
 ```
+- [ ] **Step 2:** Run → FAIL (`NewWriter` undefined).
+- [ ] **Step 3:** Implement `NewWriter(io.Writer, Mode) io.WriteCloser` that buffers, and on `Close`/flush runs the line through the existing `Redactor.ScanRenderedString` before writing. Buffer until a newline (or Close) so a pattern is never split. (Cobra help/usage/completion is line-oriented, so line buffering suffices.)
+- [ ] **Step 4:** Run → PASS. Also assert a normal non-secret line passes through unchanged.
+- [ ] **Step 5:** Commit `feat(redact): line-buffering redacting io.Writer for Cobra output`.
 
-- [ ] **Step 2: Run to verify it fails** — Run: `go test ./internal/cli -run TestExitCodeForError` → FAIL (`ExitCodeForError` undefined).
-
-- [ ] **Step 3: Implement `ExitCodeForError`** in `internal/cli/exitcode.go` — a pure `func ExitCodeForError(err error) int` using `errors.Is`/`errors.As` against the existing sentinel errors, mirroring the codes the current dispatch returns. Map Cobra/pflag flag-parse + unknown-command errors to `2` (detect via `UsageError` wrapping at the parse layer).
-
-- [ ] **Step 4: Run to verify it passes** — `go test ./internal/cli -run TestExitCodeForError` → PASS.
-
-- [ ] **Step 5: Commit** — `git commit -am "cli: pure error→exit-code mapping (0–7)"`
-
-### Task 1.3: Root command + the silenced error handler
-
-- [ ] **Step 1: Write the failing test (errors are silenced by Cobra and redacted by us)**
-
+### Task 0.3: Golden harness through the REAL `cmd/zscalerctl` boundary
+**Files:** Create `cmd/zscalerctl/golden_surface_test.go`, `cmd/zscalerctl/testdata/surface/`.
+- [ ] **Step 1:** Build the test binary once (`go test` can `go build -o` a temp binary, or use `os/exec` on a `go run`). Write `TestGoldenSurface` that, for each case, execs the binary with `args`+`env`, captures stdout/stderr/exit, **scrubs** non-determinism (git SHA, build date, abs paths, `time=…`), asserts `wantCode` in Go, and snapshots only the scrubbed stdout/stderr:
 ```go
-func TestRootSilencesAndRedactsErrors(t *testing.T) {
-	var out, errOut bytes.Buffer
-	app := cli.New(&out, &errOut, nil)
-	// A command whose RunE returns an error containing a secret-shaped token.
-	code := app.Main(context.Background(), []string{"doctor", "--inject-test-error=AKIA_secret_like_token_1234567890"})
-	if code == 0 { t.Fatal("want non-zero exit") }
-	if strings.Contains(errOut.String(), "AKIA_secret_like_token_1234567890") {
-		t.Errorf("secret-shaped token leaked to stderr: %q", errOut.String())
-	}
-	if !strings.Contains(errOut.String(), "<REDACTED") && /* entropy rule */ !redactedSomehow(errOut.String()) {
-		t.Errorf("error not routed through redactor: %q", errOut.String())
-	}
+cases := []struct{ name string; args []string; env []string; wantCode int }{
+	{"root_help", []string{"--help"}, nil, 0},
+	{"version", []string{"version"}, nil, 0},
+	{"unknown_command", []string{"frobnicate"}, nil, 2},
+	{"unknown_flag", []string{"version", "--nope"}, nil, 2},
+	{"zia_locations_list_help", []string{"zia", "locations", "list", "--help"}, nil, 0},
+	{"missing_creds", []string{"zia", "locations", "list"}, nil, 3}, // valid tree, no creds → 3
+	{"ndjson_on_version_rejected", []string{"--format", "ndjson", "version"}, nil, 2},
+	// ... one case per command × {json,ndjson,table,pretty} boundary (§5c)
 }
 ```
-
-(The `--inject-test-error` flag is a hidden test-only flag on a throwaway command, or assert via a real error path that carries a high-entropy token. Prefer a real path if available.)
-
-- [ ] **Step 2: Run to verify it fails** — FAIL (no root yet).
-
-- [ ] **Step 3: Implement the root in `internal/cli/root.go`**
-
-```go
-func (a *App) newRootCmd() *cobra.Command {
-	root := &cobra.Command{
-		Use:           "zscalerctl",
-		Short:         "Read-only Zscaler configuration CLI",
-		SilenceErrors: true, // we print, not Cobra
-		SilenceUsage:  true, // no usage dump on error
-	}
-	// Persistent (global) flags, defined ONCE, inherited by all subcommands.
-	pf := root.PersistentFlags()
-	pf.String("format", "", "output format (json|yaml|table|...)")
-	pf.String("profile", "", "config profile to select")
-	pf.String("config", "", "config file path")
-	pf.Duration("timeout", 0, "per-request timeout")
-	pf.String("redaction", "", "redaction mode (standard|share|paranoid)")
-	pf.StringSlice("fields", nil, "projection fields")
-	pf.String("filter", "", "filter expression")
-	pf.String("search", "", "search expression")
-	pf.String("output", "", "output destination")
-	pf.Bool("no-cache", false, "disable per-session cache")
-	pf.Bool("color", false, "force color")
-	pf.Bool("no-color", false, "disable color")
-	pf.String("log-level", "", "log level")
-	root.AddCommand(a.newVersionCmd(), a.newDoctorCmd())
-	return root
-}
-
-// Main is the single entrypoint: build root, execute, route the error through
-// the redactor, and resolve the exit code. Never calls os.Exit (returns the code).
-func (a *App) Main(ctx context.Context, args []string) int {
-	root := a.newRootCmd()
-	root.SetArgs(args)
-	root.SetOut(a.out)             // help → machine-first stdout
-	root.SetErr(io.Discard)        // Cobra never writes errors; we do
-	err := root.ExecuteContext(ctx)
-	if err != nil {
-		a.writeError(err)          // existing redacting writer → ScanRenderedString
-	}
-	return ExitCodeForError(err)
-}
-```
-
-`cmd/zscalerctl/main.go` becomes: `os.Exit(cli.New(os.Stdout, os.Stderr, os.Environ()).Main(ctx, os.Args[1:]))`, preserving `muteProcessOutput` around it.
-
-- [ ] **Step 4: Run to verify it passes** — `go test ./internal/cli -run TestRootSilencesAndRedactsErrors` → PASS.
-
-- [ ] **Step 5: Commit** — `git commit -am "cli: Cobra root with silenced, redacted error handling + 0–7 exit mapping"`
-
-### Task 1.4: Migrate `version` and `doctor`
-
-- [ ] **Step 1:** Write `internal/cli/cmd_version.go` (`newVersionCmd`) and `cmd_doctor.go` (`newDoctorCmd`) as Cobra commands whose `RunE` calls the *existing* `runVersion`/`runDoctor` logic (extracted, not rewritten), reading persistent flags via the cobra flag set.
-- [ ] **Step 2:** Run the existing version/doctor behavior tests → PASS (behavior unchanged).
-- [ ] **Step 3:** `go test ./internal/cli -run TestGoldenSurface` → review the `version*`/`doctor*`/`root_help`/`unknown_*` diffs. Re-bless intentional inline-win changes (did-you-mean on `unknown_command`; cleaner per-command help) with `-update` after manual review; investigate anything unexpected.
-- [ ] **Step 4:** Full `go test ./...` → PASS.
-- [ ] **Step 5: Commit** — `git commit -am "cli: migrate version + doctor onto Cobra root"`
-
-### Task 1.5: Phase-1 gate + PR
-
-- [ ] Run the **Per-phase gate** checklist above.
-- [ ] Open the Phase-1 PR (`semver:minor`). Body: links the spec, lists the re-blessed surface diffs as intentional inline wins.
+- [ ] **Step 2:** Add a **command-tree-inventory golden** (after Phase 1 the inventory is the Cobra tree; in Phase 0 it's the hand-rolled surface captured the same way) and a `surface_changes.md` manifest template.
+- [ ] **Step 3:** `go test ./cmd/zscalerctl -run TestGoldenSurface -update`; review every `.golden` for secrets/tenant values; re-run → PASS.
+- [ ] **Step 4:** Commit `test(cli): freeze golden CLI surface through the real boundary before Cobra`.
 
 ---
 
-## Phase 2 — Resources: `list` / `get` / `show` + dynamic catalog completion
+## Phase 1 — Foundation + hybrid dispatch
 
-**Files:** `internal/cli/cmd_resources.go` (the three commands sharing catalog plumbing), `internal/cli/completion_args.go` (`ValidArgsFunc` over the catalog), tests alongside.
+### Task 1.1: Vendor a pinned Cobra
+- [ ] In the spike, pick a reviewed Cobra version `vX.Y.Z`; `go get github.com/spf13/cobra@vX.Y.Z && go mod tidy && go mod vendor`; record `vX.Y.Z` in this plan. `make verify-licenses && make vuln` → PASS. Commit.
 
-**Tasks (each TDD, following the Phase-1 pattern — failing test → minimal impl → green → commit):**
-- [ ] `newListCmd`/`newGetCmd`/`newShowCmd` with `RunE` delegating to the existing resource-reader logic; resource arg validated against the catalog.
-- [ ] `ValidArgsFunc` returning catalog resource names/keys for dynamic completion (test: returns expected names; unknown prefix → empty).
-- [ ] Golden-surface diffs for `list`/`get`/`show` re-blessed as intentional.
-- [ ] Behavior tests (projection, `--fields`/`--filter`/`--search`) pass unchanged.
-- [ ] Phase gate + PR.
+### Task 1.2: Global-flag source-of-truth + Cobra mirror (§4a)
+**Files:** Create `internal/cli/globalflags.go`, `globalflags_test.go`.
+- [ ] **Step 1: Failing test** — the Cobra persistent-flag set equals the `parseGlobal` flag set:
+```go
+func TestCobraGlobalsMirrorParseGlobal(t *testing.T) {
+	root := newTestRoot()
+	got := flagNames(root.PersistentFlags())                 // sorted
+	want := []string{"color","config","fields","filter","format","log-level","no-cache","no-color","output","profile","redaction","search","timeout"}
+	if !reflect.DeepEqual(got, want) { t.Fatalf("globals drift: got %v want %v", got, want) }
+}
+```
+- [ ] **Step 2:** FAIL. **Step 3:** Define a single `var globalFlagSpecs = []globalFlagSpec{…}` (name,type,default,usage,completionValues) and register both the Cobra persistent flags (for help/completion) and keep `parseGlobal` reading the same names. Do NOT let Cobra parse them (App strips via `splitGlobalArgs`). **Step 4:** PASS. **Step 5:** Commit.
+
+### Task 1.3: Cobra root + redacting writers + error mapping (§5, §5a, §8)
+**Files:** Create `internal/cli/root.go`, `root_test.go`.
+- [ ] **Step 1: Failing test** — a `RunE` error carrying a high-entropy token does not leak through the boundary, and a flag error exits 2:
+```go
+func TestRootRedactsAndMapsErrors(t *testing.T) { /* exec binary: a command returning a token-bearing error → stderr redacted; `version --nope` → exit 2 */ }
+```
+- [ ] **Step 2:** FAIL. **Step 3:** Build `newRootCmd`: `SilenceErrors`,`SilenceUsage`,`TraverseChildren:true`,`EnablePrefixMatching=false`,`CompletionOptions{DisableDefaultCmd:true}`,`SuggestionsMinimumDistance=2`,`SetFlagErrorFunc(→UsageError)`; `root.SetOut(redact.NewWriter(a.out,ModeStandard))`/`SetErr` likewise; detect TTY/width from the raw `*os.File` (captured on `App`) BEFORE wrapping. Make every `Args`/validation return `UsageError`. **Step 4:** PASS. **Step 5:** Commit.
+
+### Task 1.4: Hybrid dispatch in `App.Run`
+**Files:** Modify `internal/cli/app.go` (`Run`/`runParsed`).
+- [ ] **Step 1: Failing test** — `version` routes through Cobra while an un-migrated command still works:
+```go
+func TestHybridDispatch(t *testing.T) { /* version → Cobra path (assert via a marker); `zia locations list` (no creds) → still exit 3 via legacy */ }
+```
+- [ ] **Step 2:** FAIL. **Step 3:** In `runParsed`, after `parseGlobal`, add: `if isMigrated(rest[0]) { return a.execCobra(ctx, opts, rest) }` else fall through to the existing switch. `execCobra` builds the root, sets args to `rest`, injects `opts`+`ctx`, executes, returns the (wrapped) error. `isMigrated` starts as `{version,doctor}` and grows per phase. **Step 4:** PASS; all existing tests still green. **Step 5:** Commit.
+
+### Task 1.5: Migrate `version` + `doctor`
+- [ ] `newVersionCmd`/`newDoctorCmd` whose `RunE` calls the extracted `runVersion`/`runDoctor` logic, reading globals from `opts`. **Preserve their differing redaction sources** (§5b: `version`→`ModeStandard`; `doctor`→`a.renderer(cfg,opts)`) and format allowlists (§5c). Behavior tests pass; golden diffs for `version`/`doctor`/`root_help`/`unknown_*` re-blessed via the manifest. Commit.
+
+### Task 1.6: Extend `windows-config` CI to cover `internal/cli` (§9)
+- [ ] Modify `.github/workflows/ci.yml` `windows-config`: add `go build ./...` and `go test ./internal/cli` (or a smoke: `version`/`doctor`/`config init --help`/`completion bash`). Commit.
+
+### Task 1.7: Parse-error → exit-2 coverage
+- [ ] Tests asserting exit 2 for: unknown command, unknown flag, bad flag value, missing flag value, required-flag-missing, and `Args` validation — all via the boundary. Commit.
+
+### Task 1.8: Gate + PR (Phase-1 gate above).
+
+---
+
+## Phase 2 — Products + resources + `zia url-lookup`
+**Files:** `internal/cli/cmd_products.go`, `completion_args.go`, `cmd_url_lookup.go`.
+- [ ] Product commands `zia/zpa/ztw/zcc/zidentity` taking `<resource> <list|get|show> [id]` args, `RunE` delegating to the extracted `runProduct` logic; arity enforced per `app.go:824-839`.
+- [ ] `ValidArgsFunc` over the catalog (catalog-only, §6); test it runs with empty env/no config and returns names with no reader/LoadConfig/network.
+- [ ] `zia url-lookup <url> [url...]` as an explicit non-catalog child preserving URL query/userinfo/fragment stripping; handle its `--help` in `RunE` if `DisableFlagParsing` is used (else validate args in `RunE`).
+- [ ] Preserve per-command format allowlist (`json|ndjson|table|pretty` for reads; `url-lookup` rejects ndjson) + redaction source (`cfg.Defaults.Redaction`). Add `isMigrated` entries. Golden + behavior tests; gate + PR.
 
 ## Phase 3 — `dump` + `diff`
+**Files:** `internal/cli/cmd_dump.go`, `cmd_diff.go`.
+- [ ] Declare each runner's **local** flags as Cobra local flags (dump: `--out`,`--products`,`--resources`,`--continue-on-error`,`--force`; diff: `--products`,`--resources`,`--ignore-operational`,`--detail`,`--allow-partial`,`--fail-on-drift`); `RunE` reads them via `cmd.Flags().Get*` and calls the extracted runner with a constructed options struct (never raw argv). `--out` ≠ global `--output`.
+- [ ] Preserve text-only format (ndjson rejected) + exit 6/7 flow through `exitCodeForError`. Decide `--`-after-local-flags (document or stitch `cmd.Flags().Args()`). Golden + behavior tests; gate + PR.
 
-**Files:** `internal/cli/cmd_dump.go`, `internal/cli/cmd_diff.go`, tests.
-
-**Tasks:**
-- [ ] `newDumpCmd`/`newDiffCmd` delegating to existing `runDump`/`runDiff`; exit codes 6 (partial-dump) and 7 (drift) flow through `ExitCodeForError`.
-- [ ] Golden-surface diffs re-blessed; dump/diff behavior tests pass.
-- [ ] Phase gate + PR.
-
-## Phase 4 — `config` + `schema` + `auth` + `<product> help`
-
-**Files:** `internal/cli/cmd_config.go` (`config` parent + `init`, `show`), `cmd_schema.go` (`schema show`), `cmd_auth.go` (`auth status`), `cmd_product.go` (product help topics), tests.
-
-**Tasks:**
-- [ ] Parent/child command groups (`config init` keeps its exit-2 refuse + owner-only write; `auth status`/`doctor`/`version` keep natural verbs — no renames).
-- [ ] Golden-surface diffs re-blessed; existing config/schema/auth tests pass.
-- [ ] Phase gate + PR.
+## Phase 4 — `config` + `schema list` + `auth status` + `--output` wrapper
+**Files:** `internal/cli/cmd_config.go`, `cmd_schema.go`, `cmd_auth.go`.
+- [ ] `config init|show`, `schema list` (NOT show), `auth status`. Keep config-free commands config-free; shared narrowing-validation in root `PersistentPreRunE`; config-load lazy inside `RunE` (no child `PersistentPreRunE` — avoid shadowing).
+- [ ] Model **`--output`** as the boundary execution wrapper (buffer stdout → owner-only atomic file → reject with `dump` → suppress color for file sinks → still emit diff on drift), retaining its tests. Golden + behavior tests; gate + PR.
 
 ## Phase 5 — Completion overhaul
+**Files:** relocate flag inventory out of `completion.go` first; then delete it.
+- [ ] **Before deletion:** move `completionFlags`/`completionDumpFlags`/`completionDiffFlags` to `internal/cli/surface.go` (or derive from the Cobra tree) and re-point `man_test.go` + `agent_docs_test.go` at the new source. Verify both drift gates still compile + pass.
+- [ ] Replace hand-written completion with Cobra-generated four-shell completion + the catalog `ValidArgsFunc`; remove `CompletionOptions.DisableDefaultCmd`.
+- [ ] **Adapt (don't delete)** the completion security tests (`TestCompletionScriptsDoNotReadCredentialFilesOrUseReader`, url-lookup coverage, log-level values, catalog/product coverage, PowerShell parsing) to assert against Cobra output. Gate + PR.
 
-**Files:** delete `internal/cli/completion.go` (449 lines); add `newCompletionCmd` (Cobra-generated bash/zsh/fish/powershell) wired to the `ValidArgsFunc` hooks from Phase 2.
-
-**Tasks:**
-- [ ] Replace the hand-written completion with `cobra`'s generator; keep the dynamic catalog completion via `ValidArgsFunc`.
-- [ ] Test: generated completion scripts are non-empty for all four shells; dynamic completion returns catalog names.
-- [ ] Retire and remove the old `completion_internal_test.go` cases that asserted the hand-rolled shell strings; replace with generation-smoke tests.
-- [ ] Phase gate + PR.
-
-## Phase 6 — Docs: Markdown/manpage generation + drift check
-
-**Files:** `internal/cli/docs_gen.go` (or a `tools/gen-docs` main using `cobra/doc`), generated `docs/cli/*.md` + `man/*.1`, a CI drift check (`scripts/verify-cli-docs.sh`) wired into `make check`.
-
-**Tasks:**
-- [ ] Generate Markdown + manpages from the command tree via `spf13/cobra/doc`.
-- [ ] CI drift check: regenerate in CI, `git diff --exit-code` the generated docs + completions vs committed — fail on drift (so README ⇄ manpage ⇄ completion ⇄ surface can't silently diverge).
-- [ ] Update `AGENTS.md`/skill to point agents at the generated reference + the introspectable tree.
-- [ ] Phase gate + PR. **Migration complete.**
+## Phase 6 — Docs/manpages + drift + packaging
+**Files:** `tools/gen-docs` (or a hidden `docs-gen`), generated `docs/cli/*.md` + `man/*.1`, `scripts/verify-cli-docs.sh`.
+- [ ] Generate md/man via `spf13/cobra/doc` with `DisableAutoGenTag = true` (else the timestamp footer breaks the drift check). Ensure `url-lookup` is a real Cobra command so it gets a page.
+- [ ] Rewrite `TestManPageDocumentsFlagsAndCommands` to assert against the generated multi-file tree (retiring the hand-written `man/zscalerctl.1` subset test); update `.goreleaser.yaml` `archives.files`, `release.yml`, and `verify-release-artifacts.sh` to package + verify the generated man/completion/doc set.
+- [ ] Add the regenerate-and-`git diff --exit-code` CI drift check; update `AGENTS.md`/skill to point at the generated reference. **Migration complete.** Gate + PR.
 
 ---
 
 ## Self-review
 
-**Spec coverage:** §1 motivation (intro); §2 Cobra (Task 1.1); §3 scope/non-goals (conventions + phase boundaries; renames/spinners/history-reset excluded); §4 command tree (Phases 1–4); §5 no-leak/exit handler (Tasks 1.2–1.3, the load-bearing detail with code); §6 completion (Phase 5 + Phase 2 `ValidArgsFunc`); §7 inline wins (re-blessed in golden-surface diffs per phase); §8 gates (Phase 0 harness + the per-phase gate); §9 workflow (conventions + Task 0.1); §10 phases (Phases 1–6); §11 risks (no-leak proven first in Phase 1; deps gated Task 1.1; doc drift Phase 6); §12 testing (golden surface + behavior tests + agentic eval + make check). All covered.
+**Spec coverage:** §3 scope (conventions + non-goals); §4 tree (Phases 2–4) + §4a globals (Task 1.2); §5 boundary/hybrid (Tasks 1.3–1.4, no `App.Main`); §5a redacting writers + `redact.NewWriter` (Task 0.2, 1.3) + raw-`*os.File` TTY; §5b redaction source (Task 1.5 + per phase, with tests); §5c format allowlist (golden per command×format, §9/0.3); §5d zctl preserved; §6 completion catalog-only (Phase 5 + Task 2 ValidArgsFunc test); §7 inline wins (golden re-bless); §8 root settings (Task 1.3); §9 gates — real-boundary harness (0.3), windows-config fix (1.6), wantCode/scrub/tree-inventory/manifest; §10 phases (0–6); §11 risks; §12 testing. All covered.
 
-**Placeholders:** Phases 2–6 are scoped task lists, not vague TODOs — each names its files, the delegated existing logic, the gate, and references the fully-detailed Phase-1 pattern (failing test → minimal impl → green → commit). They are expanded into per-step checkboxes when each phase starts, after the Phase-1 spike proves the exact Cobra wiring. This decomposition is deliberate (later phases mechanically repeat Phase 1 against different command groups).
+**Placeholders:** Phase 0/1 are executable TDD; Phases 2–6 are scoped tasks naming files, the extracted runner, the preserved contracts, and the gate — expanded to per-step checkboxes when each starts, applying the Phase-1 pattern. The pinned Cobra version is a named TODO resolved in Task 1.1 during the spike (not a vague placeholder).
 
-**Type consistency:** `App.Main(ctx, args) int`, `cli.New(out, err, env)`, `ExitCodeForError(err) int`, `newRootCmd`/`new<Cmd>Cmd`, `ValidArgsFunc`, the sentinel errors (`UsageError`, `ErrNotFound`, `ErrLiveAccessFailed`, `ErrPartialDump`, `ErrDrift`, `config.ErrInvalidConfig`, `zscaler.ErrMissingCredentials`) are used consistently across tasks. Note: confirm the exact sentinel names against the current code during Task 1.2 (the mapping must mirror what the existing dispatch returns) and adjust the table to match.
+**Type consistency:** `App.Run(ctx,args) error` (unchanged, ~115 sites), `run()` (boundary, unchanged), `redact.NewWriter(io.Writer,Mode) io.WriteCloser`, `newRootCmd`/`new<Cmd>Cmd`, `globalFlagSpecs`, `isMigrated`, `execCobra`, `UsageError{}` (`errors.Is`→`cli.ErrUsage`), the 12-case `exitCodeForError` (in `main.go`, not duplicated). Confirm exact sentinel + helper names against the code in Task 1.3/1.4.
