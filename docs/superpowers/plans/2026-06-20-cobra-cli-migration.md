@@ -1,10 +1,12 @@
-# Cobra CLI Migration Implementation Plan (revised v2)
+# Cobra CLI Migration Implementation Plan (revised v2.1)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Replace `zscalerctl`'s hand-rolled dispatch with a Cobra command tree, surface-preserving + bounded inline wins, with zero no-leak / exit-code / global-flag regression.
 
 **Architecture (corrected — see spec v2):** `cmd/zscalerctl/main.go:run()` (mute, panic-recovery, raw-arg `errorFormat`, 12-case `exitCodeForError`, partial-dump suppression, redacting `writeError`) **stays unchanged**. `App.Run(ctx,args) error` keeps its signature; it parses globals via the existing `parseGlobal` (canonical), then routes migrated commands through a Cobra root (`SilenceErrors`/`SilenceUsage`, returning `UsageError`-wrapped sentinels) and un-migrated commands through the existing `runParsed`. Cobra owns the command tree + per-command local flags + help/completion/doc generation; globals are mirrored as persistent flags for help/completion/introspection only (parsed by `parseGlobal`, not Cobra).
+
+**v2.1 refinements (Codex + Gemini validation — see spec v2.1):** `redact.NewWriter` **full-buffers** (Task 0.2, not line-buffer) and completion scripts bypass it; the §5 hybrid **re-inserts `--help`/`--`** that `splitGlobalArgs` strips and gates the legacy help early-return to un-migrated commands; **`--output` is preserved from Phase 1** (the `App.Run` wrapper wraps all output — add `version --output` tests in Phase 1, not Phase 4); **ban `MarkFlagRequired`/flag-groups** (validate in `RunE` → `UsageError`), custom `Args` funcs wrap `UsageError`, unknown-command is intercepted post-`Execute`, and `ValidArgsFunc` uses `ShellCompDirectiveError`; Phase 5 routes Cobra's `__complete` commands as config-free; the golden harness splits into binary-boundary goldens + in-process fake-reader behavior tests; §5b/§5c tables now include `dump` (config redaction) and `config init` (config-free/text). (Gemini confirmed Phase 3's `--`-after-local-flags already matches Cobra's default — no change there.)
 
 **Tech Stack:** Go, `spf13/cobra`+`pflag` (pinned), existing `internal/redact`/`config`/`zscaler`/`output`/catalog.
 
@@ -45,8 +47,8 @@ func TestRedactingWriterRedactsAcrossWrites(t *testing.T) {
 }
 ```
 - [ ] **Step 2:** Run → FAIL (`NewWriter` undefined).
-- [ ] **Step 3:** Implement `NewWriter(io.Writer, Mode) io.WriteCloser` that buffers, and on `Close`/flush runs the line through the existing `Redactor.ScanRenderedString` before writing. Buffer until a newline (or Close) so a pattern is never split. (Cobra help/usage/completion is line-oriented, so line buffering suffices.)
-- [ ] **Step 4:** Run → PASS. Also assert a normal non-secret line passes through unchanged.
+- [ ] **Step 3:** Implement `NewWriter(io.Writer, Mode) io.WriteCloser` that **full-buffers** (accumulates ALL writes) and redacts the whole buffer via `Redactor.ScanRenderedString` on `Close` — NOT line-by-line (line buffering misses *multi-line* secrets like private keys, and per-write splitting breaks patterns). The §5 handler `defer w.Close()`s around `Execute` so a final partial line flushes (Cobra never closes its writers). Completion-script generation does NOT use this writer (its bytes must stay valid shell — §5a).
+- [ ] **Step 4:** Run → PASS. Also test: a non-secret line passes through unchanged; a **multi-line** secret (a PEM `-----BEGIN PRIVATE KEY-----`…`-----END…` block) is redacted; and a final write with **no trailing `\n`** still flushes on `Close`.
 - [ ] **Step 5:** Commit `feat(redact): line-buffering redacting io.Writer for Cobra output`.
 
 ### Task 0.3: Golden harness through the REAL `cmd/zscalerctl` boundary
