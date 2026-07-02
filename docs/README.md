@@ -15,6 +15,14 @@ GitHub security policy.
 ## Design And Security
 
 - [ARCHITECTURE.md](ARCHITECTURE.md)
+- [cli/agent-machine-workflow.md](cli/agent-machine-workflow.md) — agent and
+  automation workflow for manifest-first machine reads.
+- [cli/machine-contract.md](cli/machine-contract.md) — machine-first contract
+  and human/UI presentation-layer boundaries.
+- [cli/core-boundary.md](cli/core-boundary.md) — CLI/core/UI dependency
+  boundary for future UI-safe backend seams.
+- [DEV_PUBLIC_SURFACE_MODEL.md](DEV_PUBLIC_SURFACE_MODEL.md) — supported,
+  candidate, and experimental surface classes for dev and public promotion.
 - [THREAT_MODEL.md](THREAT_MODEL.md)
 - [DATA_CLASSIFICATION.md](DATA_CLASSIFICATION.md)
 - [FIELD_COVERAGE.md](FIELD_COVERAGE.md) — generated per-resource classified vs

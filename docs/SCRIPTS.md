@@ -25,17 +25,30 @@ registered path exists.
 | `scripts/test-sync-agents-skill.sh` | test | `make verify-agents-skill` | Self-contained generated-copy drift test |
 | `scripts/test-verify-actions-pinned.sh` | test | `make verify-actions-pinned`; `.github/workflows/ci.yml` | Self-contained verifier test |
 | `scripts/test-verify-ci-no-live-creds.sh` | test | `make verify-ci-no-live-creds`; `.github/workflows/ci.yml` | Self-contained verifier test |
+| `scripts/test-verify-core-boundaries.sh` | test | `make verify-core-boundaries`; `.github/workflows/ci.yml` | Self-contained verifier test |
+| `scripts/test-verify-experiment-boundaries.sh` | test | `make verify-experiment-boundaries`; `.github/workflows/ci.yml` | Self-contained verifier test |
+| `scripts/test-verify-machine-contract.sh` | test | `make verify-machine-contract`; `.github/workflows/ci.yml` | Self-contained verifier test |
 | `scripts/test-verify-release-artifacts.sh` | test | `make verify-release-artifacts` | Self-contained verifier test |
 | `scripts/test-verify-sdk-boundary.sh` | test | `make verify-sdk-boundary`; `.github/workflows/ci.yml` | Self-contained verifier test |
 | `scripts/test-verify-script-registry.sh` | test | `make verify-script-registry` | Self-contained verifier test |
 | `scripts/test-verify-semver-label.sh` | test | `make verify-release-automation` | Self-contained verifier test |
+| `scripts/test-verify-surface-changes-manifest.sh` | test | `make verify-surface-changes-manifest`; `.github/workflows/ci.yml` | Self-contained verifier test |
 | `scripts/verify-actions-pinned.sh` | verify | `make verify-actions-pinned`; `.github/workflows/ci.yml` | `scripts/test-verify-actions-pinned.sh` |
 | `scripts/verify-ci-no-live-creds.sh` | verify | `make verify-ci-no-live-creds`; `.github/workflows/ci.yml` | `scripts/test-verify-ci-no-live-creds.sh` |
+| `scripts/gen-cli-docs.go` | dev | `make gen-cli-docs`; manual CLI-reference regeneration | `scripts/verify-cli-docs.sh` |
+| `scripts/test-verify-cli-docs.sh` | test | `make docs-cli-check`; `.github/workflows/ci.yml` | Self-contained verifier test (pass + corrupt-doc fail cases) |
+| `scripts/verify-cli-docs.sh` | verify | `make docs-cli-check`; `.github/workflows/ci.yml` | `scripts/test-verify-cli-docs.sh` |
+| `scripts/verify-core-boundaries.sh` | verify | `make verify-core-boundaries`; `.github/workflows/ci.yml` | `scripts/test-verify-core-boundaries.sh` |
 | `scripts/verify-docs.sh` | verify | `make docs-check`; `.github/workflows/ci.yml` | No companion test yet; docs secret-pattern gate |
+| `scripts/verify-experiment-boundaries.sh` | verify | `make verify-experiment-boundaries`; `.github/workflows/ci.yml` | `scripts/test-verify-experiment-boundaries.sh` |
 | `scripts/verify-licenses.sh` | verify | `make verify-licenses`; `.github/workflows/ci.yml` | `go-licenses` allow-list check for the shipped binary |
+| `scripts/verify-machine-contract.sh` | verify | `make verify-machine-contract`; `.github/workflows/ci.yml` | `scripts/test-verify-machine-contract.sh` |
 | `scripts/verify-release-artifacts.sh` | verify | `make verify-release-artifacts` | `scripts/test-verify-release-artifacts.sh` |
 | `scripts/verify-sdk-boundary.sh` | verify | `make verify-sdk-boundary`; `.github/workflows/ci.yml` | `scripts/test-verify-sdk-boundary.sh` |
 | `scripts/verify-script-registry.sh` | verify | `make verify-script-registry` | `scripts/test-verify-script-registry.sh` |
+| `scripts/verify-surface-changes-manifest.sh` | verify | `make verify-surface-changes-manifest`; `.github/workflows/ci.yml` | `scripts/test-verify-surface-changes-manifest.sh` |
+| `scripts/verify-pty-escape-clean.py` | dev | `scripts/verify-pty-escape-clean.sh` | PTY helper for escape-sequence regression check |
+| `scripts/verify-pty-escape-clean.sh` | verify | `make verify-pty-escape-clean` | Regression check: normal CLI output is clean in a PTY |
 | `scripts/verify-semgrep.sh` | verify | `make semgrep-check`; `.github/workflows/ci.yml` | Semgrep rule fixtures under `semgrep/tests` |
 | `scripts/verify-semver-label.sh` | verify | `.github/workflows/semver-label.yml`; `.github/workflows/release.yml` | `scripts/test-verify-semver-label.sh` |
 

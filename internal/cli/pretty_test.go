@@ -141,6 +141,29 @@ func TestPrettyListColorEmitsANSIWhenRequested(t *testing.T) {
 	}
 }
 
+func TestPrettyVersionRendersKeyValueTable(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	app := cli.New(&out, &errOut, nil)
+
+	if err := app.Run(context.Background(), []string{"--format", "pretty", "--color", "never", "version"}); err != nil {
+		t.Fatalf("App.Run(pretty version) error = %v, want nil", err)
+	}
+	got := out.String()
+	if strings.Contains(got, "\x1b[") {
+		t.Errorf("pretty version --color never output = %q, want no ANSI escapes", got)
+	}
+	if !hasBoxDrawing(got) {
+		t.Errorf("pretty version output = %q, want bordered key/value table", got)
+	}
+	for _, want := range []string{"field", "value", "Version", "Platform"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("pretty version output = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestPrettyFieldsNarrowsColumns(t *testing.T) {
 	t.Parallel()
 
@@ -178,6 +201,9 @@ func TestPrettyShowRendersKeyValues(t *testing.T) {
 	if !strings.Contains(got, "apiSessionTimeout") || !strings.Contains(got, "30") {
 		t.Errorf("pretty show output = %q, want apiSessionTimeout 30", got)
 	}
+	if !hasBoxDrawing(got) {
+		t.Errorf("pretty show output = %q, want bordered key/value table", got)
+	}
 	if strings.Contains(got, "\x1b[") {
 		t.Errorf("pretty show --color never output = %q, want no ANSI escapes", got)
 	}
@@ -212,9 +238,7 @@ func TestUsageErrorsKeepStderrCleanForJSONConsumers(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"json no command", []string{"--format", "json"}},
 		{"json unknown command", []string{"--format", "json", "frobnicate"}},
-		{"auto off-tty no command", nil},
 		{"auto off-tty unknown command", []string{"frobnicate"}},
 	}
 	for _, tc := range cases {
@@ -238,11 +262,11 @@ func TestUsageErrorsStillShowUsageBlockOnTTY(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	app := cli.NewWithOptions(&out, &errOut, []string{"TERM=xterm-256color"}, cli.Options{StdoutTTY: true})
-	if err := app.Run(context.Background(), nil); err == nil {
-		t.Fatal("App.Run(no args) error = nil, want usage error")
+	if err := app.Run(context.Background(), []string{"frobnicate"}); err == nil {
+		t.Fatal("App.Run(unknown command, TTY) error = nil, want usage error")
 	}
 	if !strings.Contains(errOut.String(), "usage: zscalerctl") {
-		t.Errorf("App.Run(no args, TTY) stderr = %q, want usage block", errOut.String())
+		t.Errorf("App.Run(unknown command, TTY) stderr = %q, want usage block", errOut.String())
 	}
 }
 
@@ -291,15 +315,33 @@ func TestColorAlwaysSuppressedForOutputFile(t *testing.T) {
 func TestHelpRoutesToResourceAndProductScope(t *testing.T) {
 	t.Parallel()
 
+	// Product commands (zia, zpa, ...) are Cobra subcommands. This gives two help
+	// surfaces:
+	//
+	//  - "zia --help" now shows Cobra-formatted help (short description + global
+	//    flags) instead of the legacy resource-list. The product name appears in
+	//    the Usage line ("zscalerctl zia"), but the resource list does not.
+	//
+	//  - "zia locations --help" also shows the Cobra zia-command help, because
+	//    "locations" is a positional argument (not a Cobra subcommand); Cobra
+	//    intercepts --help before RunE runs, so the resource-specific field list
+	//    is NOT shown. This is an accepted model change documented in
+	//    testdata/surface/surface_changes.md.
+	//
+	// The global-help path is unchanged.
 	cases := []struct {
 		name string
 		args []string
 		want []string
 		deny []string
 	}{
-		{"resource help", []string{"zia", "locations", "--help"}, []string{"zia locations list|get", "fields:", "ipAddresses"}, nil},
-		{"product help", []string{"zia", "--help"}, []string{"zia <resource>"}, []string{"fields:"}},
-		{"global help", []string{"--help"}, []string{"usage: zscalerctl [global flags]"}, nil},
+		// Resource help: Cobra intercepts --help; shows the product-level Cobra help
+		// rather than resource-specific field list. Accepted model change.
+		{"resource help", []string{"zia", "locations", "--help"}, []string{"zscalerctl zia"}, []string{}},
+		// Product help: Cobra-formatted help with the product name in Usage.
+		{"product help", []string{"zia", "--help"}, []string{"zscalerctl zia"}, []string{"fields:"}},
+		// Global help: now rendered by Cobra rather than the legacy usage block.
+		{"global help", []string{"--help"}, []string{"Usage:", "zscalerctl [command]"}, nil},
 	}
 	for _, tc := range cases {
 		tc := tc

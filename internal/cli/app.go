@@ -19,11 +19,13 @@ import (
 	"github.com/dvmrry/zscalerctl/internal/config"
 	dumpdiff "github.com/dvmrry/zscalerctl/internal/diff"
 	"github.com/dvmrry/zscalerctl/internal/dump"
+	"github.com/dvmrry/zscalerctl/internal/machine"
 	"github.com/dvmrry/zscalerctl/internal/output"
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/resources"
+	machineruntime "github.com/dvmrry/zscalerctl/internal/runtime"
 	"github.com/dvmrry/zscalerctl/internal/version"
-	"github.com/dvmrry/zscalerctl/internal/zscaler"
+	"github.com/spf13/cobra"
 )
 
 var ErrUsage = errors.New("usage error")
@@ -86,9 +88,12 @@ type App struct {
 	err       io.Writer
 	env       []string
 	stdoutTTY bool
+	stderrTTY bool
 	reader    ResourceReader
 	catalog   resources.ResourceCatalog
 	logger    *slog.Logger
+
+	machineRuntimeFactory machineRuntimeFactory
 }
 
 // diagLogger returns the diagnostic logger, defaulting to a disabled one so log
@@ -129,6 +134,7 @@ func newDiagLogger(w io.Writer, level string) (*slog.Logger, error) {
 func New(out, err io.Writer, env []string) *App {
 	return NewWithOptions(out, err, env, Options{
 		StdoutTTY: output.IsTerminal(out),
+		StderrTTY: output.IsTerminal(err),
 	})
 }
 
@@ -138,23 +144,33 @@ type ResourceReader interface {
 	Show(context.Context, resources.Product, string) (resources.SourceRecord, error)
 }
 
-type resourceSessionProvider interface {
-	Session(context.Context, resources.Product) (zscaler.ResourceSession, error)
+type machineReadExecutor interface {
+	Execute(context.Context, machine.Request) (machine.Response, error)
 }
+
+type machineRuntime interface {
+	machineReadExecutor
+	Redaction() redact.Mode
+}
+
+type machineRuntimeFactory func(context.Context, config.Config, globalOptions) (machineRuntime, error)
 
 type Options struct {
 	StdoutTTY bool
+	StderrTTY bool
 	Reader    ResourceReader
 	Catalog   resources.ResourceCatalog
 }
 
 func NewWithOptions(out, err io.Writer, env []string, opts Options) *App {
 	envCopy := append([]string(nil), env...)
-	// Resolve the catalog once at construction: use the caller-supplied override
-	// when provided (test injection), otherwise build from the full static catalog.
+	// Resolve the catalog once at construction: use the caller-supplied
+	// catalog when explicitly provided (even if empty — a non-nil slice is an
+	// intentional injection, e.g. an empty catalog for the empty-catalog
+	// schema-list test path); otherwise build from the full static catalog.
 	// All later calls to resourceCatalog() return a cheap copy of this slice.
 	var catalog resources.ResourceCatalog
-	if len(opts.Catalog) > 0 {
+	if opts.Catalog != nil {
 		catalog = append(resources.ResourceCatalog(nil), opts.Catalog...)
 	} else {
 		catalog = resources.Catalog()
@@ -164,18 +180,75 @@ func NewWithOptions(out, err io.Writer, env []string, opts Options) *App {
 		err:       err,
 		env:       envCopy,
 		stdoutTTY: opts.StdoutTTY,
+		stderrTTY: opts.StderrTTY,
 		reader:    opts.Reader,
 		catalog:   catalog,
 	}
 }
 
 func (a *App) resourceCatalog() resources.ResourceCatalog {
-	return append(resources.ResourceCatalog(nil), a.catalog...)
+	catalog := append(resources.ResourceCatalog(nil), a.catalog...)
+	// Guarantee a non-nil slice so an empty catalog serialises to JSON as
+	// "[]" rather than "null" (e.g. the empty-catalog schema-list path).
+	if catalog == nil {
+		return resources.ResourceCatalog{}
+	}
+	return catalog
+}
+
+// spinnerActive reports whether a progress spinner should render. Three
+// conditions must all be true:
+//
+//  1. stderr is an interactive TTY (a.stderrTTY). This is an EXPLICIT gate:
+//     even if --color always is set, we never write braille bytes to a
+//     non-TTY stderr (e.g. piped to a file). ColorAlways overrides the isTTY
+//     arg inside ShouldColor, so without this explicit check --color always
+//     would activate the spinner on non-TTY stderr.
+//  2. No diagnostic logging is active (logLevel "" or "off"). Log lines share
+//     stderr and would clash with the \r-redrawn spinner line.
+//  3. ShouldColor returns true. This folds in --color never/always, NO_COLOR=1,
+//     and TERM=dumb — all of which signal plain output where \r overwriting is
+//     unsafe or unwanted on a real TTY.
+func (a *App) spinnerActive(opts globalOptions) bool {
+	return a.stderrTTY &&
+		(opts.logLevel == "" || opts.logLevel == "off") &&
+		output.ShouldColor(opts.colorMode, a.env, a.stderrTTY)
+}
+
+// newSpinner returns a Spinner bound to stderr, active only when spinnerActive
+// returns true. The caller is responsible for calling Start/Stop.
+func (a *App) newSpinner(opts globalOptions) *output.Spinner {
+	return output.NewSpinner(a.err, a.spinnerActive(opts))
+}
+
+// callWithSpinner runs fn while showing an indeterminate progress spinner on
+// stderr (gated by spinnerActive), clearing it before fn's result is used.
+// Stop is called synchronously before returning so the caller can safely check
+// the error and render to stdout without racing with a live spinner on stderr.
+//
+// defer s.Stop() is registered immediately after Start so that a panic inside
+// fn does not orphan the spinner goroutine (which would otherwise keep writing
+// to stderr until process exit). Stop is idempotent, so the deferred call is
+// a safe no-op if fn returns normally and Stop has already been called.
+func callWithSpinner[T any](a *App, opts globalOptions, msg string, fn func() (T, error)) (T, error) {
+	s := a.newSpinner(opts)
+	s.Start(msg)
+	defer s.Stop()
+	return fn()
 }
 
 func (a *App) Run(ctx context.Context, args []string) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	// __complete / __completeNoDesc: Cobra's shell-completion protocol. These tokens
+	// must bypass parseGlobal entirely so that global flags appearing AFTER
+	// __complete (e.g. "__complete --log-level ''") are not consumed by the
+	// global-flag scanner. Cobra's completion engine owns the arg stream from here.
+	// Security: execCobra never calls LoadConfig; the Cobra completion path
+	// short-circuits RunE and never reaches any credential-loading code.
+	if len(args) > 0 && (args[0] == "__complete" || args[0] == "__completeNoDesc") {
+		return a.execCobra(ctx, globalOptions{}, args)
 	}
 	opts, rest, err := parseGlobal(args)
 	if err != nil {
@@ -206,18 +279,69 @@ func (a *App) runParsed(ctx context.Context, opts globalOptions, rest []string) 
 	if logger, err := newDiagLogger(a.err, opts.logLevel); err == nil {
 		a.logger = logger
 	}
+	// __complete / __completeNoDesc: Cobra's internal shell-completion protocol.
+	// Route them straight to execCobra BEFORE any narrowing-flag validation or
+	// help-gating. This is SECURITY-CRITICAL: the config-free path must not call
+	// LoadConfig or construct a reader. execCobra itself never calls LoadConfig;
+	// LoadConfig only runs inside individual RunE callbacks (newProductCmd,
+	// newDoctorCmd, etc.) — shell completion short-circuits RunE and never reaches
+	// those callbacks, so no credentials are ever loaded during completion.
+	if len(rest) > 0 && (rest[0] == "__complete" || rest[0] == "__completeNoDesc") {
+		return a.execCobra(ctx, opts, rest)
+	}
+	// Help routing:
+	//   - No command (empty rest) renders root help or the machine error path.
+	//   - Unknown command with --help keeps the resource-aware usage hint.
+	//   - Recognized command with --help routes straight to execCobra BEFORE the
+	//     narrowing/format gates below. This matches the legacy short-circuit where
+	//     opts.help fired before any flag validation, so combinations such as
+	//     "--filter name=x version --help", "--fields id zia locations --help", and
+	//     "--format ndjson completion --help" all show help (exit 0) rather than
+	//     hitting the narrowing/format gates (exit 2).
+	//
+	// CRITICAL: only the opts.help branch is affected. The non-help variants
+	// ("--filter name=x version", "--format ndjson version") must still hit the
+	// gates below → exit 2.
 	if opts.help {
-		a.writeHelp(a.out, rest)
-		return nil
+		if len(rest) == 0 {
+			// Bare --help: let Cobra render the root help.
+			return a.execCobra(ctx, opts, []string{"--help"})
+		}
+		if !isKnownCommand(rest[0], a.resourceCatalog()) {
+			// Unknown command: keep the resource-aware usage hint.
+			a.writeHelp(a.out, rest)
+			return nil
+		}
+		// A --help request on a recognized command is a meta-request: route it to
+		// Cobra's help before the narrowing/format gates, matching the legacy
+		// behaviour where opts.help short-circuited prior to flag validation.
+		return a.execCobra(ctx, opts, rest)
 	}
 	if len(rest) == 0 {
+		// Scoped flags require a command even when none is given; raise the usage
+		// error (exit 2) BEFORE the bare-help fallback, so "--filter x" /
+		// "--search x" / "--fields x" with no command is rejected rather than
+		// silently turned into a help display.
+		if name := opts.narrowingFlag(); name != "" {
+			return UsageError{Message: fmt.Sprintf("%s applies to list operations only; use it with \"<product> <resource> list\"", name)}
+		}
+		if len(opts.fields) > 0 {
+			return UsageError{Message: "--fields applies to resource read operations only; use it with \"<product> <resource> list|get|show\""}
+		}
+		// Bare invocation: an interactive terminal gets Cobra's root help; a
+		// machine/piped context treats a missing command as an error rendered
+		// through the configured format (e.g. a JSON envelope), per the
+		// machine-first contract.
+		if a.stdoutTTY {
+			return a.execCobra(ctx, opts, []string{"--help"})
+		}
 		a.writeUsageForHumans(opts)
 		return UsageError{Message: "missing command"}
 	}
 	// --filter/--search narrow list results only. Reject every other invocation
 	// up front — get/show/dump and non-resource commands alike — so the usage
 	// error (documented exit 2) is raised before any credential or reader work.
-	if name := opts.narrowingFlag(); name != "" && !isListInvocation(rest) {
+	if name := opts.narrowingFlag(); name != "" && !isListInvocation(rest, a.resourceCatalog()) {
 		return UsageError{Message: fmt.Sprintf("%s applies to list operations only; use it with \"<product> <resource> list\"", name)}
 	}
 	// --fields narrows projected resource records, so it applies only to a
@@ -225,66 +349,25 @@ func (a *App) runParsed(ctx context.Context, opts globalOptions, rest []string) 
 	// command, where it would otherwise be silently ignored; an unrecognized
 	// token (e.g. a product name a value-taking flag swallowed) falls through to
 	// the dispatch's more specific swallowed-product hint.
-	if len(opts.fields) > 0 && isKnownCommand(rest[0]) && !isResourceReadInvocation(rest) {
+	if len(opts.fields) > 0 && isKnownCommand(rest[0], a.resourceCatalog()) && !isResourceReadInvocation(rest, a.resourceCatalog()) {
 		return UsageError{Message: "--fields applies to resource read operations only; use it with \"<product> <resource> list|get|show\""}
 	}
-	switch {
-	case rest[0] == "help" || rest[0] == "-h" || rest[0] == "--help":
-		a.writeUsage(a.out)
-		return nil
-	case rest[0] == "version":
-		return a.runVersion(opts, rest[1:])
-	case rest[0] == "completion":
-		if opts.format == output.FormatNDJSON {
-			return rejectUnsupportedFormat("completion", opts.format)
-		}
-		return a.runCompletion(rest[1:])
-	case rest[0] == "diff":
-		if opts.format == output.FormatNDJSON {
-			return rejectUnsupportedFormat("diff", opts.format)
-		}
-		return a.runDiff(opts, rest[1:])
-	case rest[0] == "config" && len(rest) >= 2 && rest[1] == "init":
-		// config init writes the starter config and must run before LoadConfig:
-		// the target file is expected not to exist yet, and with an explicit
-		// --config a missing file is otherwise a hard ErrInvalidConfig.
-		return a.runConfigInit(opts, rest[2:])
-	case isRunnableCommand(rest[0]):
-	default:
-		a.writeUsageForHumans(opts)
-		return UsageError{Message: unknownCommandMessage(rest[0])}
+	// completion does not produce a record stream, so --format ndjson is rejected
+	// here, before execCobra. This check must come
+	// before the Cobra dispatch so the format gate fires even when Cobra owns the
+	// completion command.
+	if rest[0] == "completion" && opts.format == output.FormatNDJSON {
+		return rejectUnsupportedFormat("completion", opts.format)
 	}
-
-	cfg, err := config.LoadConfig(a.env, config.LoadOptions{
-		Profile:    opts.profile,
-		ConfigPath: opts.configPath,
-	})
-	if err != nil {
-		return err
+	// Cobra dispatch: all recognized commands go through the unified Cobra tree.
+	// Unknown commands fall through to unknownCommandMessage so
+	// the CLI continues to give product/resource hints rather than Cobra's generic
+	// "unknown command" output.
+	if isKnownCommand(rest[0], a.resourceCatalog()) {
+		return a.execCobra(ctx, opts, rest)
 	}
-	applyOptions(&cfg, opts)
-
-	switch rest[0] {
-	case "doctor":
-		return a.runDoctor(ctx, cfg, opts, rest[1:])
-	case "auth":
-		return a.runAuth(ctx, cfg, opts, rest[1:])
-	case "config":
-		return a.runConfig(ctx, cfg, opts, rest[1:])
-	case "schema":
-		return a.runSchema(ctx, cfg, opts, rest[1:])
-	case "dump":
-		if opts.format == output.FormatNDJSON {
-			return rejectUnsupportedFormat("dump", opts.format)
-		}
-		return a.runDump(ctx, cfg, opts, rest[1:])
-	default:
-		if knownProductCommand(rest[0]) {
-			return a.runProduct(ctx, cfg, opts, rest[0], rest[1:])
-		}
-		a.writeUsageForHumans(opts)
-		return UsageError{Message: unknownCommandMessage(rest[0])}
-	}
+	a.writeUsageForHumans(opts)
+	return UsageError{Message: unknownCommandMessage(rest[0], a.resourceCatalog())}
 }
 
 // writeUsageForHumans writes the usage block to stderr only when the
@@ -297,16 +380,16 @@ func (a *App) writeUsageForHumans(opts globalOptions) {
 	if opts.format == output.FormatJSON || opts.format == output.FormatNDJSON || (opts.format == output.FormatAuto && !a.stdoutTTY) {
 		return
 	}
-	a.writeUsage(a.err)
+	a.writeUsage(a.err, a.resourceCatalog())
 }
 
 // unknownCommandMessage reports an unknown command, and when the token is in
 // fact a known resource name, hints that a value-taking flag (e.g. --fields)
 // likely consumed the product name before it — the common cause of, say,
 // `--fields zia locations list` being parsed as command "locations".
-func unknownCommandMessage(name string) string {
+func unknownCommandMessage(name string, catalog resources.ResourceCatalog) string {
 	msg := fmt.Sprintf("unknown command %q", name)
-	for _, resource := range allResourceNames() {
+	for _, resource := range allResourceNames(catalog) {
 		if resource == name {
 			return msg + fmt.Sprintf("; %q is a resource — run it as \"<product> %s ...\" and check that a value-taking flag (such as --fields) did not consume the product name", name, name)
 		}
@@ -315,20 +398,21 @@ func unknownCommandMessage(name string) string {
 }
 
 type globalOptions struct {
-	profile      string
-	configPath   string
-	format       output.Format
-	output       string
-	timeout      time.Duration
-	redaction    redact.Mode
-	redactionSet bool
-	noCache      bool
-	colorMode    output.ColorMode
-	logLevel     string
-	fields       []string
-	filters      []recordFilter
-	search       string
-	help         bool
+	profile            string
+	configPath         string
+	format             output.Format
+	output             string
+	timeout            time.Duration
+	redaction          redact.Mode
+	redactionSet       bool
+	noCache            bool
+	colorMode          output.ColorMode
+	logLevel           string
+	fields             []string
+	filters            []recordFilter
+	search             string
+	help               bool
+	argTerminatorIndex int
 }
 
 // narrowingFlag names the first result-narrowing flag in use (--filter or
@@ -385,48 +469,28 @@ func parseFilterExpr(raw string) (recordFilter, error) {
 	}, nil
 }
 
-type doctorStatus struct {
-	Status      string `json:"status"`
-	Mode        string `json:"mode"`
-	Profile     string `json:"profile"`
-	Config      string `json:"config"`
-	AuthMode    string `json:"auth_mode"`
-	Redaction   string `json:"redaction"`
-	Timeout     string `json:"timeout"`
-	Cache       string `json:"cache"`
-	Proxy       string `json:"proxy"`
-	Credentials string `json:"credentials"`
-	LiveAPI     string `json:"live_api"`
-}
-
-func (doctorStatus) OutputSafe() {}
-
-type authStatus struct {
-	Credentials        string `json:"credentials"`
-	CredentialExchange string `json:"credential_exchange"`
-	LiveAPI            string `json:"live_api"`
-}
-
-func (authStatus) OutputSafe() {}
-
 func parseGlobal(args []string) (globalOptions, []string, error) {
 	fs := flag.NewFlagSet("zscalerctl", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	profile := fs.String("profile", "", "profile name")
-	configPath := fs.String("config", "", "config file path")
-	format := fs.String("format", string(output.FormatAuto), "output format: auto, table, json, ndjson, pretty")
-	outputPath := fs.String("output", "", "output path")
-	timeout := fs.Duration("timeout", 30*time.Second, "request timeout")
-	redactionFlag := fs.String("redaction", "", "redaction mode: standard, share, paranoid")
-	noCache := fs.Bool("no-cache", false, "bypass API cache where supported")
-	colorFlag := fs.String("color", string(output.ColorAuto), "color output: auto, always, never")
-	noColor := fs.Bool("no-color", false, "disable color output")
-	logLevel := fs.String("log-level", "off", "diagnostic logging to stderr: off, error, warn, info, debug")
-	fieldsFlag := fs.String("fields", "", "comma-separated output fields to keep (narrows the sanitized output)")
+	// All 13 global flags are registered via defineGlobalFlags (globalflags.go),
+	// which derives from globalFlagDefs — the single source of truth. The drift
+	// test calls defineGlobalFlags on a fresh flag.FlagSet to enumerate canonical
+	// names/types; any flag added here must be added to globalFlagDefs first.
 	var filterFlags repeatableFlag
-	fs.Var(&filterFlags, "filter", "narrow list results: key=value (exact) or key~value (substring); repeatable, all must match")
-	searchFlag := fs.String("search", "", "narrow list results to records whose rendered values contain term (case-insensitive)")
-	globalArgs, rest, help, err := splitGlobalArgs(args)
+	gp := defineGlobalFlags(fs, &filterFlags)
+	profile := gp.profile
+	configPath := gp.configPath
+	format := gp.format
+	outputPath := gp.outputPath
+	timeout := gp.timeout
+	redactionFlag := gp.redaction
+	noCache := gp.noCache
+	colorFlag := gp.colorFlag
+	noColor := gp.noColor
+	logLevel := gp.logLevel
+	fieldsFlag := gp.fieldsFlag
+	searchFlag := gp.searchFlag
+	globalArgs, rest, help, terminatorIndex, err := splitGlobalArgs(args)
 	if err != nil {
 		return globalOptions{}, nil, err
 	}
@@ -468,20 +532,21 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 		filters = append(filters, filter)
 	}
 	return globalOptions{
-		profile:      *profile,
-		configPath:   *configPath,
-		format:       parsedFormat,
-		output:       *outputPath,
-		timeout:      *timeout,
-		redaction:    parsedRedaction,
-		redactionSet: redactionSet,
-		noCache:      *noCache,
-		colorMode:    colorMode,
-		logLevel:     *logLevel,
-		fields:       parseFieldsList(*fieldsFlag),
-		filters:      filters,
-		search:       *searchFlag,
-		help:         help,
+		profile:            *profile,
+		configPath:         *configPath,
+		format:             parsedFormat,
+		output:             *outputPath,
+		timeout:            *timeout,
+		redaction:          parsedRedaction,
+		redactionSet:       redactionSet,
+		noCache:            *noCache,
+		colorMode:          colorMode,
+		logLevel:           *logLevel,
+		fields:             parseFieldsList(*fieldsFlag),
+		filters:            filters,
+		search:             *searchFlag,
+		help:               help,
+		argTerminatorIndex: terminatorIndex,
 	}, rest, nil
 }
 
@@ -498,10 +563,10 @@ func parseFieldsList(raw string) []string {
 	return out
 }
 
-// RequestedFormatRaw returns the --format value as parsed (auto/table/json/
-// pretty), defaulting to auto, without resolving auto against a TTY. The error
-// renderer in main uses it so error output follows the same format the data
-// path will use.
+// RequestedFormatRaw returns the --format value as parsed
+// (auto/table/json/ndjson/pretty), defaulting to auto, without resolving auto
+// against a TTY. The error renderer in main uses it so error output follows the
+// same format the data path will use.
 func RequestedFormatRaw(args []string) output.Format {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -527,38 +592,19 @@ func RequestedFormatRaw(args []string) output.Format {
 	return output.FormatAuto
 }
 
-func RequestedFormat(args []string) output.Format {
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--" {
-			return output.FormatTable
-		}
-		name, hasValue := flagName(arg)
-		if name != "format" {
-			continue
-		}
-		value := ""
-		if hasValue {
-			_, after, _ := strings.Cut(arg, "=")
-			value = after
-		} else if i+1 < len(args) {
-			value = args[i+1]
-		}
-		if output.Format(strings.ToLower(strings.TrimSpace(value))) == output.FormatJSON {
-			return output.FormatJSON
-		}
-		return output.FormatTable
-	}
-	return output.FormatTable
-}
-
-func splitGlobalArgs(args []string) ([]string, []string, bool, error) {
+func splitGlobalArgs(args []string) ([]string, []string, bool, int, error) {
 	var global []string
 	var rest []string
 	help := false
+	argTerminatorIndex := 0
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
+			// Record the index in the stripped rest slice where the terminator
+			// should be reinserted. A value of 0 means the terminator was at the
+			// very beginning (e.g. "zscalerctl -- version"), which should NOT be
+			// reinserted before Cobra.
+			argTerminatorIndex = len(rest)
 			rest = append(rest, args[i+1:]...)
 			break
 		}
@@ -576,54 +622,12 @@ func splitGlobalArgs(args []string) ([]string, []string, bool, error) {
 			continue
 		}
 		if i+1 >= len(args) {
-			return nil, nil, false, UsageError{Message: fmt.Sprintf("flag needs an argument: -%s", name)}
+			return nil, nil, false, 0, UsageError{Message: fmt.Sprintf("flag needs an argument: -%s", name)}
 		}
 		i++
 		global = append(global, args[i])
 	}
-	return global, rest, help, nil
-}
-
-func splitDiffArgs(args []string) ([]string, []string, error) {
-	boolFlags := map[string]bool{
-		"ignore-operational": true,
-		"detail":             true,
-		"allow-partial":      true,
-		"fail-on-drift":      true,
-	}
-	valueFlags := map[string]bool{
-		"products":  true,
-		"resources": true,
-	}
-	var flags []string
-	var positionals []string
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--" {
-			positionals = append(positionals, args[i+1:]...)
-			break
-		}
-		name, hasValue := flagName(arg)
-		if name == "" {
-			positionals = append(positionals, arg)
-			continue
-		}
-		flags = append(flags, arg)
-		if hasValue || boolFlags[name] {
-			continue
-		}
-		if !valueFlags[name] {
-			// Let flag.FlagSet produce the canonical "flag provided but not
-			// defined" error for unknown flags.
-			continue
-		}
-		if i+1 >= len(args) {
-			return nil, nil, UsageError{Message: fmt.Sprintf("flag needs an argument: -%s", name)}
-		}
-		i++
-		flags = append(flags, args[i])
-	}
-	return flags, positionals, nil
+	return global, rest, help, argTerminatorIndex, nil
 }
 
 func flagName(arg string) (string, bool) {
@@ -652,16 +656,11 @@ func flagName(arg string) (string, bool) {
 }
 
 func isGlobalFlag(name string) bool {
-	switch name {
-	case "profile", "config", "format", "output", "timeout", "redaction", "no-cache", "color", "no-color", "log-level", "fields", "filter", "search":
-		return true
-	default:
-		return false
-	}
+	return globalFlagNameSet[name]
 }
 
 func isGlobalBoolFlag(name string) bool {
-	return name == "no-cache" || name == "no-color"
+	return globalBoolFlagNameSet[name]
 }
 
 func applyOptions(cfg *config.Config, opts globalOptions) {
@@ -680,6 +679,341 @@ func rejectUnsupportedFormat(command string, format output.Format) error {
 	return UsageError{Message: fmt.Sprintf("%s does not support %s output yet", command, format)}
 }
 
+// buildCommandTree constructs the full Cobra command tree — root command plus all
+// subcommands — wired for the given opts. This is the SINGLE definition of the
+// tree: execCobra and BuildCommandTree both call it so the tree can never drift
+// between the live dispatch path and the generator / introspection path.
+func (a *App) buildCommandTree(opts globalOptions) *cobra.Command {
+	root := newRootCmd(a)
+	root.AddCommand(a.newVersionCmd(opts), a.newDoctorCmd(opts), a.newDumpCmd(opts), a.newDiffCmd(opts),
+		a.newConfigCmd(opts), a.newSchemaCmd(opts), a.newAuthCmd(opts), a.newIntrospectCmd(opts),
+		a.newMachineCmd(opts))
+	catalog := a.resourceCatalog()
+	for _, p := range knownProducts(catalog) {
+		root.AddCommand(a.newProductCmd(p, opts))
+	}
+	root.InitDefaultHelpCmd()
+	for _, c := range root.Commands() {
+		if c.Name() == "help" {
+			c.Annotations = map[string]string{"introspect/args-policy": "arbitrary"}
+			break
+		}
+	}
+	return root
+}
+
+// BuildCommandTree is the exported entry point for the CLI-reference generator
+// (scripts/gen-cli-docs.go). It constructs the full Cobra command tree with
+// zero-value global options so the tree is config-free and introspectable
+// without credentials or a live config file. The caller must not execute the
+// tree — the RunE closures capture a real App; they are present for Cobra's
+// metadata (Use/Short/Long/Flags) only.
+func BuildCommandTree(a *App) *cobra.Command {
+	return a.buildCommandTree(globalOptions{})
+}
+
+// execCobra builds a transient Cobra root and dispatches rest through it.
+// All recognized commands reach here after the pre-Cobra guards in runParsed.
+//
+// --help re-insertion (v2.1 fix): parseGlobal strips --help into opts.help.
+// If the caller had "version --help", rest is ["version"] and opts.help is true.
+// We re-append "--help" so Cobra renders the subcommand help rather than running
+// the command.
+//
+// -- separator re-insertion: splitGlobalArgs records where "--" appeared while
+// stripping globals. If it came after at least one command word, reinsert it so
+// Cobra does not parse dash-prefixed positionals as flags. If it came
+// immediately after a value-taking local flag, do NOT reinsert it: the next
+// token is already in the right place to become the flag's value (e.g.
+// "dump --out -- -weird-path" must set --out to -weird-path, not fail on an
+// unknown flag).
+//
+// Unknown-command wrap (defensive): runParsed already filters unknown commands
+// to the resource-aware unknownCommandMessage path, but this hook remains a safety net
+// if a command ever reaches Cobra without passing through that filter.
+func (a *App) execCobra(ctx context.Context, opts globalOptions, rest []string) error {
+	root := a.buildCommandTree(opts)
+
+	args := rest
+	// Re-insert --help only for non-completion args: injecting --help into the
+	// __complete stream would corrupt the completion output (L-15).
+	// If a "--" terminator was present, --help must be inserted before the
+	// terminator position so Cobra still sees it as a flag, not as a positional.
+	if opts.help && !isCompletionArgs(rest) {
+		insertAt := len(args)
+		if opts.argTerminatorIndex > 0 && opts.argTerminatorIndex <= len(args) {
+			insertAt = opts.argTerminatorIndex
+		}
+		args = append(args[:insertAt], append([]string{"--help"}, args[insertAt:]...)...)
+	}
+
+	// Re-insert the "--" arg terminator before Cobra's flag parser when needed.
+	// Not used for dynamic completion because the completion protocol never has
+	// local flag values.
+	if opts.argTerminatorIndex > 0 && opts.argTerminatorIndex <= len(args) && !isCompletionArgs(args) {
+		if shouldReinsertTerminator(root, args, opts.argTerminatorIndex) {
+			insertAt := opts.argTerminatorIndex
+			if opts.help {
+				insertAt++
+			}
+			args = append(args[:insertAt], append([]string{"--"}, args[insertAt:]...)...)
+		}
+	}
+
+	// Completion paths (static script generation and the __complete runtime
+	// protocol) must bypass the stdout redactor: the redactor's high-entropy
+	// heuristic false-positives on shell variable assignments such as
+	// "local shellCompDirectiveFilterFileExt=8", corrupting the script.
+	// stderr remains redacted — errors may echo user-supplied tokens.
+	// Safety proof: TestCompletionScriptsDoNotReadCredentialFilesOrUseReader
+	// demonstrates that completion never resolves credentials, so bypassing the
+	// redactor on stdout cannot leak anything.
+	var err error
+	if isCompletionArgs(args) {
+		err = a.executeRootCompletion(ctx, root, args)
+	} else {
+		err = a.executeRoot(ctx, root, args)
+	}
+	if err != nil && strings.HasPrefix(err.Error(), "unknown command") {
+		// Safety net: if a command somehow reaches Cobra without runParsed's
+		// unknown-command filter, still exit 2 with a usage error.
+		return UsageError{Message: err.Error()}
+	}
+	return err
+}
+
+// shouldReinsertTerminator reports whether the "--" arg terminator should be
+// reinserted before Cobra dispatch. It returns false when the token immediately
+// before the terminator is a value-taking local flag on the target command;
+// in that case the following token is already positioned to become the flag's
+// value, so reinserting "--" would cause Cobra to consume it as the value and
+// then reject the real value as an unknown flag.
+func shouldReinsertTerminator(root *cobra.Command, args []string, terminatorIndex int) bool {
+	if terminatorIndex <= 0 || terminatorIndex > len(args) {
+		return false
+	}
+	// Walk the tree with the tokens before the terminator to find the target command.
+	target, remaining, err := root.Find(args[:terminatorIndex])
+	if err != nil || target == root {
+		return true
+	}
+	// The token immediately before the terminator is the last token after the
+	// command path (or the command name itself if the terminator is right after it).
+	var prev string
+	switch {
+	case len(remaining) > 0:
+		prev = remaining[len(remaining)-1]
+	case len(args) > 0:
+		prev = args[0]
+	default:
+		return true
+	}
+	if !strings.HasPrefix(prev, "-") {
+		return true
+	}
+	flagName := strings.TrimPrefix(strings.TrimPrefix(prev, "--"), "-")
+	if flag := target.Flags().Lookup(flagName); flag != nil {
+		return flag.Value.Type() == "bool"
+	}
+	// Unknown flag: preserve Cobra's normal error path by reinserting the terminator.
+	return true
+}
+
+// isCompletionArgs reports whether args represents a completion invocation:
+// the static script generators ("completion bash|zsh|fish|powershell") or
+// Cobra's dynamic completion protocol ("__complete", "__completeNoDesc").
+// These paths require executeRootCompletion (raw stdout, no redactor).
+func isCompletionArgs(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "completion", "__complete", "__completeNoDesc":
+		return true
+	}
+	return false
+}
+
+// newProductCmd returns a Cobra subcommand for the given product (e.g. "zia",
+// "zpa", "ztw", "zcc"). All resource/op/id positional arguments are forwarded
+// to runProduct, which enforces arity and produces the canonical usage messages.
+//
+// No restrictive cobra.Args validator is set: runProduct's own arity checks
+// produce the canonical UsageError messages; a Cobra validator would fire first
+// and change those messages.
+//
+// Config is loaded lazily inside RunE (same pattern as newDoctorCmd) so the
+// no-credentials path (exit 3) is preserved for product commands: they load
+// config and then attempt to build a reader, which fails when credentials are
+// absent.
+//
+// Help (SetHelpFunc): when the first positional arg is a known catalog resource
+// for this product, the help func prints the resource-specific field/usage block
+// (resourceUsage) instead of Cobra's default product help. This preserves the
+// contract where `zia locations --help` and `zia locations list --help`
+// print the resource's supported ops and renderable field names.
+//
+// Completion (ValidArgsFunction): the first positional completion returns
+// catalog resource names; the second returns the resource's supported read ops.
+// SECURITY: the ValidArgsFunction reads ONLY the static catalog — it never loads
+// config, resolves secrets, or dials the API.
+func (a *App) newProductCmd(product resources.Product, opts globalOptions) *cobra.Command {
+	catalog := a.resourceCatalog()
+
+	cmd := &cobra.Command{
+		Use:   string(product),
+		Short: "read " + string(product) + " resources",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.LoadConfig(a.env, config.LoadOptions{
+				Profile:    opts.profile,
+				ConfigPath: opts.configPath,
+			})
+			if err != nil {
+				return err
+			}
+			applyOptions(&cfg, opts)
+			return a.runProduct(cmd.Context(), cfg, opts, string(product), args)
+		},
+		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			// SECURITY: reads only the static catalog — never loads config or dials API.
+			switch len(args) {
+			case 0:
+				// First positional: offer the product's resource names.
+				names := a.completionResourceNames(product)
+				completions := make([]cobra.Completion, len(names))
+				for i, n := range names {
+					completions[i] = cobra.Completion(n)
+				}
+				return completions, cobra.ShellCompDirectiveNoFileComp
+			case 1:
+				// Second positional: offer the ops that this resource supports.
+				spec, ok := catalog.FindSpec(product, args[0])
+				if !ok {
+					return nil, cobra.ShellCompDirectiveNoFileComp
+				}
+				ops := readOperationNames(spec)
+				completions := make([]cobra.Completion, len(ops))
+				for i, op := range ops {
+					completions[i] = cobra.Completion(op)
+				}
+				return completions, cobra.ShellCompDirectiveNoFileComp
+			default:
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+		},
+	}
+
+	// SetHelpFunc: intercept --help when the first positional is a known
+	// catalog resource and print resource-specific help instead of Cobra's
+	// default product help. Falls back to Cobra default for `zia --help`.
+	//
+	// Cobra's execute() parses flags before checking helpVal, so by the time
+	// the help func fires, cmd.Flags().Args() is populated: it contains the
+	// positional args (e.g. ["locations"] or ["locations", "list"]) stripped of
+	// any flags. We use it as the reliable source for the resource name.
+	defaultHelp := cmd.HelpFunc()
+	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+		positionals := c.Flags().Args()
+		if len(positionals) >= 1 {
+			if spec, ok := catalog.FindSpec(product, positionals[0]); ok {
+				fmt.Fprintln(c.OutOrStdout(), resourceUsage(product, spec, 0))
+				return
+			}
+		}
+		defaultHelp(c, args)
+	})
+
+	// url-lookup is a ZIA-only diagnostic verb (not a catalog resource). Wire it
+	// as a Cobra subcommand so it owns its own help surface and uses
+	// DisableFlagParsing to preserve its strict no-flags error message.
+	if product == resources.ProductZIA {
+		cmd.AddCommand(a.newURLLookupCmd(opts))
+	}
+	return cmd
+}
+
+// newVersionCmd returns the Cobra "version" subcommand. It delegates directly to
+// runVersion so all format/arity/redaction behaviour goes through one code path.
+// No restrictive Args validator is set here — runVersion's requireNoArgs
+// produces the same UsageError message as before, preserving the surface.
+func (a *App) newVersionCmd(opts globalOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "print version, commit, build date, and runtime info",
+		RunE: func(_ *cobra.Command, args []string) error {
+			return a.runVersion(opts, args)
+		},
+	}
+}
+
+// newDoctorCmd returns the Cobra "doctor" subcommand. Doctor requires a loaded
+// config, so RunE loads it lazily and then applies the parsed global options.
+//
+// No restrictive Args validator is set here — runDoctor's requireNoArgs produces
+// the same UsageError message as before, preserving the surface.
+func (a *App) newDoctorCmd(opts globalOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "doctor",
+		Short: "check configuration, credentials, and connectivity",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.LoadConfig(a.env, config.LoadOptions{
+				Profile:    opts.profile,
+				ConfigPath: opts.configPath,
+			})
+			if err != nil {
+				return err
+			}
+			applyOptions(&cfg, opts)
+			return a.runDoctor(cmd.Context(), cfg, opts, args)
+		},
+	}
+}
+
+// newURLLookupCmd returns the "url-lookup" subcommand of the "zia" product
+// command. DisableFlagParsing is set so that all trailing tokens — including
+// anything that looks like a flag — are forwarded raw to RunE and then to
+// runURLLookup, which enforces its own strict rejection of args starting with
+// "-". Without this, Cobra would intercept an unknown flag such as "--bogus"
+// and emit a generic "unknown flag" error before RunE fires, losing the
+// url-lookup-specific message.
+//
+// Help handling: with DisableFlagParsing, Cobra cannot intercept "-h"/"--help"
+// automatically. RunE detects any help token in args and calls cmd.Help() so
+// the user still gets the help text rather than the flag-rejection message.
+func (a *App) newURLLookupCmd(opts globalOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:                urlLookupCommandName + " <url> [url...]",
+		Short:              "look up URL categories for one or more URLs",
+		DisableFlagParsing: true,
+		Annotations: map[string]string{
+			// Use suffix "<url> [url...]" would be inferred as arbitrary by
+			// buildArgsDoc; the annotation makes the real constraint explicit.
+			"introspect/args-policy": "at_least:1",
+			// url-lookup emits structured JSON; record the field order so
+			// buildSingleCommandDoc can populate OutputFields.
+			"introspect/output-fields": strings.Join(urlLookupFieldOrder, ","),
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// DisableFlagParsing means --help arrives as a raw arg; handle it
+			// before runURLLookup's "-" check fires and rejects it.
+			for _, arg := range args {
+				if arg == "-h" || arg == "--help" {
+					return cmd.Help()
+				}
+			}
+			cfg, err := config.LoadConfig(a.env, config.LoadOptions{
+				Profile:    opts.profile,
+				ConfigPath: opts.configPath,
+			})
+			if err != nil {
+				return err
+			}
+			applyOptions(&cfg, opts)
+			return a.runURLLookup(cmd.Context(), cfg, opts, args)
+		},
+	}
+}
+
 func (a *App) runVersion(opts globalOptions, args []string) error {
 	if err := requireNoArgs("version", args); err != nil {
 		return err
@@ -691,13 +1025,14 @@ func (a *App) runVersion(opts globalOptions, args []string) error {
 	if opts.format != output.FormatTable && opts.format != output.FormatPretty {
 		return rejectUnsupportedFormat("version", opts.format)
 	}
-	body := output.RenderKeyValues([]output.KV{
+	rows := []output.KV{
 		{Key: "Version", Value: info.Version},
 		{Key: "Commit", Value: info.Commit},
 		{Key: "Date", Value: info.Date},
 		{Key: "Go", Value: info.Go},
 		{Key: "Platform", Value: info.OS + "/" + info.Arch},
-	}, a.style(opts))
+	}
+	body := renderKeyValuesForFormat(rows, opts.format, a.style(opts))
 	return output.NewRenderer(redact.New(redact.ModeStandard)).WriteText(a.out, body)
 }
 
@@ -710,75 +1045,78 @@ func (a *App) runDoctor(ctx context.Context, cfg config.Config, opts globalOptio
 		return fmt.Errorf("doctor cancelled: %w", ctx.Err())
 	default:
 	}
-	// Doctor's job is catching problems before live calls: surface the same
-	// proxy-conflict error the reader would raise on the first API request,
-	// instead of reporting status OK on a configuration that cannot work.
-	if err := zscaler.ValidateProxyConfig(zscaler.ProxyConfig{
-		URL:             cfg.Proxy.URL,
-		FromEnvironment: cfg.Proxy.FromEnvironment,
-	}); err != nil {
+	status, err := machineruntime.NewDoctorStatus(cfg, machineruntime.StatusOptions{
+		Timeout: opts.timeout,
+	})
+	if err != nil {
 		return err
 	}
-	status := newDoctorStatus(cfg, opts)
 	if opts.format == output.FormatJSON {
 		return a.renderer(cfg, opts).WriteJSON(a.out, status)
 	}
 	if opts.format != output.FormatTable && opts.format != output.FormatPretty {
 		return rejectUnsupportedFormat("doctor", opts.format)
 	}
-	body := output.RenderKeyValues(doctorStatusRows(status), a.style(opts))
+	body := renderKeyValuesForFormat(doctorStatusRows(status), opts.format, a.style(opts))
 	return a.renderer(cfg, opts).WriteText(a.out, body)
 }
 
 func (a *App) runAuth(_ context.Context, cfg config.Config, opts globalOptions, args []string) error {
-	if len(args) != 1 || args[0] != "status" {
+	// args contains only the post-verb positional args; Cobra routing already
+	// ensured the "status" verb was present. Reject any unexpected extra args.
+	if len(args) != 0 {
 		return UsageError{Message: "usage: zscalerctl auth status"}
 	}
-	status := newAuthStatus(cfg)
+	status := machineruntime.NewAuthStatus(cfg)
 	if opts.format == output.FormatJSON {
 		return a.renderer(cfg, opts).WriteJSON(a.out, status)
 	}
 	if opts.format != output.FormatTable && opts.format != output.FormatPretty {
 		return rejectUnsupportedFormat("auth status", opts.format)
 	}
-	body := output.RenderKeyValues(authStatusRows(status), a.style(opts))
+	body := renderKeyValuesForFormat(authStatusRows(status), opts.format, a.style(opts))
 	return a.renderer(cfg, opts).WriteText(a.out, body)
 }
 
 func (a *App) runConfig(_ context.Context, cfg config.Config, opts globalOptions, args []string) error {
-	if len(args) != 1 || args[0] != "show" {
+	// args contains only the post-verb positional args; Cobra routing already
+	// ensured the "show" verb was present. Reject any unexpected extra args.
+	if len(args) != 0 {
 		return UsageError{Message: "usage: zscalerctl config show"}
 	}
+	safe := machineruntime.NewConfigStatus(cfg)
 	if opts.format == output.FormatJSON {
-		return a.renderer(cfg, opts).WriteJSON(a.out, cfg.Safe())
+		return a.renderer(cfg, opts).WriteJSON(a.out, safe)
 	}
 	if opts.format != output.FormatTable && opts.format != output.FormatPretty {
 		return rejectUnsupportedFormat("config show", opts.format)
 	}
-	safe := cfg.Safe()
-	body := output.RenderKeyValues([]output.KV{
+	rows := []output.KV{
 		{Key: "Profile", Value: safe.Profile},
-		{Key: "Config", Value: configSourceStatus(safe)},
+		{Key: "Config", Value: machineruntime.ConfigSourceStatus(safe)},
 		{Key: "Auth Mode", Value: safe.AuthMode},
-		{Key: "Vanity Domain", Value: setStatus(safe.VanityDomainSet)},
-		{Key: "Cloud", Value: valueOrUnset(safe.Cloud)},
-		{Key: "Client ID", Value: setStatus(safe.Credentials.ClientIDSet)},
-		{Key: "Client Secret", Value: secretSourceStatus(safe.Credentials.ClientSecretSet || safe.Credentials.ClientSecretFileSet, safe.Credentials.ClientSecretScheme)},
-		{Key: "ZPA Customer ID", Value: setStatus(safe.ZPA.CustomerIDSet)},
-		{Key: "ZPA Microtenant ID", Value: setStatus(safe.ZPA.MicrotenantIDSet)},
-		{Key: "ZIA Username", Value: setStatus(safe.ZIALegacy.UsernameSet)},
-		{Key: "ZIA Password", Value: secretSourceStatus(safe.ZIALegacy.PasswordSet || safe.ZIALegacy.PasswordFileSet, safe.ZIALegacy.PasswordScheme)},
-		{Key: "ZIA API Key", Value: secretSourceStatus(safe.ZIALegacy.APIKeySet || safe.ZIALegacy.APIKeyFileSet, safe.ZIALegacy.APIKeyScheme)},
-		{Key: "ZIA Cloud", Value: setStatus(safe.ZIALegacy.CloudSet)},
-		{Key: "Proxy", Value: proxyStatus(cfg.Proxy)},
+		{Key: "Vanity Domain", Value: machineruntime.SetStatus(safe.VanityDomainSet)},
+		{Key: "Cloud", Value: machineruntime.ValueOrUnset(safe.Cloud)},
+		{Key: "Client ID", Value: machineruntime.SetStatus(safe.Credentials.ClientIDSet)},
+		{Key: "Client Secret", Value: machineruntime.SecretSourceStatus(safe.Credentials.ClientSecretSet || safe.Credentials.ClientSecretFileSet, safe.Credentials.ClientSecretScheme)},
+		{Key: "ZPA Customer ID", Value: machineruntime.SetStatus(safe.ZPA.CustomerIDSet)},
+		{Key: "ZPA Microtenant ID", Value: machineruntime.SetStatus(safe.ZPA.MicrotenantIDSet)},
+		{Key: "ZIA Username", Value: machineruntime.SetStatus(safe.ZIALegacy.UsernameSet)},
+		{Key: "ZIA Password", Value: machineruntime.SecretSourceStatus(safe.ZIALegacy.PasswordSet || safe.ZIALegacy.PasswordFileSet, safe.ZIALegacy.PasswordScheme)},
+		{Key: "ZIA API Key", Value: machineruntime.SecretSourceStatus(safe.ZIALegacy.APIKeySet || safe.ZIALegacy.APIKeyFileSet, safe.ZIALegacy.APIKeyScheme)},
+		{Key: "ZIA Cloud", Value: machineruntime.SetStatus(safe.ZIALegacy.CloudSet)},
+		{Key: "Proxy", Value: machineruntime.ProxyStatus(cfg.Proxy)},
 		{Key: "Redaction", Value: safe.Defaults.Redaction},
-		{Key: "Cache", Value: cacheStatus(safe.Defaults.NoCache)},
-	}, a.style(opts))
+		{Key: "Cache", Value: machineruntime.CacheStatus(safe.Defaults.NoCache)},
+	}
+	body := renderKeyValuesForFormat(rows, opts.format, a.style(opts))
 	return a.renderer(cfg, opts).WriteText(a.out, body)
 }
 
 func (a *App) runSchema(_ context.Context, cfg config.Config, opts globalOptions, args []string) error {
-	if len(args) != 1 || args[0] != "list" {
+	// args contains only the post-verb positional args; Cobra routing already
+	// ensured the "list" verb was present. Reject any unexpected extra args.
+	if len(args) != 0 {
 		return UsageError{Message: "usage: zscalerctl schema list"}
 	}
 	catalog := a.resourceCatalog()
@@ -809,17 +1147,23 @@ func (a *App) runProduct(ctx context.Context, cfg config.Config, opts globalOpti
 	}
 	// zia url-lookup is a diagnostic verb, not a catalog resource; dispatch it
 	// before resource lookup so it never collides with the list/get/show model.
+	//
+	// Defensive fallback: via normal dispatch this branch is unreachable because
+	// "zia url-lookup" routes to newURLLookupCmd. It remains here for callers
+	// that invoke runProduct directly (e.g. tests) and as protection against any
+	// future routing changes.
 	if product == resources.ProductZIA && resource == urlLookupCommandName {
 		return a.runURLLookup(ctx, cfg, opts, args[1:])
 	}
 	// When the resource is recognized, prefer help that lists its actual
 	// operations and renderable fields over the generic per-product usage.
-	helpSpec, helpSpecOK := a.resourceCatalog().FindSpec(product, resource)
+	catalog := a.resourceCatalog()
+	helpSpec, helpSpecOK := catalog.FindSpec(product, resource)
 	usage := func() string {
 		if helpSpecOK {
 			return resourceUsage(product, helpSpec, 0)
 		}
-		return productCommandUsage(product, 0)
+		return productCommandUsage(product, 0, catalog)
 	}
 	if len(args) < 2 {
 		return UsageError{Message: usage()}
@@ -847,69 +1191,196 @@ func (a *App) runProduct(ctx context.Context, cfg config.Config, opts globalOpti
 	if !spec.SupportsReadOperation(op) {
 		return UsageError{Message: fmt.Sprintf("unsupported operation %s for %s/%s\n%s", op, product, resource, resourceUsage(product, spec, 0))}
 	}
-	reader, err := a.resourceReader(ctx, cfg, opts)
+	rt, err := a.machineRuntime(ctx, cfg, opts)
 	if err != nil {
 		return err
 	}
-	if op == "show" {
-		record, err := reader.Show(ctx, product, resource)
-		if err != nil {
-			return err
-		}
-		projected, _, err := resources.ProjectRecordAndVerify(spec, cfg.Defaults.Redaction, record)
-		if err != nil {
-			return err
-		}
-		return a.writeProjectedRecord(cfg, opts, spec, projected, op)
-	}
+	recordID := ""
 	if op == "get" {
-		record, err := reader.Get(ctx, product, resource, args[2])
-		if err != nil {
-			return err
-		}
-		projected, _, err := resources.ProjectRecordAndVerify(spec, cfg.Defaults.Redaction, record)
-		if err != nil {
-			return err
-		}
-		return a.writeProjectedRecord(cfg, opts, spec, projected, op)
+		recordID = args[2]
 	}
-	records, err := reader.List(ctx, product, resource)
+	projected, err := callWithSpinner(a, opts, "contacting Zscaler", func() (resources.ProjectedRecords, error) {
+		return a.executeMachineRead(ctx, spec, op, recordID, rt, opts)
+	})
 	if err != nil {
 		return err
 	}
-	projected, _, err := resources.ProjectRecordsAndVerify(spec, cfg.Defaults.Redaction, records)
-	if err != nil {
-		return err
+	if op == "list" {
+		errW := redact.NewWriter(a.err, cfg.Defaults.Redaction)
+		warnUnknownFilterKeys(errW, spec, opts.filters)
+		if err := errW.Close(); err != nil {
+			return err
+		}
 	}
-	return a.writeProjectedRecords(cfg, opts, spec, projected)
+	renderOpts := opts
+	// The machine/core path has already applied row narrowing. The render path
+	// only keeps fields for text-format presentation order.
+	renderOpts.filters = nil
+	renderOpts.search = ""
+	if op == "show" || op == "get" {
+		records := projected.Records()
+		if len(records) != 1 {
+			return fmt.Errorf("resource %s %s/%s returned %d projected records, want 1", op, product, resource, len(records))
+		}
+		return a.writeProjectedRecord(cfg, renderOpts, spec, records[0], op)
+	}
+	return a.writeProjectedRecords(cfg, renderOpts, spec, projected)
 }
 
-func (a *App) runDump(ctx context.Context, cfg config.Config, opts globalOptions, args []string) error {
-	fs := flag.NewFlagSet("dump", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	outDir := fs.String("out", "", "dump output directory")
-	productsFlag := fs.String("products", "", "comma-separated products: zia,zpa")
-	resourcesFlag := fs.String("resources", "", "comma-separated resources: locations or zia/locations")
-	continueOnError := fs.Bool("continue-on-error", false, "write a partial dump when individual resources fail")
-	force := fs.Bool("force", false, "replace an existing zscalerctl dump directory")
-	if err := fs.Parse(args); err != nil {
-		return UsageError{Message: err.Error()}
+func (a *App) executeMachineRead(
+	ctx context.Context,
+	spec resources.ResourceSpec,
+	op string,
+	recordID string,
+	rt machineRuntime,
+	opts globalOptions,
+) (resources.ProjectedRecords, error) {
+	resp, err := rt.Execute(ctx, machineReadRequest(spec.Product, spec.Name, op, recordID, opts))
+	if err != nil {
+		return resources.ProjectedRecords{}, cliErrorFromMachineRead(err)
 	}
-	if fs.NArg() != 0 {
-		return UsageError{Message: dumpUsage()}
+	if resp.Error != nil {
+		return resources.ProjectedRecords{}, cliErrorFromMachineRead(resp.Error)
 	}
-	if *outDir == "" {
-		return UsageError{Message: dumpUsage()}
+	return projectedRecordsFromMachineResponse(spec, rt.Redaction(), resp)
+}
+
+func (a *App) machineRuntime(ctx context.Context, cfg config.Config, opts globalOptions) (machineRuntime, error) {
+	if a.machineRuntimeFactory != nil {
+		return a.machineRuntimeFactory(ctx, cfg, opts)
 	}
-	products, err := parseProducts(*productsFlag)
+	return a.defaultMachineRuntime(ctx, cfg, opts)
+}
+
+func (a *App) defaultMachineRuntime(ctx context.Context, cfg config.Config, opts globalOptions) (machineRuntime, error) {
+	if a.reader != nil {
+		return machineruntime.NewMachineFromReader(a.reader, a.resourceCatalog(), cfg.Defaults.Redaction), nil
+	}
+	return machineruntime.NewMachineFromConfig(ctx, cfg, machineruntime.Options{
+		Timeout:    opts.timeout,
+		Catalog:    a.resourceCatalog(),
+		DiagLogger: a.sdkDiagLogger(opts),
+	})
+}
+
+func machineReadRequest(
+	product resources.Product,
+	resource string,
+	op string,
+	recordID string,
+	opts globalOptions,
+) machine.Request {
+	input := &machine.Input{
+		Product:  string(product),
+		Resource: resource,
+		Fields:   opts.fields,
+		Filters:  machineFilters(opts.filters),
+		Search:   opts.search,
+	}
+	if op == string(machine.OperationGet) {
+		input.RecordID = recordID
+	}
+	return machine.Request{
+		Capability: machine.CapabilityResourcesRead,
+		Operation:  machine.Operation(op),
+		Input:      input,
+	}
+}
+
+func machineFilters(filters []recordFilter) []machine.Filter {
+	out := make([]machine.Filter, 0, len(filters))
+	for _, filter := range filters {
+		operator := "="
+		if filter.substring {
+			operator = "~"
+		}
+		out = append(out, machine.Filter{
+			Field:    filter.key,
+			Operator: operator,
+			Value:    filter.value,
+		})
+	}
+	return out
+}
+
+func cliErrorFromMachineRead(err error) error {
+	if err == nil {
+		return nil
+	}
+	machineErr, ok := asMachineError(err)
+	if !ok {
+		return err
+	}
+	switch machineErr.Kind {
+	case machine.ErrorKindUsage, machine.ErrorKindUnsupportedOperation:
+		return UsageError{Message: machineErr.Error()}
+	default:
+		return err
+	}
+}
+
+func asMachineError(err error) (*machine.MachineError, bool) {
+	var machineErr *machine.MachineError
+	if errors.As(err, &machineErr) {
+		return machineErr, true
+	}
+	var machineErrValue machine.MachineError
+	if errors.As(err, &machineErrValue) {
+		return &machineErrValue, true
+	}
+	return nil, false
+}
+
+func projectedRecordsFromMachineResponse(
+	spec resources.ResourceSpec,
+	mode redact.Mode,
+	resp machine.Response,
+) (resources.ProjectedRecords, error) {
+	projected, err := resources.NewVerifiedProjectedRecordsFromProjectedFields(spec, mode, resp.Records)
+	if err != nil {
+		return resources.ProjectedRecords{}, fmt.Errorf("machine response verification failed for %s/%s: %w", spec.Product, spec.Name, err)
+	}
+	return projected, nil
+}
+
+// dumpOptions holds the parsed local flags for the dump command. The Cobra RunE
+// path populates it from cmd.Flags().
+type dumpOptions struct {
+	out             string
+	products        string
+	resources       string
+	continueOnError bool
+	force           bool
+}
+
+// runDumpWithOptions executes the dump logic after flags have been parsed into d.
+// All validation/collect/write/status/PartialDumpError behaviour is identical to
+// the former inline runDump; only flag parsing has moved to the Cobra RunE.
+func (a *App) runDumpWithOptions(ctx context.Context, cfg config.Config, opts globalOptions, d dumpOptions) error {
+	if d.out == "" {
+		return UsageError{Message: dumpUsage(a.resourceCatalog())}
+	}
+	products, err := parseProducts(d.products, a.resourceCatalog())
 	if err != nil {
 		return err
 	}
-	selectedResources, err := parseDumpResources(*resourcesFlag, products, a.resourceCatalog())
+	selectedResources, err := parseDumpResources(d.resources, products, a.resourceCatalog())
 	if err != nil {
 		return err
 	}
-	result, err := a.collectDump(ctx, cfg, opts, products, selectedResources, *continueOnError)
+	s := a.newSpinner(opts)
+	s.Start("dumping")
+	// defer s.Stop() covers a panic inside collectDump: without it, the spinner
+	// goroutine would stay live and keep writing to stderr after main.run
+	// recovers the panic. The explicit s.Stop() below still runs on the normal
+	// path (and is a no-op for the deferred call) to preserve Stop-before-render
+	// ordering: the status notice that follows must not race with a live spinner.
+	defer s.Stop()
+	result, err := a.collectDump(ctx, cfg, opts, products, selectedResources, d.continueOnError,
+		func(done, total int, p resources.Product, r string) {
+			s.Update(fmt.Sprintf("[%d/%d] %s/%s", done, total, p, r))
+		})
+	s.Stop()
 	if err != nil {
 		return err
 	}
@@ -919,10 +1390,10 @@ func (a *App) runDump(ctx context.Context, cfg config.Config, opts globalOptions
 	}
 	a.diagLogger().Info("dump complete",
 		"resources", len(result.Entries), "errors", len(result.Errors))
-	if err := prepareForcedDumpDir(*outDir, *force); err != nil {
+	if err := prepareForcedDumpDir(d.out, d.force); err != nil {
 		return err
 	}
-	if err := dump.Write(*outDir, cfg.Defaults.Redaction, result); err != nil {
+	if err := dump.Write(d.out, cfg.Defaults.Redaction, result); err != nil {
 		return err
 	}
 	// Dump emits no resource data on stdout (it writes files), so its status
@@ -931,49 +1402,102 @@ func (a *App) runDump(ctx context.Context, cfg config.Config, opts globalOptions
 	if len(result.Errors) > 0 {
 		if err := a.renderer(cfg, opts).WriteText(
 			a.err,
-			output.NewSafeText(fmt.Sprintf("partial dump written: %s (%d errors; see errors.ndjson)\n", *outDir, len(result.Errors))),
+			output.NewSafeText(fmt.Sprintf("partial dump written: %s (%d errors; see errors.ndjson)\n", d.out, len(result.Errors))),
 		); err != nil {
 			return err
 		}
-		return PartialDumpError{Dir: *outDir, Errors: len(result.Errors)}
+		return PartialDumpError{Dir: d.out, Errors: len(result.Errors)}
 	}
-	return a.renderer(cfg, opts).WriteText(a.err, output.NewSafeText(fmt.Sprintf("dump written: %s\n", *outDir)))
+	return a.renderer(cfg, opts).WriteText(a.err, output.NewSafeText(fmt.Sprintf("dump written: %s\n", d.out)))
 }
 
-func (a *App) runDiff(opts globalOptions, args []string) error {
-	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	productsFlag := fs.String("products", "", "comma-separated products")
-	resourcesFlag := fs.String("resources", "", "comma-separated resources: locations or zia/locations")
-	ignoreOperational := fs.Bool("ignore-operational", false, "ignore operational metadata on keyed and singleton resources")
-	detail := fs.Bool("detail", false, "include record-level table details")
-	allowPartial := fs.Bool("allow-partial", false, "compare partial dumps instead of rejecting them")
-	failOnDrift := fs.Bool("fail-on-drift", false, "exit 7 when drift is detected")
-	flagArgs, positionalArgs, err := splitDiffArgs(args)
-	if err != nil {
-		return err
+// newDumpCmd returns the Cobra "dump" subcommand. Dump requires a loaded config,
+// so RunE loads it lazily — replicating the pattern used by newDoctorCmd and
+// newProductCmd. Local flags (--out, --products, --resources, --continue-on-error,
+// --force) are declared as Cobra local flags and read inside RunE after parsing.
+//
+// --format ndjson is rejected before LoadConfig.
+// --out validation (non-empty) is enforced inside runDumpWithOptions.
+// MarkFlagRequired is NOT used for --out because it would bypass the canonical
+// UsageError path.
+//
+// No cobra.Args validator is set: NArg() == 0 is checked in RunE so the exact
+// UsageError message ("usage: zscalerctl dump ...") is preserved.
+func (a *App) newDumpCmd(opts globalOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "dump",
+		Short: "write a full or filtered resource dump to a directory",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Reject --format ndjson first, before any config work.
+			if opts.format == output.FormatNDJSON {
+				return rejectUnsupportedFormat("dump", opts.format)
+			}
+			// Reject extra positional args before config load.
+			if cmd.Flags().NArg() != 0 {
+				return UsageError{Message: dumpUsage(a.resourceCatalog())}
+			}
+			cfg, err := config.LoadConfig(a.env, config.LoadOptions{
+				Profile:    opts.profile,
+				ConfigPath: opts.configPath,
+			})
+			if err != nil {
+				return err
+			}
+			applyOptions(&cfg, opts)
+			outDir, _ := cmd.Flags().GetString("out")
+			productsFlag, _ := cmd.Flags().GetString("products")
+			resourcesFlag, _ := cmd.Flags().GetString("resources")
+			continueOnError, _ := cmd.Flags().GetBool("continue-on-error")
+			force, _ := cmd.Flags().GetBool("force")
+			return a.runDumpWithOptions(cmd.Context(), cfg, opts, dumpOptions{
+				out:             outDir,
+				products:        productsFlag,
+				resources:       resourcesFlag,
+				continueOnError: continueOnError,
+				force:           force,
+			})
+		},
 	}
-	if err := fs.Parse(flagArgs); err != nil {
-		return UsageError{Message: err.Error()}
-	}
-	if len(positionalArgs) != 2 {
-		return UsageError{Message: diffUsage()}
-	}
+	cmd.Flags().String("out", "", "dump output directory")
+	cmd.Flags().String("products", "", "comma-separated products: zia,zpa")
+	cmd.Flags().String("resources", "", "comma-separated resources: locations or zia/locations")
+	cmd.Flags().Bool("continue-on-error", false, "write a partial dump when individual resources fail")
+	cmd.Flags().Bool("force", false, "replace an existing zscalerctl dump directory")
+	return cmd
+}
+
+// diffOptions holds the parsed local flags for the diff command.
+// The struct is populated by the Cobra RunE path reading cmd.Flags().
+type diffOptions struct {
+	products          string
+	resources         string
+	ignoreOperational bool
+	detail            bool
+	allowPartial      bool
+	failOnDrift       bool
+}
+
+// runDiffWithOptions executes the diff logic after flags have been parsed into d.
+// All Compare/error-mapping/ModeStandard render/DriftDetectedError behaviour is
+// identical to the former inline runDiff; only flag parsing has moved to the
+// Cobra RunE. Config-FREE: diff compares two local dump dirs and never needs
+// LoadConfig.
+func (a *App) runDiffWithOptions(opts globalOptions, d diffOptions, oldDir, newDir string) error {
 	catalog := a.resourceCatalog()
-	products, err := parseProducts(*productsFlag)
+	products, err := parseProducts(d.products, catalog)
 	if err != nil {
 		return err
 	}
-	selectedResources, err := parseDumpResources(*resourcesFlag, products, catalog)
+	selectedResources, err := parseDumpResources(d.resources, products, catalog)
 	if err != nil {
 		return err
 	}
-	report, err := dumpdiff.Compare(positionalArgs[0], positionalArgs[1], dumpdiff.Options{
+	report, err := dumpdiff.Compare(oldDir, newDir, dumpdiff.Options{
 		Catalog:           catalog,
 		Products:          products,
 		Resources:         diffResourceSelection(selectedResources),
-		IgnoreOperational: *ignoreOperational,
-		AllowPartial:      *allowPartial,
+		IgnoreOperational: d.ignoreOperational,
+		AllowPartial:      d.allowPartial,
 	})
 	if err != nil {
 		if errors.Is(err, dumpdiff.ErrInvalidDump) ||
@@ -983,6 +1507,8 @@ func (a *App) runDiff(opts globalOptions, args []string) error {
 		}
 		return err
 	}
+	// ModeStandard is always used for diff — independent of any configured
+	// redaction mode (diff compares local dump dirs, not live API data).
 	renderer := output.NewRenderer(redact.New(redact.ModeStandard))
 	switch opts.format {
 	case output.FormatJSON:
@@ -990,16 +1516,74 @@ func (a *App) runDiff(opts globalOptions, args []string) error {
 			return err
 		}
 	case output.FormatTable, output.FormatPretty:
-		if err := renderer.WriteText(a.out, renderDiffTable(report, *detail, a.style(opts))); err != nil {
+		if err := renderer.WriteText(a.out, renderDiffTable(report, d.detail, a.style(opts))); err != nil {
 			return err
 		}
 	default:
 		return rejectUnsupportedFormat("diff", opts.format)
 	}
-	if *failOnDrift && report.HasDrift() {
+	if d.failOnDrift && report.HasDrift() {
 		return DriftDetectedError{}
 	}
 	return nil
+}
+
+// newDiffCmd returns the Cobra "diff" subcommand. Diff is config-FREE — it
+// compares two local dump directories and never calls LoadConfig.
+//
+// Local flags (--products, --resources, --ignore-operational, --detail,
+// --allow-partial, --fail-on-drift) are declared as Cobra local flags and
+// read inside RunE after parsing.
+//
+// --format ndjson is rejected before any Compare work. The two positional dirs
+// are read from cmd.Flags().Args() and
+// exactly 2 are required (len != 2 → UsageError{diffUsage()}).
+//
+// MarkFlagRequired is NOT used because it would bypass the canonical UsageError
+// path.
+// cobra.ExactArgs is NOT used — plain error → wrong exit code.
+func (a *App) newDiffCmd(opts globalOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "diff <old-dump-dir> <new-dump-dir>",
+		Short: "compare two dump directories and report configuration drift",
+		Annotations: map[string]string{
+			// Exactly 2 positionals required; Use suffix alone is not enough for
+			// buildArgsDoc to infer this — the annotation makes it explicit.
+			"introspect/args-policy": "exact:2",
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Reject --format ndjson first, before any work.
+			if opts.format == output.FormatNDJSON {
+				return rejectUnsupportedFormat("diff", opts.format)
+			}
+			// Cobra passes non-flag args here; require exactly 2 dir positionals.
+			positionals := cmd.Flags().Args()
+			if len(positionals) != 2 {
+				return UsageError{Message: diffUsage(a.resourceCatalog())}
+			}
+			products, _ := cmd.Flags().GetString("products")
+			resources, _ := cmd.Flags().GetString("resources")
+			ignoreOperational, _ := cmd.Flags().GetBool("ignore-operational")
+			detail, _ := cmd.Flags().GetBool("detail")
+			allowPartial, _ := cmd.Flags().GetBool("allow-partial")
+			failOnDrift, _ := cmd.Flags().GetBool("fail-on-drift")
+			return a.runDiffWithOptions(opts, diffOptions{
+				products:          products,
+				resources:         resources,
+				ignoreOperational: ignoreOperational,
+				detail:            detail,
+				allowPartial:      allowPartial,
+				failOnDrift:       failOnDrift,
+			}, positionals[0], positionals[1])
+		},
+	}
+	cmd.Flags().String("products", "", "comma-separated products: zia,zpa")
+	cmd.Flags().String("resources", "", "comma-separated resources: locations or zia/locations")
+	cmd.Flags().Bool("ignore-operational", false, "ignore operational metadata on keyed and singleton resources")
+	cmd.Flags().Bool("detail", false, "include record-level table details")
+	cmd.Flags().Bool("allow-partial", false, "compare partial dumps instead of rejecting them")
+	cmd.Flags().Bool("fail-on-drift", false, "exit 7 when drift is detected")
+	return cmd
 }
 
 func renderDiffTable(report dumpdiff.Report, detail bool, style output.Style) output.SafeText {
@@ -1044,14 +1628,15 @@ func renderDiffTable(report dumpdiff.Report, detail bool, style output.Style) ou
 }
 
 func writeDiffDetailRows(body *strings.Builder, resourceName string, resource dumpdiff.ResourceDiff) {
+	resourceName = terminalCell(resourceName)
 	for _, added := range resource.Added {
-		fmt.Fprintf(body, "%s\t+\t%s\t-\t-\n", resourceName, diffRecordRefLabel(added))
+		fmt.Fprintf(body, "%s\t+\t%s\t-\t-\n", resourceName, terminalCell(diffRecordRefLabel(added)))
 	}
 	for _, removed := range resource.Removed {
-		fmt.Fprintf(body, "%s\t-\t%s\t-\t-\n", resourceName, diffRecordRefLabel(removed))
+		fmt.Fprintf(body, "%s\t-\t%s\t-\t-\n", resourceName, terminalCell(diffRecordRefLabel(removed)))
 	}
 	for _, changed := range resource.Changed {
-		fmt.Fprintf(body, "%s\t~\t%s\t%s\t-\n", resourceName, changed.Key, diffFieldNames(changed.Changes))
+		fmt.Fprintf(body, "%s\t~\t%s\t%s\t-\n", resourceName, terminalCell(changed.Key), diffFieldNames(changed.Changes))
 	}
 }
 
@@ -1075,9 +1660,36 @@ func diffRecordRefLabel(ref dumpdiff.RecordRef) string {
 func diffFieldNames(changes []dumpdiff.FieldChange) string {
 	fields := make([]string, len(changes))
 	for i, change := range changes {
-		fields[i] = change.Field
+		fields[i] = terminalCell(change.Field)
 	}
 	return strings.Join(fields, ",")
+}
+
+func terminalCell(value string) string {
+	var out strings.Builder
+	for _, r := range value {
+		switch {
+		case r == '\n':
+			out.WriteString(`\n`)
+		case r == '\r':
+			out.WriteString(`\r`)
+		case r == '\t':
+			out.WriteString(`\t`)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&out, `\x%02x`, r)
+		case r >= 0x80 && r <= 0x9f:
+			fmt.Fprintf(&out, `\u%04x`, r)
+		case isBidiControl(r):
+			fmt.Fprintf(&out, `\u%04x`, r)
+		default:
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
+}
+
+func isBidiControl(r rune) bool {
+	return (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069)
 }
 
 func prepareForcedDumpDir(dir string, force bool) error {
@@ -1207,78 +1819,41 @@ func (a *App) resourceReader(ctx context.Context, cfg config.Config, opts global
 	if a.reader != nil {
 		return a.reader, nil
 	}
-	clientSecret, err := cfg.Credentials.ClientSecret.Resolve(ctx)
-	if err != nil {
-		// Invariant: keep the credential noun LAST (parenthetical, trailing). Appending text after it can reintroduce the redactor over-redaction (see redact secret_phrase/secret_assignment rules).
-		// Phrase the credential AFTER the cause (parenthesized). A "<secret>: <cause>"
-		// shape makes the redactor read the nested diagnostic as a key:value secret
-		// and redact the cause, hiding the real failure (redact secret_assignment rule).
-		return nil, fmt.Errorf("%w: %w (while resolving the client secret)", zscaler.ErrMissingCredentials, err)
-	}
-	ziaPassword, err := cfg.ZIALegacy.Password.Resolve(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w (while resolving the ZIA legacy password)", zscaler.ErrMissingCredentials, err)
-	}
-	ziaAPIKey, err := cfg.ZIALegacy.APIKey.Resolve(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w (while resolving the ZIA legacy API key)", zscaler.ErrMissingCredentials, err)
-	}
-	// Surface SDK retry/backoff and session/token-renewal activity only when the
-	// operator opts in with --log-level debug; otherwise the reader installs a
-	// nop SDK logger and stays silent.
-	var sdkDiagLogger *slog.Logger
-	if opts.logLevel == "debug" {
-		sdkDiagLogger = a.diagLogger()
-	}
-	return zscaler.NewReader(zscaler.ReaderConfig{
-		ClientID:         cfg.Credentials.ClientID,
-		ClientSecret:     clientSecret,
-		VanityDomain:     cfg.VanityDomain,
-		Cloud:            cfg.Cloud,
-		ZPACustomerID:    cfg.ZPA.CustomerID,
-		ZPAMicrotenantID: cfg.ZPA.MicrotenantID,
-		AuthMode:         zscaler.AuthMode(cfg.EffectiveAuthMode()),
-		ZIALegacy: zscaler.ZIALegacyConfig{
-			Username: cfg.ZIALegacy.Username,
-			Password: ziaPassword,
-			APIKey:   ziaAPIKey,
-			Cloud:    cfg.ZIALegacy.Cloud,
-		},
-		Timeout: opts.timeout,
-		NoCache: cfg.Defaults.NoCache,
-		Proxy: zscaler.ProxyConfig{
-			URL:             cfg.Proxy.URL,
-			FromEnvironment: cfg.Proxy.FromEnvironment,
-		},
-		DiagLogger: sdkDiagLogger,
+	// url-lookup still needs the raw reader's optional URLLookup capability,
+	// but trusted runtime owns credential resolution and SDK reader assembly.
+	return machineruntime.NewReaderFromConfig(ctx, cfg, machineruntime.Options{
+		Timeout:    opts.timeout,
+		DiagLogger: a.sdkDiagLogger(opts),
 	})
 }
 
-func (a *App) dumpResourceReader(
+func (a *App) dumpCollector(
 	ctx context.Context,
 	cfg config.Config,
 	opts globalOptions,
-	product resources.Product,
-) (ResourceReader, func(), error) {
-	reader, err := a.resourceReader(ctx, cfg, opts)
-	if err != nil {
-		return nil, nil, err
+) (*machineruntime.DumpCollector, error) {
+	if a.reader != nil {
+		return machineruntime.NewDumpCollectorFromReader(
+			a.reader,
+			a.resourceCatalog(),
+			cfg.Defaults.Redaction,
+		), nil
 	}
-	provider, ok := reader.(resourceSessionProvider)
-	if !ok {
-		return reader, func() {}, nil
+	return machineruntime.NewDumpCollectorFromConfig(ctx, cfg, machineruntime.Options{
+		Timeout:    opts.timeout,
+		Catalog:    a.resourceCatalog(),
+		DiagLogger: a.sdkDiagLogger(opts),
+	})
+}
+
+func (a *App) sdkDiagLogger(opts globalOptions) *slog.Logger {
+	// Surface SDK retry/backoff and session/token-renewal activity only when the
+	// operator opts in with --log-level debug; otherwise the reader installs a
+	// nop SDK logger and stays silent.
+	if opts.logLevel == "debug" {
+		return a.diagLogger()
 	}
-	session, err := provider.Session(ctx, product)
-	if err != nil {
-		if errors.Is(err, zscaler.ErrUnsupportedResource) {
-			return reader, func() {}, nil
-		}
-		return nil, nil, err
-	}
-	if session == nil {
-		return nil, nil, errors.New("reader session provider returned nil session")
-	}
-	return session, session.Close, nil
+	return nil
 }
 
 func (a *App) collectDump(
@@ -1288,111 +1863,27 @@ func (a *App) collectDump(
 	products map[resources.Product]bool,
 	selectedResources map[dumpResourceKey]bool,
 	continueOnError bool,
+	progress func(done, total int, product resources.Product, resource string),
 ) (dump.Result, error) {
-	result := dump.Result{}
 	catalog := a.resourceCatalog()
-	if err := resources.AssertReadOnly(catalog...); err != nil {
-		return result, err
-	}
-	selectedCount := 0
-	for _, spec := range catalog {
-		if products[spec.Product] && dumpResourceSelected(selectedResources, spec) {
-			selectedCount++
-		}
-	}
+	selectedSpecs := selectedDumpSpecs(catalog, products, selectedResources)
 	// A full dump can run for minutes; at info, operators get the selection
 	// size up front and one progress event per resource below.
-	a.diagLogger().Info("dump starting", "resources", selectedCount)
+	a.diagLogger().Info("dump starting", "resources", len(selectedSpecs))
 
-	readers := make(map[resources.Product]ResourceReader)
-	for _, spec := range catalog {
-		if !products[spec.Product] {
-			continue
-		}
-		if !dumpResourceSelected(selectedResources, spec) {
-			continue
-		}
-		if err := ctx.Err(); err != nil {
-			return result, err
-		}
-		reader, ok := readers[spec.Product]
-		if !ok {
-			var cleanup func()
-			var err error
-			reader, cleanup, err = a.dumpResourceReader(ctx, cfg, opts, spec.Product)
-			if err != nil {
-				return result, err
-			}
-			readers[spec.Product] = reader
-			// Register cleanup once per product session, not once per resource.
-			defer cleanup()
-		}
-		a.diagLogger().Info("dump reading resource", "product", spec.Product, "resource", spec.Name)
-		if spec.SupportsReadOperation("show") {
-			record, err := reader.Show(ctx, spec.Product, spec.Name)
-			if err != nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return result, ctxErr
-				}
-				if continueOnError {
-					result.Errors = append(result.Errors, dump.NewResourceError(spec.Product, spec.Name, "show", "show_failed"))
-					continue
-				}
-				return result, fmt.Errorf("dump %s/%s show failed: %w", spec.Product, spec.Name, err)
-			}
-			projected, report, err := resources.ProjectRecordAndVerify(spec, cfg.Defaults.Redaction, record)
-			if err != nil {
-				operation := "project"
-				kind := "projection_failed"
-				if errors.Is(err, resources.ErrUnexpectedField) {
-					operation = "validate"
-					kind = "subset_failed"
-				}
-				if continueOnError {
-					result.Errors = append(result.Errors, dump.NewResourceError(spec.Product, spec.Name, operation, kind))
-					continue
-				}
-				return result, fmt.Errorf("dump %s/%s %s failed: %w", spec.Product, spec.Name, operation, err)
-			}
-			result.Entries = append(result.Entries, dump.ResourceDump{
-				Spec:    spec,
-				Record:  &projected,
-				Reports: []resources.ProjectionReport{report},
-			})
-			continue
-		}
-		records, err := reader.List(ctx, spec.Product, spec.Name)
-		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return result, ctxErr
-			}
-			if continueOnError {
-				result.Errors = append(result.Errors, dump.NewResourceError(spec.Product, spec.Name, "list", "list_failed"))
-				continue
-			}
-			return result, fmt.Errorf("dump %s/%s list failed: %w", spec.Product, spec.Name, err)
-		}
-		projected, reports, err := resources.ProjectRecordsAndVerify(spec, cfg.Defaults.Redaction, records)
-		if err != nil {
-			operation := "project"
-			kind := "projection_failed"
-			if errors.Is(err, resources.ErrUnexpectedField) {
-				operation = "validate"
-				kind = "subset_failed"
-			}
-			if continueOnError {
-				result.Errors = append(result.Errors, dump.NewResourceError(spec.Product, spec.Name, operation, kind))
-				continue
-			}
-			return result, fmt.Errorf("dump %s/%s %s failed: %w", spec.Product, spec.Name, operation, err)
-		}
-		result.Entries = append(result.Entries, dump.ResourceDump{
-			Spec:    spec,
-			Records: projected,
-			Reports: reports,
-		})
+	collector, err := a.dumpCollector(ctx, cfg, opts)
+	if err != nil {
+		return dump.Result{}, err
 	}
-	return result, nil
+	return collector.Collect(ctx, selectedSpecs, machineruntime.DumpCollectOptions{
+		ContinueOnError: continueOnError,
+		Progress: func(done, total int, product resources.Product, resource string) {
+			if progress != nil {
+				progress(done, total, product, resource)
+			}
+			a.diagLogger().Info("dump reading resource", "product", product, "resource", resource)
+		},
+	})
 }
 
 // effectiveFields returns the field order to render: the renderable fields for
@@ -1401,28 +1892,11 @@ func (a *App) collectDump(
 // a usage error, while a known-but-not-rendered field (secret or mode-excluded)
 // is silently skipped, so --fields can never widen the sanitized output.
 func effectiveFields(spec resources.ResourceSpec, mode redact.Mode, requested []string) ([]string, error) {
-	order := spec.FieldOrder(mode)
-	if len(requested) == 0 {
-		return order, nil
+	fields, err := resources.EffectiveFields(spec, mode, requested)
+	if err != nil {
+		return nil, UsageError{Message: err.Error()}
 	}
-	catalog := make(map[string]struct{}, len(spec.Fields))
-	for _, field := range spec.Fields {
-		catalog[field.JSONField()] = struct{}{}
-	}
-	renderable := make(map[string]struct{}, len(order))
-	for _, name := range order {
-		renderable[name] = struct{}{}
-	}
-	out := make([]string, 0, len(requested))
-	for _, name := range requested {
-		if _, ok := catalog[name]; !ok {
-			return nil, UsageError{Message: fmt.Sprintf("--fields: %q is not a field of %s/%s", name, spec.Product, spec.Name)}
-		}
-		if _, ok := renderable[name]; ok {
-			out = append(out, name)
-		}
-	}
-	return out, nil
+	return fields, nil
 }
 
 func (a *App) writeProjectedRecord(
@@ -1435,9 +1909,6 @@ func (a *App) writeProjectedRecord(
 	fields, err := effectiveFields(spec, cfg.Defaults.Redaction, opts.fields)
 	if err != nil {
 		return err
-	}
-	if len(opts.fields) > 0 {
-		record = record.Select(fields)
 	}
 	switch opts.format {
 	case output.FormatJSON:
@@ -1461,74 +1932,17 @@ func (a *App) writeProjectedRecord(
 
 // isListInvocation reports whether rest is a product resource list command —
 // the only invocation shape --filter/--search apply to.
-func isListInvocation(rest []string) bool {
-	return len(rest) >= 3 && knownProductCommand(rest[0]) && rest[2] == "list"
+func isListInvocation(rest []string, catalog resources.ResourceCatalog) bool {
+	return len(rest) >= 3 && knownProductCommand(rest[0], catalog) && rest[2] == "list"
 }
 
 // isResourceReadInvocation reports whether rest is a record-projecting resource
 // read (<product> <resource> list|get|show) — the only invocation shape --fields
 // applies to.
-func isResourceReadInvocation(rest []string) bool {
-	if len(rest) >= 3 && knownProductCommand(rest[0]) {
+func isResourceReadInvocation(rest []string, catalog resources.ResourceCatalog) bool {
+	if len(rest) >= 3 && knownProductCommand(rest[0], catalog) {
 		switch rest[2] {
 		case "list", "get", "show":
-			return true
-		}
-	}
-	return false
-}
-
-// narrowRecords applies --filter and --search to an already-projected record
-// set. SAFETY PROPERTY: narrowing runs strictly post-projection. The records
-// here have already been allow-list projected and per-field redacted for the
-// active redaction mode, so a dropped or secret-classified field is simply
-// absent: a filter naming it matches no record, and search only ever sees the
-// sanitized rendered values. Narrowing can reduce the record set but can never
-// resurrect a field or widen exposure in any redaction mode.
-func narrowRecords(records resources.ProjectedRecords, filters []recordFilter, search string) resources.ProjectedRecords {
-	if len(filters) == 0 && search == "" {
-		return records
-	}
-	kept := make([]resources.ProjectedRecord, 0)
-	for _, record := range records.Records() {
-		if recordMatches(record.Fields(), filters, search) {
-			kept = append(kept, record)
-		}
-	}
-	return resources.NewProjectedRecords(kept)
-}
-
-// recordMatches evaluates all narrowing conditions against one record's
-// projected fields: every --filter must match (AND), and when --search is set
-// at least one rendered field value must contain the term. Values are compared
-// in their rendered string form (the same formatting the table renderer uses),
-// so arrays and nested values participate via their rendered text.
-func recordMatches(fields map[string]any, filters []recordFilter, search string) bool {
-	for _, filter := range filters {
-		value, ok := fields[filter.key]
-		if !ok {
-			// A record lacking the key does not match. This is also the
-			// fail-closed path for secret/dropped field names, which never
-			// appear in projected records.
-			return false
-		}
-		rendered := formatTableValue(value)
-		if filter.substring {
-			if !strings.Contains(strings.ToLower(rendered), strings.ToLower(filter.value)) {
-				return false
-			}
-			continue
-		}
-		if rendered != filter.value {
-			return false
-		}
-	}
-	if search == "" {
-		return true
-	}
-	term := strings.ToLower(search)
-	for _, value := range fields {
-		if strings.Contains(strings.ToLower(formatTableValue(value)), term) {
 			return true
 		}
 	}
@@ -1545,13 +1959,10 @@ func (a *App) writeProjectedRecords(
 	if err != nil {
 		return err
 	}
-	warnUnknownFilterKeys(a.err, spec, opts.filters)
-	// Narrow rows before --fields narrows columns, so a filter may reference
-	// any projected field even when it is not selected for display. An empty
-	// match is success: every format renders its empty form and exits 0.
-	records = narrowRecords(records, opts.filters, opts.search)
-	if len(opts.fields) > 0 {
-		records = records.Select(fields)
+	errW := redact.NewWriter(a.err, cfg.Defaults.Redaction)
+	warnUnknownFilterKeys(errW, spec, opts.filters)
+	if err := errW.Close(); err != nil {
+		return err
 	}
 	switch opts.format {
 	case output.FormatJSON:
@@ -1600,75 +2011,35 @@ func safeJSONRecords(records resources.ProjectedRecords) []output.SafeJSON {
 	return out
 }
 
-// writeHelp prints help scoped to what the user asked for: a known resource's
-// operations and renderable fields for `<product> <resource> --help`, the
-// product's resources for `<product> --help`, or the global usage otherwise.
+// writeHelp prints the global usage. It is only reachable when rest is empty
+// (all recognized commands, including products, are routed through Cobra in
+// runParsed before writeHelp is called). The per-command and per-product cases
+// that previously lived here were dead code.
 func (a *App) writeHelp(w io.Writer, rest []string) {
-	if len(rest) >= 1 {
-		switch rest[0] {
-		case "doctor":
-			fmt.Fprintln(w, "usage: zscalerctl doctor")
-			return
-		case "auth":
-			fmt.Fprintln(w, "usage: zscalerctl auth status")
-			return
-		case "config":
-			fmt.Fprintln(w, "usage: zscalerctl config show")
-			fmt.Fprintln(w, "       zscalerctl config init [--force]")
-			return
-		case "schema":
-			fmt.Fprintln(w, "usage: zscalerctl schema list")
-			return
-		case "dump":
-			fmt.Fprintln(w, dumpUsage())
-			return
-		case "diff":
-			fmt.Fprintln(w, diffUsage())
-			return
-		case "completion":
-			fmt.Fprintf(w, "usage: zscalerctl completion %s\n", completionShellNames())
-			return
-		case "version":
-			fmt.Fprintln(w, "usage: zscalerctl version")
-			return
-		}
-	}
-	if len(rest) >= 1 && knownProductCommand(rest[0]) {
-		product := resources.Product(rest[0])
-		if len(rest) >= 2 {
-			if product == resources.ProductZIA && rest[1] == urlLookupCommandName {
-				fmt.Fprintln(w, urlLookupUsageMessage)
-				return
-			}
-			if spec, ok := a.resourceCatalog().FindSpec(product, rest[1]); ok {
-				fmt.Fprintln(w, resourceUsage(product, spec, output.TerminalWidth(w)))
-				return
-			}
-		}
-		fmt.Fprintln(w, productCommandUsage(product, output.TerminalWidth(w)))
-		return
-	}
-	a.writeUsage(w)
+	a.writeUsage(w, a.resourceCatalog())
 }
 
-func (a *App) writeUsage(w io.Writer) {
+func (a *App) writeUsage(w io.Writer, catalog resources.ResourceCatalog) {
 	fmt.Fprintln(w, "usage: zscalerctl [global flags] <command> [args]")
 	fmt.Fprintln(w)
-	fmt.Fprintf(w, "products: %s\n", strings.Join(productNames(knownProducts()), ", "))
+	fmt.Fprintf(w, "products: %s\n", strings.Join(productNames(knownProducts(catalog)), ", "))
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "commands:")
+	fmt.Fprintln(w, "  help [command]")
 	fmt.Fprintln(w, "  doctor")
 	fmt.Fprintln(w, "  auth status")
 	fmt.Fprintln(w, "  config show")
 	fmt.Fprintln(w, "  config init [--force]")
 	fmt.Fprintln(w, "  zia url-lookup <url> [url...]")
 	fmt.Fprintln(w, "  schema list")
+	fmt.Fprintln(w, "  introspect")
+	fmt.Fprintln(w, "  machine manifest")
 	fmt.Fprintln(w, "  dump --out <dir> [--products names] [--resources names] [--continue-on-error] [--force]")
 	fmt.Fprintln(w, "  diff <old-dump-dir> <new-dump-dir> [--products names] [--resources names] [--ignore-operational] [--detail] [--allow-partial] [--fail-on-drift]")
 	fmt.Fprintf(w, "  completion %s\n", completionShellNames())
 	fmt.Fprintln(w, "  version")
-	for _, product := range knownProducts() {
-		fmt.Fprintf(w, "  %s <resource> %s\n", product, strings.Join(productReadOperationNames(product), "|"))
+	for _, product := range knownProducts(catalog) {
+		fmt.Fprintf(w, "  %s <resource> %s\n", product, strings.Join(productReadOperationNames(product, catalog), "|"))
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "global flags:")
@@ -1795,6 +2166,13 @@ func renderRecordKeyValues(
 	return output.RenderKeyValues(rows, style)
 }
 
+func renderKeyValuesForFormat(rows []output.KV, format output.Format, style output.Style) output.SafeText {
+	if format == output.FormatPretty {
+		return output.RenderKeyValuesPretty(rows, style)
+	}
+	return output.RenderKeyValues(rows, style)
+}
+
 func renderRecordsPretty(
 	fields []string,
 	records resources.ProjectedRecords,
@@ -1834,38 +2212,14 @@ func renderRecordPretty(
 // tab cannot break the tab-separated or border-delimited layout; the JSON
 // renderer uses a separate path and keeps raw values.
 func formatTableValue(value any) string {
-	return sanitizeCellValue(rawTableValue(value))
-}
-
-func rawTableValue(value any) string {
-	switch v := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return v
-	case []string:
-		return strings.Join(v, ",")
-	case []any:
-		parts := make([]string, len(v))
-		for i, item := range v {
-			parts[i] = rawTableValue(item)
-		}
-		return strings.Join(parts, ",")
-	default:
-		return fmt.Sprint(v)
-	}
+	return resources.FormatProjectedValue(value)
 }
 
 // sanitizeCellValue collapses control characters (newline, tab, carriage return,
 // and other C0/DEL bytes) to single spaces so multi-line or tabbed values render
 // on one logical cell instead of corrupting row or column boundaries.
 func sanitizeCellValue(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r == '\t' || r == '\n' || r == '\r' || r < 0x20 || r == 0x7f {
-			return ' '
-		}
-		return r
-	}, s)
+	return resources.FormatProjectedValue(s)
 }
 
 // resolveFormat collapses the auto format to a concrete one at the point where
@@ -1907,28 +2261,28 @@ func requireNoArgs(command string, args []string) error {
 	return nil
 }
 
-func dumpUsage() string {
+func dumpUsage(catalog resources.ResourceCatalog) string {
 	return fmt.Sprintf(
 		"usage: zscalerctl dump --out <dir> [--products %s] [--resources names] [--continue-on-error] [--force]\n"+
 			"tip: add --log-level info to see start, per-resource, and completion progress on stderr during a long dump",
-		strings.Join(productNames(knownProducts()), ","),
+		strings.Join(productNames(knownProducts(catalog)), ","),
 	)
 }
 
-func diffUsage() string {
+func diffUsage(catalog resources.ResourceCatalog) string {
 	return fmt.Sprintf(
 		"usage: zscalerctl diff <old-dump-dir> <new-dump-dir> [--products %s] [--resources names] [--ignore-operational] [--detail] [--allow-partial] [--fail-on-drift]",
-		strings.Join(productNames(knownProducts()), ","),
+		strings.Join(productNames(knownProducts(catalog)), ","),
 	)
 }
 
-func knownProducts() []resources.Product {
+func knownProducts(catalog resources.ResourceCatalog) []resources.Product {
 	// Derive from the enabled catalog so help and command dispatch always reflect
 	// the products that actually have resources, instead of a hardcoded list that
 	// drifts as batches merge.
 	seen := make(map[resources.Product]bool)
 	var products []resources.Product
-	for _, spec := range resources.Catalog() {
+	for _, spec := range catalog {
 		if !seen[spec.Product] {
 			seen[spec.Product] = true
 			products = append(products, spec.Product)
@@ -1937,8 +2291,8 @@ func knownProducts() []resources.Product {
 	return products
 }
 
-func knownProductCommand(name string) bool {
-	for _, product := range knownProducts() {
+func knownProductCommand(name string, catalog resources.ResourceCatalog) bool {
+	for _, product := range knownProducts(catalog) {
 		if name == string(product) {
 			return true
 		}
@@ -1946,12 +2300,12 @@ func knownProductCommand(name string) bool {
 	return false
 }
 
-func isRunnableCommand(name string) bool {
+func isRunnableCommand(name string, catalog resources.ResourceCatalog) bool {
 	switch name {
 	case "doctor", "auth", "config", "schema", "dump", "diff":
 		return true
 	default:
-		return knownProductCommand(name)
+		return knownProductCommand(name, catalog)
 	}
 }
 
@@ -1960,12 +2314,12 @@ func isRunnableCommand(name string) bool {
 // an unrecognized token — for example a product name a value-taking flag
 // swallowed — still reaches the dispatch's more specific swallowed-product hint
 // instead of the generic --fields usage error.
-func isKnownCommand(name string) bool {
+func isKnownCommand(name string, catalog resources.ResourceCatalog) bool {
 	switch name {
-	case "help", "-h", "--help", "version", "completion":
+	case "help", "version", "completion", "introspect", "machine":
 		return true
 	}
-	return isRunnableCommand(name)
+	return isRunnableCommand(name, catalog)
 }
 
 func productNames(products []resources.Product) []string {
@@ -2021,12 +2375,12 @@ func columnize(names []string, width int) string {
 	return b.String()
 }
 
-func productCommandUsage(product resources.Product, width int) string {
+func productCommandUsage(product resources.Product, width int, catalog resources.ResourceCatalog) string {
 	// Enumerate the product's resources so a cold caller (human or agent) can
 	// discover real names from --help or a usage error instead of guessing;
 	// `schema list` remains the machine-readable source of truth.
 	names := make([]string, 0, 64)
-	for _, spec := range resources.Catalog() {
+	for _, spec := range catalog {
 		if spec.Product == product {
 			names = append(names, spec.Name)
 		}
@@ -2035,7 +2389,7 @@ func productCommandUsage(product resources.Product, width int) string {
 	msg := fmt.Sprintf(
 		"usage: zscalerctl %s <resource> %s\n\nresources (%d; see also: zscalerctl --format json schema list):\n%s",
 		product,
-		strings.Join(productReadOperationNames(product), "|"),
+		strings.Join(productReadOperationNames(product, catalog), "|"),
 		len(names),
 		columnize(names, width),
 	)
@@ -2061,9 +2415,9 @@ func resourceUsage(product resources.Product, spec resources.ResourceSpec, width
 	return msg
 }
 
-func productReadOperationNames(product resources.Product) []string {
+func productReadOperationNames(product resources.Product, catalog resources.ResourceCatalog) []string {
 	seen := make(map[string]bool)
-	for _, spec := range resources.Catalog() {
+	for _, spec := range catalog {
 		if spec.Product != product {
 			continue
 		}
@@ -2083,23 +2437,7 @@ func productReadOperationNames(product resources.Product) []string {
 	return names
 }
 
-func newDoctorStatus(cfg config.Config, opts globalOptions) doctorStatus {
-	return doctorStatus{
-		Status:      "OK",
-		Mode:        "read-only",
-		Profile:     cfg.Profile,
-		Config:      configSourceStatus(cfg.Safe()),
-		AuthMode:    string(cfg.EffectiveAuthMode()),
-		Redaction:   string(cfg.Defaults.Redaction),
-		Timeout:     opts.timeout.String(),
-		Cache:       cacheStatus(cfg.Defaults.NoCache),
-		Proxy:       proxyStatus(cfg.Proxy),
-		Credentials: credentialStatus(cfg),
-		LiveAPI:     liveAPIStatus(cfg),
-	}
-}
-
-func doctorStatusRows(status doctorStatus) []output.KV {
+func doctorStatusRows(status machineruntime.DoctorStatus) []output.KV {
 	return []output.KV{
 		{Key: "Status", Value: status.Status, Kind: "ok"},
 		{Key: "Mode", Value: status.Mode, Kind: "mode"},
@@ -2115,15 +2453,7 @@ func doctorStatusRows(status doctorStatus) []output.KV {
 	}
 }
 
-func newAuthStatus(cfg config.Config) authStatus {
-	return authStatus{
-		Credentials:        credentialStatus(cfg),
-		CredentialExchange: "not requested",
-		LiveAPI:            liveAPIStatus(cfg),
-	}
-}
-
-func authStatusRows(status authStatus) []output.KV {
+func authStatusRows(status machineruntime.AuthStatus) []output.KV {
 	return []output.KV{
 		{Key: "Credentials", Value: status.Credentials},
 		{Key: "Credential Exchange", Value: status.CredentialExchange},
@@ -2131,94 +2461,10 @@ func authStatusRows(status authStatus) []output.KV {
 	}
 }
 
-func credentialStatus(cfg config.Config) string {
-	switch cfg.EffectiveAuthMode() {
-	case config.AuthModeZIALegacy:
-		if cfg.ZIALegacy.Configured() {
-			return "configured"
-		}
-		if cfg.ZIALegacy.AnySet() {
-			return "partial"
-		}
-		return "not configured"
-	default:
-		if cfg.Credentials.Configured(cfg.VanityDomain) {
-			return "configured"
-		}
-		if cfg.Credentials.AnySet() || cfg.VanityDomain != "" {
-			return "partial"
-		}
-		return "not configured"
-	}
-}
-
-func liveAPIStatus(cfg config.Config) string {
-	if credentialStatus(cfg) == "configured" {
-		if cfg.EffectiveAuthMode() != config.AuthModeZIALegacy && strings.TrimSpace(cfg.ZPA.CustomerID) == "" {
-			return "available for ZIA read-only commands; ZPA resources require ZSCALERCTL_ZPA_CUSTOMER_ID"
-		}
-		return "available for read-only commands"
-	}
-	if cfg.EffectiveAuthMode() == config.AuthModeZIALegacy {
-		return "requires ZSCALERCTL_ZIA_USERNAME, ZSCALERCTL_ZIA_PASSWORD, ZSCALERCTL_ZIA_API_KEY, and ZSCALERCTL_ZIA_CLOUD"
-	}
-	return "requires ZSCALERCTL_CLIENT_ID, ZSCALERCTL_CLIENT_SECRET, and ZSCALERCTL_VANITY_DOMAIN; ZPA resources also require ZSCALERCTL_ZPA_CUSTOMER_ID"
-}
-
-func setStatus(set bool) string {
-	if set {
-		return "set"
-	}
-	return "unset"
-}
-
-func secretSourceStatus(set bool, scheme string) string {
-	if !set {
-		return "unset"
-	}
-	if scheme == "" {
-		return "set"
-	}
-	return "set (" + scheme + ")"
-}
-
-func configSourceStatus(safe config.SafeConfig) string {
-	if safe.ConfigFileSet {
-		return "config file"
-	}
-	return "environment"
-}
-
-func cacheStatus(noCache bool) string {
-	if noCache {
-		return "bypass"
-	}
-	return "default"
-}
-
-func proxyStatus(proxy config.Proxy) string {
-	switch {
-	case proxy.FromEnvironment:
-		return "environment"
-	case strings.TrimSpace(proxy.URL) != "":
-		return "explicit"
-	default:
-		return "direct"
-	}
-}
-
-func valueOrUnset(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "unset"
-	}
-	return value
-}
-
-func parseProducts(value string) (map[resources.Product]bool, error) {
+func parseProducts(value string, catalog resources.ResourceCatalog) (map[resources.Product]bool, error) {
 	if strings.TrimSpace(value) == "" {
 		products := map[resources.Product]bool{}
-		for _, product := range knownProducts() {
+		for _, product := range knownProducts(catalog) {
 			products[product] = true
 		}
 		return products, nil
@@ -2226,7 +2472,7 @@ func parseProducts(value string) (map[resources.Product]bool, error) {
 	products := map[resources.Product]bool{}
 	for _, item := range strings.Split(value, ",") {
 		product := resources.Product(strings.TrimSpace(strings.ToLower(item)))
-		if knownProductCommand(string(product)) {
+		if knownProductCommand(string(product), catalog) {
 			products[product] = true
 		} else {
 			return nil, UsageError{Message: fmt.Sprintf("unsupported product %q", item)}
@@ -2350,6 +2596,24 @@ func dumpResourceSelected(selected map[dumpResourceKey]bool, spec resources.Reso
 		return true
 	}
 	return selected[dumpResourceKey{product: spec.Product, name: spec.Name}]
+}
+
+func selectedDumpSpecs(
+	catalog resources.ResourceCatalog,
+	products map[resources.Product]bool,
+	selected map[dumpResourceKey]bool,
+) []resources.ResourceSpec {
+	specs := make([]resources.ResourceSpec, 0)
+	for _, spec := range catalog {
+		if !products[spec.Product] {
+			continue
+		}
+		if !dumpResourceSelected(selected, spec) {
+			continue
+		}
+		specs = append(specs, spec)
+	}
+	return specs
 }
 
 func diffResourceSelection(selected map[dumpResourceKey]bool) map[dumpdiff.ResourceKey]bool {

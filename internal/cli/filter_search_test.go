@@ -281,6 +281,7 @@ func TestFieldsIsUsageErrorOutsideResourceReads(t *testing.T) {
 		{name: "fields on version", args: []string{"--fields", "name", "version"}},
 		{name: "fields on dump", args: []string{"--fields", "name", "dump", "--out", "ignored"}},
 		{name: "fields on resource without operation", args: []string{"--fields", "name", "zia", "locations"}},
+		{name: "fields on introspect", args: []string{"--fields", "name", "introspect"}},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -387,5 +388,83 @@ func TestFilterAppliesBeforeFieldsSelection(t *testing.T) {
 	}
 	if _, ok := decoded[0]["country"]; ok || len(decoded[0]) != 1 {
 		t.Errorf("App.Run(%v) record = %#v, want only the selected name field", args, decoded[0])
+	}
+}
+
+func TestFieldsNarrowListGetShowJSON(t *testing.T) {
+	t.Parallel()
+
+	listArgs := []string{
+		"--format", "json",
+		"--fields", "name",
+		"zia", "locations", "list",
+	}
+	listRecords := runListJSON(t, listArgs)
+	if len(listRecords) == 0 {
+		t.Fatalf("App.Run(%v) records = 0, want records", listArgs)
+	}
+	for _, record := range listRecords {
+		if _, ok := record["name"]; !ok || len(record) != 1 {
+			t.Fatalf("App.Run(%v) record = %#v, want only name", listArgs, record)
+		}
+	}
+
+	var getOut, getErr bytes.Buffer
+	getApp := cli.NewWithOptions(&getOut, &getErr, nil, cli.Options{
+		Reader: fakeResourceReader{
+			get: resources.NewSourceRecord(map[string]any{
+				"id":      2,
+				"name":    "HQ",
+				"country": "US",
+			}),
+		},
+	})
+	getArgs := []string{
+		"--format", "json",
+		"--fields", "name",
+		"zia", "locations", "get", "2",
+	}
+	if err := getApp.Run(context.Background(), getArgs); err != nil {
+		t.Fatalf("App.Run(%v) error = %v, want nil", getArgs, err)
+	}
+	if getErr.Len() != 0 {
+		t.Fatalf("App.Run(%v) stderr = %q, want empty", getArgs, getErr.String())
+	}
+	var getRecord map[string]any
+	if err := json.Unmarshal(getOut.Bytes(), &getRecord); err != nil {
+		t.Fatalf("json.Unmarshal(App.Run(%v) output) error = %v; output=%q", getArgs, err, getOut.String())
+	}
+	if _, ok := getRecord["name"]; !ok || len(getRecord) != 1 {
+		t.Fatalf("App.Run(%v) record = %#v, want only name", getArgs, getRecord)
+	}
+
+	var showOut, showErr bytes.Buffer
+	showApp := cli.NewWithOptions(&showOut, &showErr, nil, cli.Options{
+		Reader: fakeResourceReader{
+			show: resources.NewSourceRecord(map[string]any{
+				"apiSessionTimeout":                     30,
+				"ecsForAllEnabled":                      true,
+				"uiSessionTimeout":                      15,
+				"enableDnsResolutionOnTransparentProxy": true,
+			}),
+		},
+	})
+	showArgs := []string{
+		"--format", "json",
+		"--fields", "apiSessionTimeout",
+		"zia", "advanced-settings", "show",
+	}
+	if err := showApp.Run(context.Background(), showArgs); err != nil {
+		t.Fatalf("App.Run(%v) error = %v, want nil", showArgs, err)
+	}
+	if showErr.Len() != 0 {
+		t.Fatalf("App.Run(%v) stderr = %q, want empty", showArgs, showErr.String())
+	}
+	var showRecord map[string]any
+	if err := json.Unmarshal(showOut.Bytes(), &showRecord); err != nil {
+		t.Fatalf("json.Unmarshal(App.Run(%v) output) error = %v; output=%q", showArgs, err, showOut.String())
+	}
+	if _, ok := showRecord["apiSessionTimeout"]; !ok || len(showRecord) != 1 {
+		t.Fatalf("App.Run(%v) record = %#v, want only apiSessionTimeout", showArgs, showRecord)
 	}
 }

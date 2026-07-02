@@ -2,11 +2,19 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/dvmrry/zscalerctl/internal/config"
+	"github.com/dvmrry/zscalerctl/internal/machine"
 	"github.com/dvmrry/zscalerctl/internal/redact"
 	"github.com/dvmrry/zscalerctl/internal/resources"
+	"github.com/spf13/cobra"
 )
 
 func TestParseDumpResourcesSupportsCatalogDerivedQualifiedProducts(t *testing.T) {
@@ -105,6 +113,432 @@ func TestEffectiveFieldsNarrowsValidatesAndCannotWiden(t *testing.T) {
 	}
 }
 
+func TestRunProductReadOperationsRouteThroughMachineExecutor(t *testing.T) {
+	tests := []struct {
+		name         string
+		args         []string
+		response     machine.Response
+		wantOp       machine.Operation
+		wantProduct  string
+		wantResource string
+		wantRecordID string
+		wantArray    bool
+	}{
+		{
+			name: "list",
+			args: []string{"--format", "json", "zia", "locations", "list"},
+			response: machine.Response{
+				Records: []map[string]any{{"id": "1", "name": "From machine list"}},
+			},
+			wantOp:       machine.OperationList,
+			wantProduct:  "zia",
+			wantResource: "locations",
+			wantArray:    true,
+		},
+		{
+			name: "show",
+			args: []string{"--format", "json", "zia", "advanced-settings", "show"},
+			response: machine.Response{
+				Records: []map[string]any{{"id": "settings", "name": "From machine show"}},
+			},
+			wantOp:       machine.OperationShow,
+			wantProduct:  "zia",
+			wantResource: "advanced-settings",
+			wantArray:    false,
+		},
+		{
+			name: "get",
+			args: []string{"--format", "json", "zia", "locations", "get", "42"},
+			response: machine.Response{
+				Records: []map[string]any{{"id": "42", "name": "From machine get"}},
+			},
+			wantOp:       machine.OperationGet,
+			wantProduct:  "zia",
+			wantResource: "locations",
+			wantRecordID: "42",
+			wantArray:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			app := NewWithOptions(&out, &errOut, nil, Options{
+				Reader:  &machineRouteReader{},
+				Catalog: machineRouteCatalog(),
+			})
+			rt := &recordingMachineRuntime{response: tt.response, redaction: redact.ModeStandard}
+			runtimeFactoryCalled := false
+			app.machineRuntimeFactory = func(
+				_ context.Context,
+				cfg config.Config,
+				opts globalOptions,
+			) (machineRuntime, error) {
+				if cfg.Defaults.Redaction != redact.ModeStandard {
+					t.Fatalf("machine runtime factory redaction = %q, want standard default", cfg.Defaults.Redaction)
+				}
+				if opts.timeout <= 0 {
+					t.Fatalf("machine runtime factory timeout = %s, want positive timeout", opts.timeout)
+				}
+				runtimeFactoryCalled = true
+				return rt, nil
+			}
+
+			if err := app.Run(context.Background(), tt.args); err != nil {
+				t.Fatalf("App.Run(%s) error = %v, want nil", tt.name, err)
+			}
+			if !runtimeFactoryCalled {
+				t.Fatal("machine runtime factory was not called")
+			}
+			if len(rt.calls) != 1 {
+				t.Fatalf("machine runtime calls = %d, want 1", len(rt.calls))
+			}
+			req := rt.calls[0]
+			if req.Capability != machine.CapabilityResourcesRead ||
+				req.Operation != tt.wantOp ||
+				req.Input == nil ||
+				req.Input.Product != tt.wantProduct ||
+				req.Input.Resource != tt.wantResource ||
+				req.Input.RecordID != tt.wantRecordID {
+				t.Fatalf("machine request = %#v, want resources.read %s %s/%s record_id=%q",
+					req, tt.wantOp, tt.wantProduct, tt.wantResource, tt.wantRecordID)
+			}
+			if errOut.Len() != 0 {
+				t.Fatalf("stderr = %q, want empty", errOut.String())
+			}
+			if tt.wantArray {
+				var decoded []map[string]any
+				if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+					t.Fatalf("json.Unmarshal(list output) error = %v; output = %q", err, out.String())
+				}
+				if len(decoded) != 1 || decoded[0]["name"] != tt.response.Records[0]["name"] {
+					t.Fatalf("list output = %#v, want machine response record", decoded)
+				}
+				return
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+				t.Fatalf("json.Unmarshal(%s output) error = %v; output = %q", tt.name, err, out.String())
+			}
+			if decoded["name"] != tt.response.Records[0]["name"] {
+				t.Fatalf("%s output = %#v, want machine response record", tt.name, decoded)
+			}
+		})
+	}
+}
+
+func TestRunProductPassesNarrowingToMachineExecutor(t *testing.T) {
+	var out, errOut bytes.Buffer
+	app := NewWithOptions(&out, &errOut, nil, Options{
+		Reader:  &machineRouteReader{},
+		Catalog: machineRouteCatalog(),
+	})
+	rt := &recordingMachineRuntime{
+		response: machine.Response{
+			Records: []map[string]any{{"name": "Branch West"}},
+		},
+		redaction: redact.ModeStandard,
+	}
+	app.machineRuntimeFactory = func(
+		context.Context,
+		config.Config,
+		globalOptions,
+	) (machineRuntime, error) {
+		return rt, nil
+	}
+
+	args := []string{
+		"--format", "json",
+		"--fields", "name",
+		"--filter", "country=DE",
+		"--search", "branch",
+		"zia", "locations", "list",
+	}
+	if err := app.Run(context.Background(), args); err != nil {
+		t.Fatalf("App.Run(%v) error = %v, want nil", args, err)
+	}
+	if len(rt.calls) != 1 {
+		t.Fatalf("machine runtime calls = %d, want 1", len(rt.calls))
+	}
+	req := rt.calls[0]
+	if req.Input == nil {
+		t.Fatalf("machine request = %#v, want input", req)
+	}
+	wantFilters := []machine.Filter{{Field: "country", Operator: "=", Value: "DE"}}
+	if !reflect.DeepEqual(req.Input.Fields, []string{"name"}) ||
+		!reflect.DeepEqual(req.Input.Filters, wantFilters) ||
+		req.Input.Search != "branch" {
+		t.Fatalf("machine request input = %#v, want fields/filter/search", req.Input)
+	}
+}
+
+func TestRunProductDoesNotReapplyNarrowingAfterMachineExecution(t *testing.T) {
+	var out, errOut bytes.Buffer
+	allModes := []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid}
+	catalog := resources.ResourceCatalog{{
+		Product:    resources.ProductZIA,
+		Name:       "locations",
+		Operations: resources.ListOperations(),
+		Fields: []resources.FieldSpec{
+			{Name: "id", Classification: resources.ClassOperational, AllowedModes: allModes},
+			{Name: "name", Classification: resources.ClassTenantConfig, AllowedModes: allModes},
+			{Name: "country", Classification: resources.ClassOperational, AllowedModes: allModes},
+		},
+	}}
+	app := NewWithOptions(&out, &errOut, nil, Options{Catalog: catalog})
+	rt := &recordingMachineRuntime{
+		response: machine.Response{
+			Records: []map[string]any{{
+				"id":      "1",
+				"name":    "HQ",
+				"country": "US",
+			}},
+		},
+		redaction: redact.ModeStandard,
+	}
+	app.machineRuntimeFactory = func(
+		context.Context,
+		config.Config,
+		globalOptions,
+	) (machineRuntime, error) {
+		return rt, nil
+	}
+
+	args := []string{
+		"--format", "json",
+		"--fields", "name",
+		"--filter", "country=DE",
+		"--search", "branch",
+		"zia", "locations", "list",
+	}
+	if err := app.Run(context.Background(), args); err != nil {
+		t.Fatalf("App.Run(%v) error = %v, want nil", args, err)
+	}
+	if len(rt.calls) != 1 {
+		t.Fatalf("machine runtime calls = %d, want 1", len(rt.calls))
+	}
+	req := rt.calls[0]
+	wantFilters := []machine.Filter{{Field: "country", Operator: "=", Value: "DE"}}
+	if req.Input == nil ||
+		!reflect.DeepEqual(req.Input.Fields, []string{"name"}) ||
+		!reflect.DeepEqual(req.Input.Filters, wantFilters) ||
+		req.Input.Search != "branch" {
+		t.Fatalf("machine request input = %#v, want fields/filter/search", req.Input)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+	var decoded []map[string]any
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("json.Unmarshal(list output) error = %v; output = %q", err, out.String())
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("list output = %#v, want one machine response record", decoded)
+	}
+	got := decoded[0]
+	if got["id"] != "1" || got["name"] != "HQ" || got["country"] != "US" || len(got) != 3 {
+		t.Fatalf("list output record = %#v, want verified machine response without CLI renarrowing", got)
+	}
+}
+
+func TestRunProductRejectsUnverifiedMachineResponse(t *testing.T) {
+	formats := []string{"json", "ndjson", "table", "pretty"}
+	for _, format := range formats {
+		t.Run(format, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			app := NewWithOptions(&out, &errOut, nil, Options{
+				Reader:  &machineRouteReader{},
+				Catalog: machineRouteCatalog(),
+			})
+			app.machineRuntimeFactory = func(
+				context.Context,
+				config.Config,
+				globalOptions,
+			) (machineRuntime, error) {
+				return &recordingMachineRuntime{
+					response: machine.Response{
+						Records: []map[string]any{{
+							"id":            "1",
+							"name":          "From machine",
+							"new_sdk_field": "SECRET_VALUE_SHOULD_NOT_RENDER",
+						}},
+					},
+					redaction: redact.ModeStandard,
+				}, nil
+			}
+
+			args := []string{"--format", format, "zia", "locations", "list"}
+			err := app.Run(context.Background(), args)
+			if !errors.Is(err, resources.ErrUnexpectedField) {
+				t.Fatalf("App.Run(%v) error = %v, want ErrUnexpectedField", args, err)
+			}
+			if strings.Contains(out.String(), "new_sdk_field") ||
+				strings.Contains(out.String(), "SECRET_VALUE_SHOULD_NOT_RENDER") {
+				t.Fatalf("stdout = %q, want no unverified field or value rendered", out.String())
+			}
+			if strings.Contains(errOut.String(), "new_sdk_field") ||
+				strings.Contains(errOut.String(), "SECRET_VALUE_SHOULD_NOT_RENDER") {
+				t.Fatalf("stderr = %q, want no unverified field or value rendered", errOut.String())
+			}
+			if strings.Contains(err.Error(), "SECRET_VALUE_SHOULD_NOT_RENDER") {
+				t.Fatalf("App.Run(%v) error = %q, want no unverified value", args, err.Error())
+			}
+		})
+	}
+}
+
+func TestRunProductMachineLoaderErrorPreservesOriginalError(t *testing.T) {
+	sentinel := errors.New("backend sentinel")
+	var out, errOut bytes.Buffer
+	app := NewWithOptions(&out, &errOut, nil, Options{
+		Catalog: resources.ResourceCatalog{{
+			Product:    resources.ProductZIA,
+			Name:       "locations",
+			Operations: resources.ListOperations(),
+			Fields:     machineRouteFields(),
+		}},
+	})
+	app.machineRuntimeFactory = func(context.Context, config.Config, globalOptions) (machineRuntime, error) {
+		return &recordingMachineRuntime{
+			response:  machine.Response{Error: &machine.MachineError{Kind: machine.ErrorKindLiveAccessFailed}},
+			err:       sentinel,
+			redaction: redact.ModeStandard,
+		}, nil
+	}
+
+	err := app.Run(context.Background(), []string{"--format", "json", "zia", "locations", "list"})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("App.Run(machine loader error) error = %v, want original sentinel", err)
+	}
+	var machineErr *machine.MachineError
+	if errors.As(err, &machineErr) {
+		t.Fatalf("App.Run(machine loader error) error = %#v, want original loader error", machineErr)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestRunProductMachineGetLoaderErrorPreservesOriginalError(t *testing.T) {
+	sentinel := errors.New("backend get sentinel")
+	var out, errOut bytes.Buffer
+	app := NewWithOptions(&out, &errOut, nil, Options{
+		Catalog: machineRouteCatalog(),
+	})
+	app.machineRuntimeFactory = func(context.Context, config.Config, globalOptions) (machineRuntime, error) {
+		return &recordingMachineRuntime{
+			response:  machine.Response{Error: &machine.MachineError{Kind: machine.ErrorKindLiveAccessFailed}},
+			err:       sentinel,
+			redaction: redact.ModeStandard,
+		}, nil
+	}
+
+	err := app.Run(context.Background(), []string{"--format", "json", "zia", "locations", "get", "42"})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("App.Run(machine get loader error) error = %v, want original sentinel", err)
+	}
+	var machineErr *machine.MachineError
+	if errors.As(err, &machineErr) {
+		t.Fatalf("App.Run(machine get loader error) error = %#v, want original loader error", machineErr)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestRunProductMachineExecutorUsageErrorMapsToCLIUsage(t *testing.T) {
+	var out, errOut bytes.Buffer
+	app := NewWithOptions(&out, &errOut, nil, Options{
+		Reader:  &machineRouteReader{},
+		Catalog: machineRouteCatalog(),
+	})
+	app.machineRuntimeFactory = func(context.Context, config.Config, globalOptions) (machineRuntime, error) {
+		return &recordingMachineRuntime{err: &machine.MachineError{
+			Kind:    machine.ErrorKindUsage,
+			Message: "missing required input: input.product",
+		}, redaction: redact.ModeStandard}, nil
+	}
+
+	err := app.Run(context.Background(), []string{"--format", "json", "zia", "locations", "list"})
+	if !errors.Is(err, ErrUsage) {
+		t.Fatalf("App.Run(machine executor usage error) error = %v, want ErrUsage", err)
+	}
+	if !strings.Contains(err.Error(), "missing required input: input.product") {
+		t.Fatalf("App.Run(machine executor usage error) error = %q, want machine message", err.Error())
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestRunProductGetRoutesThroughMachineExecutorWithoutDirectReaderGet(t *testing.T) {
+	reader := &machineRouteReader{
+		get: resources.NewSourceRecord(map[string]any{
+			"id":   "42",
+			"name": "Direct get",
+		}),
+	}
+	var out, errOut bytes.Buffer
+	app := NewWithOptions(&out, &errOut, nil, Options{
+		Reader:  reader,
+		Catalog: machineRouteCatalog(),
+	})
+	rt := &recordingMachineRuntime{
+		response: machine.Response{
+			Records: []map[string]any{{"id": "42", "name": "Machine get"}},
+		},
+		redaction: redact.ModeStandard,
+	}
+	app.machineRuntimeFactory = func(
+		context.Context,
+		config.Config,
+		globalOptions,
+	) (machineRuntime, error) {
+		return rt, nil
+	}
+
+	err := app.Run(context.Background(), []string{"--format", "json", "zia", "locations", "get", "42"})
+	if err != nil {
+		t.Fatalf("App.Run(zia locations get 42) error = %v, want nil", err)
+	}
+	if reader.getCalls != 0 {
+		t.Fatalf("reader get calls = %d, want 0", reader.getCalls)
+	}
+	if reader.listCalls != 0 || reader.showCalls != 0 {
+		t.Fatalf("reader list/show calls = %d/%d, want 0/0", reader.listCalls, reader.showCalls)
+	}
+	if len(rt.calls) != 1 {
+		t.Fatalf("machine runtime calls = %d, want 1", len(rt.calls))
+	}
+	req := rt.calls[0]
+	if req.Operation != machine.OperationGet ||
+		req.Input == nil ||
+		req.Input.Product != "zia" ||
+		req.Input.Resource != "locations" ||
+		req.Input.RecordID != "42" {
+		t.Fatalf("machine request = %#v, want get zia/locations record_id=42", req)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("json.Unmarshal(get output) error = %v; output = %q", err, out.String())
+	}
+	if decoded["name"] != "Machine get" {
+		t.Fatalf("get output = %#v, want machine response record", decoded)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+}
+
 func TestSanitizeCellValueCollapsesControlChars(t *testing.T) {
 	t.Parallel()
 
@@ -128,6 +562,100 @@ func TestFormatTableValueSanitizesNestedAndScalarValues(t *testing.T) {
 	}
 }
 
+type recordingMachineRuntime struct {
+	response  machine.Response
+	err       error
+	redaction redact.Mode
+	calls     []machine.Request
+}
+
+func (r *recordingMachineRuntime) Execute(_ context.Context, req machine.Request) (machine.Response, error) {
+	r.calls = append(r.calls, req)
+	if r.err != nil {
+		return r.response, r.err
+	}
+	return r.response, nil
+}
+
+func (r *recordingMachineRuntime) Redaction() redact.Mode {
+	return redact.EffectiveMode(r.redaction)
+}
+
+type machineRouteReader struct {
+	list      []resources.SourceRecord
+	get       resources.SourceRecord
+	show      resources.SourceRecord
+	listErr   error
+	getErr    error
+	showErr   error
+	listCalls int
+	getCalls  int
+	showCalls int
+}
+
+func (r *machineRouteReader) List(_ context.Context, _ resources.Product, _ string) ([]resources.SourceRecord, error) {
+	r.listCalls++
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+	if r.list != nil {
+		return r.list, nil
+	}
+	return []resources.SourceRecord{resources.NewSourceRecord(map[string]any{
+		"id":   "1",
+		"name": "Direct list",
+	})}, nil
+}
+
+func (r *machineRouteReader) Get(_ context.Context, _ resources.Product, _ string, _ string) (resources.SourceRecord, error) {
+	r.getCalls++
+	if r.getErr != nil {
+		return resources.SourceRecord{}, r.getErr
+	}
+	return r.get, nil
+}
+
+func (r *machineRouteReader) Show(_ context.Context, _ resources.Product, _ string) (resources.SourceRecord, error) {
+	r.showCalls++
+	if r.showErr != nil {
+		return resources.SourceRecord{}, r.showErr
+	}
+	return r.show, nil
+}
+
+func machineRouteCatalog() resources.ResourceCatalog {
+	return resources.ResourceCatalog{
+		{
+			Product:    resources.ProductZIA,
+			Name:       "locations",
+			Operations: resources.ReadOperations(),
+			Fields:     machineRouteFields(),
+		},
+		{
+			Product:    resources.ProductZIA,
+			Name:       "advanced-settings",
+			Operations: resources.ShowOperation(),
+			Fields:     machineRouteFields(),
+		},
+	}
+}
+
+func machineRouteFields() []resources.FieldSpec {
+	allModes := []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid}
+	return []resources.FieldSpec{
+		{
+			Name:           "id",
+			Classification: resources.ClassOperational,
+			AllowedModes:   allModes,
+		},
+		{
+			Name:           "name",
+			Classification: resources.ClassTenantConfig,
+			AllowedModes:   allModes,
+		},
+	}
+}
+
 func TestColumnize(t *testing.T) {
 	t.Parallel()
 
@@ -143,4 +671,190 @@ func TestColumnize(t *testing.T) {
 	if got := columnize(nil, 80); got != "" {
 		t.Errorf("columnize(nil) = %q, want empty", got)
 	}
+}
+
+// TestWriteUsageCoversAllCobraCommands asserts that every non-hidden,
+// non-__complete, depth-1 utility command (i.e. not a product group node) is
+// mentioned somewhere in the global usage text. This is the durability gate
+// that caught the missing `introspect` line.
+func TestWriteUsageCoversAllCobraCommands(t *testing.T) {
+	t.Parallel()
+
+	a := New(io.Discard, io.Discard, nil)
+	root := BuildCommandTree(a)
+	root.InitDefaultCompletionCmd()
+
+	productSet := make(map[string]struct{})
+	for _, product := range knownProducts(a.resourceCatalog()) {
+		productSet[string(product)] = struct{}{}
+	}
+
+	var want []string
+	WalkCobraTree(root, func(cmd *cobra.Command, path string) {
+		// Only depth-1 commands.
+		if strings.Contains(path, " ") {
+			return
+		}
+		if cmd.Hidden || strings.HasPrefix(cmd.Name(), "__complete") {
+			return
+		}
+		// Product group nodes are handled separately in the usage text.
+		if _, ok := productSet[path]; ok {
+			return
+		}
+		want = append(want, path)
+	})
+
+	var b bytes.Buffer
+	a.writeUsage(&b, a.resourceCatalog())
+	usage := b.String()
+
+	containsCommand := func(usage, name string) bool {
+		for _, line := range strings.Split(usage, "\n") {
+			trimmed := strings.TrimLeft(line, " \t")
+			if trimmed == name || strings.HasPrefix(trimmed, name+" ") || strings.HasPrefix(trimmed, name+"\t") {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, name := range want {
+		if !containsCommand(usage, name) {
+			t.Errorf("writeUsage output missing top-level command %q as a standalone entry", name)
+		}
+	}
+
+	// Negative check: a fake top-level command must not be spuriously matched.
+	t.Run("fake command not matched", func(t *testing.T) {
+		if containsCommand(usage, "auth-status") {
+			t.Errorf("coverage check spuriously accepted fake command %q", "auth-status")
+		}
+	})
+}
+
+// TestCatalogSourceOfTruth verifies that an injected catalog is the single source
+// of truth for the command tree, introspection output, and shell completion.
+func TestCatalogSourceOfTruth(t *testing.T) {
+	t.Parallel()
+
+	product := resources.Product("testp")
+	catalog := resources.ResourceCatalog{
+		{
+			Product:    product,
+			Name:       "widgets",
+			Operations: resources.ReadOperations(),
+			Fields: []resources.FieldSpec{
+				{Name: "id", Classification: resources.ClassOperational, AllowedModes: []redact.Mode{redact.ModeStandard}},
+				{Name: "name", Classification: resources.ClassTenantConfig, AllowedModes: []redact.Mode{redact.ModeStandard}},
+			},
+		},
+		{
+			Product:    product,
+			Name:       "gadgets",
+			Operations: []resources.Operation{{Name: "show", Capability: resources.CapabilityRead}},
+			Fields: []resources.FieldSpec{
+				{Name: "id", Classification: resources.ClassOperational, AllowedModes: []redact.Mode{redact.ModeStandard}},
+			},
+		},
+	}
+
+	var out, errBuf bytes.Buffer
+	a := NewWithOptions(&out, &errBuf, nil, Options{
+		Catalog: catalog,
+	})
+
+	// Command tree should contain exactly the product from the injected catalog.
+	root := a.buildCommandTree(globalOptions{})
+	var productNames []string
+	for _, cmd := range root.Commands() {
+		if !cmd.Hidden {
+			productNames = append(productNames, cmd.Name())
+		}
+	}
+	if !contains(productNames, string(product)) {
+		t.Errorf("command tree missing product %q; got commands %v", product, productNames)
+	}
+
+	// Introspection catalog should match the injected catalog.
+	doc := IntrospectTree(a)
+	if len(doc.Catalog.Products) != 1 || doc.Catalog.Products[0] != string(product) {
+		t.Errorf("introspect products = %v, want [%s]", doc.Catalog.Products, product)
+	}
+	if len(doc.Catalog.Resources) != 2 {
+		t.Errorf("introspect resources count = %d, want 2", len(doc.Catalog.Resources))
+	}
+
+	// Completion should use the injected catalog.
+	resources := a.completionResourceNames(product)
+	wantResources := []string{"gadgets", "widgets"}
+	if strings.Join(resources, ",") != strings.Join(wantResources, ",") {
+		t.Errorf("completion resources = %v, want %v", resources, wantResources)
+	}
+
+	// Resource hints in usage errors should use the injected catalog.
+	msg := unknownCommandMessage("widgets", catalog)
+	if !strings.Contains(msg, "is a resource") {
+		t.Errorf("unknownCommandMessage for injected resource = %q, want resource hint", msg)
+	}
+
+	err := a.Run(context.Background(), []string{"widgets"})
+	if err == nil {
+		t.Fatal("App.Run(widgets) error = nil, want usage error with resource hint")
+	}
+	if !strings.Contains(err.Error(), "is a resource") || !strings.Contains(err.Error(), "<product> widgets") {
+		t.Errorf("App.Run(widgets) error = %q, want injected resource hint", err)
+	}
+}
+
+// TestEmptyCatalogProducesConsistentSurface verifies that an injected empty
+// catalog does not panic and produces a consistent, empty surface.
+func TestEmptyCatalogProducesConsistentSurface(t *testing.T) {
+	t.Parallel()
+
+	var out, errBuf bytes.Buffer
+	a := NewWithOptions(&out, &errBuf, nil, Options{
+		Catalog: resources.ResourceCatalog{},
+	})
+
+	// Command tree should contain no product commands.
+	root := a.buildCommandTree(globalOptions{})
+	for _, cmd := range root.Commands() {
+		if cmd.Name() == "testp" {
+			t.Errorf("command tree contains product %q from empty catalog", cmd.Name())
+		}
+	}
+
+	// Introspection should report an empty catalog.
+	doc := IntrospectTree(a)
+	if len(doc.Catalog.Products) != 0 {
+		t.Errorf("introspect products from empty catalog = %v, want []", doc.Catalog.Products)
+	}
+	if len(doc.Catalog.Resources) != 0 {
+		t.Errorf("introspect resources from empty catalog = %d, want 0", len(doc.Catalog.Resources))
+	}
+
+	// Bare invocation with no args should still exit 2 without panicking.
+	if err := a.Run(context.Background(), nil); err == nil {
+		t.Error("Run with empty args and empty catalog error = nil, want usage error")
+	} else if !errors.Is(err, ErrUsage) {
+		t.Errorf("Run with empty args and empty catalog error = %v, want ErrUsage", err)
+	}
+
+	// Help should still render without panicking.
+	if err := a.Run(context.Background(), []string{"--help"}); err != nil {
+		t.Errorf("Run --help with empty catalog error = %v, want nil", err)
+	}
+	if !strings.Contains(out.String(), "zscalerctl") {
+		t.Errorf("Run --help output = %q, want zscalerctl help", out.String())
+	}
+}
+
+func contains(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
 }

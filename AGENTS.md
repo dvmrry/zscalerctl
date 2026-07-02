@@ -12,14 +12,34 @@ repo-local `.agents` content; do not edit it directly. Run
 `scripts/sync-agents-skill.sh` after changing the canonical skill, and
 `scripts/sync-agents-skill.sh --check` to verify drift.
 
+## CLI reference
+
+The authoritative command and flag list is at
+[docs/cli/zscalerctl.md](docs/cli/zscalerctl.md) — generated from the live
+Cobra command tree, committed, and drift-gated in CI. Use it to look up exact
+flag names, types, defaults, and subcommand signatures without running the CLI.
+For agent and automation workflows, start with
+[docs/cli/agent-machine-workflow.md](docs/cli/agent-machine-workflow.md).
+
 ## Discover, don't guess
 
-Resource names are not guessable. Enumerate them first:
+Resource names are not guessable. Start agent read workflows with the
+config-free machine capability manifest:
 
 ```sh
-zscalerctl --format json schema list   # every product, resource, operation, and field
-zscalerctl zia --help                  # one product's resources, human-readable
+zscalerctl --format json machine manifest  # machine read capabilities; no config, credentials,
+                                           # SDK client, or Zscaler API contact
+zscalerctl introspect                      # full CLI map: commands, flags, args, output_fields,
+                                           # exit codes, and the resource catalog
+zscalerctl --format json schema list       # catalog-focused view: products, resources, ops, fields
+zscalerctl zia --help                      # syntax fallback only after discovery
 ```
+
+`machine manifest` carries `read_only: true` metadata and lists the
+`resources.read` capabilities agents should use for `list`, `get`, and `show`.
+`introspect` carries `read_only: true` at the top level and is the full CLI
+surface map. Use `schema list` when you need catalog field metadata, and use
+help only as a syntax fallback.
 
 Then read with `list`, `get <id>`, or `show` (singletons):
 
@@ -65,6 +85,8 @@ to set them rather than inventing values or hunting through shell config.**
   the default; force with `--format json`). For streaming a large `list` into a
   pipeline, `--format ndjson` emits one compact record per line (`jq -c`, SIEM
   ingest); it applies to resource `list`/`get`/`show` only.
+- Do not parse `pretty` or `table` output in automation; those are human
+  presentation formats.
 - Failures emit a JSON envelope on stderr:
   `{"error": {"kind": "...", "message": "...", "product": "...", "resource": "..."}}`
 - Exit codes are a stable contract: `0` ok, `1` internal, `2` usage,

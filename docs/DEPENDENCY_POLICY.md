@@ -32,9 +32,13 @@ bash scripts/test-verify-sdk-boundary.sh
 ```
 
 `make vuln` runs govulncheck at the version pinned by `GOVULNCHECK_VERSION` in
-the Makefile, so local runs and CI scan with the same tool version.
-`govulncheck` must report no reachable vulnerabilities. Non-reachable findings
-in required modules require a written review note before release.
+the Makefile, so local runs and CI scan with the same tool version. It scans
+both the root module and the nested `tools/` module. The tools scan resolves
+the executable tool packages declared in `tools/go.mod`, so release tooling is
+covered even though `tools/` is not vendored and does not define product
+packages. `govulncheck` must report no reachable vulnerabilities in either
+module. Non-reachable findings in required modules require a written review
+note before release.
 
 ## SDK Upgrade Runbook
 
@@ -91,6 +95,26 @@ Two properties keep them low-risk and must hold on upgrade:
   upgrade, re-confirm no reachable call to `colorprofile.Detect`, `.Env`, or
   `.Tmux`, and that `termenv` still imports no `os/exec` or `net`.
 
+## Experiment Dependencies
+
+Experiment-only dependencies for Fang, Lip Gloss v2, TUI, Wails, React, MCP, or
+alternate runtimes must not enter the root `go.mod`, `go.sum`, `vendor/`, normal
+`cmd/zscalerctl` binary, or default `make check` path before promotion. Put
+those dependencies in a separate branch, separate repository, or nested module
+as described in [DEV_PUBLIC_SURFACE_MODEL.md](DEV_PUBLIC_SURFACE_MODEL.md).
+
+Promoting an experiment dependency into the root module requires the same
+dependency review as any supported dependency plus a surface-class decision for
+the feature that needs it.
+
+## Machine Output Terminal Cleanliness
+
+Machine-readable output must stay free of terminal control sequences even when
+stdout is a real TTY. `make verify-pty-escape-clean` builds the normal
+`zscalerctl` binary, runs representative JSON commands inside a pseudo-terminal,
+and verifies that they emit valid JSON with no ESC bytes. Keep this guard when
+changing terminal styling dependencies or startup paths.
+
 ## Renovate Policy
 
 Renovate keeps Go dependencies and GitHub Actions current, but it does not
@@ -106,6 +130,12 @@ and Renovate's `gomod` manager auto-discovers `tools/go.mod` to keep the
 version current. GitHub Action SHA pinning does not apply to that dependency
 path.
 
+The `tools/` module is a release-executable surface. Tools declared with the Go
+`tool` directive are not linked into `zscalerctl`, but release automation runs
+them to create artifacts such as SBOMs and license reports. For that reason,
+`make vuln` treats reachable vulnerabilities in `tools/` tool packages as
+blocking for merge and `make release-check`.
+
 The Zscaler SDK package is handled separately from routine dependency updates.
 Renovate requires dependency dashboard approval for SDK bumps and annotates those
 PRs with the SDK upgrade runbook requirement.
@@ -116,7 +146,8 @@ PRs with the SDK upgrade runbook requirement.
 - `tools/` module: Renovate-managed for routine bumps but intentionally not
   vendored; a `renovate.json` package rule skips vendoring so no `tools/vendor`
   directory is created. GitHub Dependabot security alerts may also open PRs
-  against it.
+  against it. Because this module is release-executable, updates must keep
+  `make vuln` green for both root and tools modules.
 - Semver labels: dependency PRs that touch only `tools/` get `semver:none`;
   root-module bumps get `semver:patch`.
 
@@ -133,10 +164,21 @@ Semgrep is pinned in three places that must stay in sync:
 
 CodeQL, OSV-Scanner, and gosec provide breadth signal on top of the project
 specific gates. They start as advisory workflows instead of merge blockers.
-gosec runs on every pull request and uploads its results as SARIF to the
-Security tab (`continue-on-error`, so a finding surfaces without blocking the
-build). Promote a finding class to a blocking gate only after it is triaged and
-the rule is known to be stable for this repository.
+gosec runs on every pull request and produces SARIF. CodeQL runs its analyzer
+on pull requests and `main`.
+
+Security analyzers and code-scanning upload are separate concerns:
+
+- Scanner execution failure is a workflow failure.
+- Scanner findings are advisory until a rule class is triaged and promoted.
+- SARIF upload is attempted only when the repository exposes GitHub code
+  scanning to the workflow token; upload unavailability is a repository
+  capability warning, not a source-code failure.
+- Development repositories that do not have code scanning enabled still keep
+  SARIF or CodeQL results as short-lived workflow artifacts for review.
+
+Promote a finding class to a blocking gate only after it is triaged and the rule
+is known to be stable for this repository.
 
 ## Finding Remediation Policy
 
@@ -144,15 +186,16 @@ These thresholds are enforced by CI, not aspirational:
 
 - **Dependency vulnerabilities (SCA):** zero tolerance in called code paths —
   any `govulncheck` finding blocks merge and release (`make vuln` runs in PR CI
-  and in `make release-check`). Advisories in uncalled build tooling are
-  remediated by version bump at the next opportunity.
+  and in `make release-check`). This includes the root module and executable
+  release tools from the nested `tools/` module. Advisories in uncalled
+  non-release tooling are remediated by version bump at the next opportunity.
 - **Dependency integrity and licensing:** dependencies are hash-verified
   (`go.sum`), vendored for review, and must carry an Apache-2.0-compatible
   license. `make verify-licenses` enforces the shipped binary's dependency
   license allow-list with `go-licenses`; incompatible licenses block CI.
 - **Non-exploitable advisories (VEX):** when an advisory affects a declared
-  dependency but not the shipped binary (for example, build-only tooling in
-  `tools/`), a `not_affected` statement is recorded in the repository's
+  dependency but not the shipped binary or release-executable tooling, a
+  `not_affected` statement is recorded in the repository's
   [.openvex.json](../.openvex.json) (OpenVEX format) alongside the remediating
   bump. Statements are reviewed like code.
 - **Static analysis (SAST):** blocking tools (`go vet`, staticcheck, semgrep,
