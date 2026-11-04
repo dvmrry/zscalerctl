@@ -74,7 +74,7 @@
       ]
     },
     {
-      "description": "Renovate skips indirect Go dependencies by default. Update them in tools/ so fixes in the release tools' dependencies, which Scorecard's Vulnerabilities check reports, arrive with the go dependencies group. The root module's indirect dependencies stay off: they are vendored into the shipped binary and move with its direct dependencies.",
+      "description": "Renovate skips indirect Go dependencies by default, and osvVulnerabilityAlerts covers only direct ones. Update the golang.org/x modules in tools/ anyway: they carry most Go advisories, which Scorecard's Vulnerabilities check reports from tools/go.mod, and they arrive with the go dependencies group. Other indirect tools dependencies stay off and move with the tools' own releases, as do the root module's, which are vendored into the shipped binary.",
       "matchManagers": [
         "gomod"
       ],
@@ -83,6 +83,9 @@
       ],
       "matchDepTypes": [
         "indirect"
+      ],
+      "matchPackageNames": [
+        "golang.org/x/*"
       ],
       "enabled": true
     },
