@@ -72,6 +72,30 @@
       "postUpdateOptions": [
         "gomodSkipVendor"
       ]
+    },
+    {
+      "description": "One PR for routine action bumps; major versions still arrive one at a time.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "groupName": "github actions"
+    },
+    {
+      "description": "A Go upgrade moves go.mod and every workflow's go-version together, and waits for dashboard approval. Last, so it overrides the go dependencies and github actions groups for the go dependency.",
+      "matchDepNames": [
+        "go"
+      ],
+      "groupName": "go toolchain",
+      "dependencyDashboardApproval": true,
+      "labels": [
+        "dependencies",
+        "go"
+      ]
     }
   ]
 }
