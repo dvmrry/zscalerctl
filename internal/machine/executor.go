@@ -1,0 +1,606 @@
+package machine
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
+)
+
+const (
+	// ErrorKindUsage reports an invalid machine request shape.
+	ErrorKindUsage = "usage"
+
+	// ErrorKindUnsupportedCapability reports a capability this executor does
+	// not implement.
+	ErrorKindUnsupportedCapability = "unsupported_capability"
+
+	// ErrorKindUnsupportedOperation reports an operation this executor does not
+	// implement for a supported capability.
+	ErrorKindUnsupportedOperation = "unsupported_operation"
+
+	// ErrorKindUnknownResource reports a product/resource that is not in the
+	// projected resource catalog.
+	ErrorKindUnknownResource = "unknown_resource"
+
+	// ErrorKindNotFound reports an ID-backed record lookup whose target does not
+	// exist.
+	ErrorKindNotFound = "not_found"
+
+	// ErrorKindInvalidResourceID reports an ID that cannot identify a resource.
+	ErrorKindInvalidResourceID = "invalid_resource_id"
+
+	// ErrorKindLiveAccessFailed reports a sanitized resource-loading failure.
+	ErrorKindLiveAccessFailed = "live_access_failed"
+
+	// ErrorKindCanceled reports a request canceled by context.
+	ErrorKindCanceled = "canceled"
+
+	// ErrorKindDeadlineExceeded reports a request that exceeded its deadline.
+	ErrorKindDeadlineExceeded = "deadline_exceeded"
+
+	// ErrorKindInvalidConfig reports invalid effective runtime configuration.
+	ErrorKindInvalidConfig = "invalid_config"
+
+	// ErrorKindInvalidProxyConfig reports conflicting or malformed proxy settings.
+	ErrorKindInvalidProxyConfig = "invalid_proxy_config"
+
+	// ErrorKindMissingCredentials reports incomplete live-access credentials.
+	ErrorKindMissingCredentials = "missing_credentials"
+
+	// ErrorKindUnsupportedResource reports an unavailable specialized reader.
+	ErrorKindUnsupportedResource = "unsupported_resource"
+
+	// ErrorKindInternal reports executor wiring errors.
+	ErrorKindInternal = "internal"
+)
+
+const (
+	// These diagnostics intentionally do not reflect arbitrary request values.
+	// The values are already available in structured request/error context when
+	// that context is useful; the human-readable message stays fixed so a
+	// malformed client value cannot become an output or terminal-event leak.
+	unsupportedCapabilityMessage     = "unsupported capability"
+	unsupportedReadOperationMessage  = "unsupported operation for resources.read"
+	unsupportedFilterOperatorMessage = `input.filters.operator is not supported; use "=", "exact", "~", or "contains"`
+)
+
+// BrowserLoader is the projected-record loading surface required by Executor.
+// Implementations own catalog lookup, live reads, projection, and redaction.
+type BrowserLoader interface {
+	ListProjected(ctx context.Context, product, resource string) (resources.ProjectedRecords, error)
+	ShowProjected(ctx context.Context, product, resource string) (resources.ProjectedRecords, error)
+}
+
+// ProjectedRecordGetter is the projected-record loading surface for ID-backed
+// reads. Implementations own catalog lookup, live reads, projection, and
+// redaction.
+type ProjectedRecordGetter interface {
+	GetProjectedByID(ctx context.Context, product, resource, id string) (resources.ProjectedRecords, error)
+}
+
+// Executor executes supported machine requests through projected-record
+// loaders without owning CLI routing, config loading, SDK clients, or rendering.
+type Executor struct {
+	Browser   BrowserLoader
+	Catalog   resources.ResourceCatalog
+	Redaction redact.Mode
+}
+
+// Execute validates and runs one supported read-only machine request. The
+// response is reconstructed from ExecuteStream events so one-shot and streamed
+// execution cannot acquire separate operation semantics.
+func (e Executor) Execute(ctx context.Context, req Request) (Response, error) {
+	resp := responseForRequest(req)
+	err := e.ExecuteStream(ctx, req, func(event Event) error {
+		return accumulateResponseEvent(&resp, event)
+	})
+	if resp.Error != nil {
+		return resp, resp.Error
+	}
+	if err != nil {
+		machineErr := machineErrorFromSinkError(err)
+		product, resource := inputResource(req)
+		machineErr = machineErrorWithContext(machineErr, req.Operation, product, resource)
+		resp.Error = &machineErr
+		return resp, resp.Error
+	}
+	return resp, nil
+}
+
+// ExecuteStream validates and runs one supported read-only machine request,
+// delivering ordered events synchronously on the caller's goroutine. It starts
+// no goroutines. The sink must be non-nil; a sink error or panic aborts the
+// operation and is converted to a machine-safe failure.
+func (e Executor) ExecuteStream(ctx context.Context, req Request, sink EventSink) error {
+	product, resource := inputResource(req)
+	stream, err := StartEventStream(sink, req.Operation, product, resource, 0)
+	if err != nil {
+		return err
+	}
+
+	if machineErr := validateRequestSemantics(req, product, resource); machineErr != nil {
+		return failEventStream(stream, *machineErr)
+	}
+	if req.Operation == OperationManifest {
+		if req.Capability != "" && req.Capability != CapabilityResourcesRead {
+			return failEventStream(stream, MachineError{
+				Kind:      ErrorKindUnsupportedCapability,
+				Message:   unsupportedCapabilityMessage,
+				Operation: req.Operation,
+				Product:   product,
+				Resource:  resource,
+			})
+		}
+		manifest := ManifestFromCatalog(e.catalog())
+		return stream.Complete(Event{
+			Product:  product,
+			Resource: resource,
+			Manifest: &manifest,
+		})
+	}
+	if req.Capability != CapabilityResourcesRead {
+		return failEventStream(stream, MachineError{
+			Kind:      ErrorKindUnsupportedCapability,
+			Message:   unsupportedCapabilityMessage,
+			Operation: req.Operation,
+			Product:   product,
+			Resource:  resource,
+		})
+	}
+	if !IsResourceReadOperation(req.Operation) {
+		return failEventStream(stream, MachineError{
+			Kind:      ErrorKindUnsupportedOperation,
+			Message:   unsupportedReadOperationMessage,
+			Operation: req.Operation,
+			Product:   product,
+			Resource:  resource,
+		})
+	}
+
+	product, resource, recordID, missing := requiredInput(req)
+	if len(missing) > 0 {
+		return failEventStream(stream, MachineError{
+			Kind:      ErrorKindUsage,
+			Message:   "missing required input: " + strings.Join(missing, ", "),
+			Missing:   missing,
+			Operation: req.Operation,
+			Product:   product,
+			Resource:  resource,
+		})
+	}
+	if machineErr := e.validateRequestNarrowing(req, product, resource); machineErr != nil {
+		return failEventStream(stream, *machineErr)
+	}
+
+	if e.Browser == nil {
+		return failEventStream(stream, MachineError{
+			Kind:      ErrorKindInternal,
+			Message:   "browser loader is not configured",
+			Operation: req.Operation,
+			Product:   product,
+			Resource:  resource,
+		})
+	}
+
+	projected, err := e.loadProjected(ctx, req.Operation, product, resource, recordID)
+	if err != nil {
+		return failEventStream(stream, machineErrorFromLoadError(err, req.Operation, product, resource))
+	}
+	projected, err = e.narrowProjected(req, product, resource, projected)
+	if err != nil {
+		return failEventStream(stream, machineErrorFromLoadError(err, req.Operation, product, resource))
+	}
+
+	records := projected.Records()
+	for i := range records {
+		record := records[i]
+		if err := stream.Emit(Event{
+			Kind:     EventRecord,
+			Product:  product,
+			Resource: resource,
+			Record:   &record,
+		}); err != nil {
+			return err
+		}
+	}
+	result := NewResourceReadResult(projected)
+	return stream.Complete(Event{
+		Product:        product,
+		Resource:       resource,
+		Records:        len(records),
+		Resources:      1,
+		resourceResult: &result,
+	})
+}
+
+func failEventStream(stream *EventStream, machineErr MachineError) error {
+	if err := stream.Fail(machineErr); err != nil {
+		return err
+	}
+	return &machineErr
+}
+
+// IsResourceReadOperation reports whether op belongs to the closed typed
+// catalog-read operation family.
+func IsResourceReadOperation(op Operation) bool {
+	return op == OperationList || op == OperationGet || op == OperationShow
+}
+
+func requiredInput(req Request) (string, string, string, []string) {
+	if req.Input == nil {
+		return "", "", "", []string{"input"}
+	}
+	product, resource := inputResource(req)
+	recordID := inputRecordID(req)
+	var missing []string
+	if product == "" {
+		missing = append(missing, "input.product")
+	}
+	if resource == "" {
+		missing = append(missing, "input.resource")
+	}
+	if req.Operation == OperationGet && recordID == "" {
+		missing = append(missing, "input.record_id")
+	}
+	return product, resource, recordID, missing
+}
+
+func inputResource(req Request) (string, string) {
+	if req.Input == nil {
+		return "", ""
+	}
+	return strings.TrimSpace(req.Input.Product), strings.TrimSpace(req.Input.Resource)
+}
+
+func inputRecordID(req Request) string {
+	if req.Input == nil {
+		return ""
+	}
+	return strings.TrimSpace(req.Input.RecordID)
+}
+
+func (e Executor) loadProjected(
+	ctx context.Context,
+	op Operation,
+	product string,
+	resource string,
+	recordID string,
+) (resources.ProjectedRecords, error) {
+	if op != OperationGet {
+		if op == OperationShow {
+			return e.Browser.ShowProjected(ctx, product, resource)
+		}
+		return e.Browser.ListProjected(ctx, product, resource)
+	}
+	getter, ok := e.Browser.(ProjectedRecordGetter)
+	if !ok {
+		return resources.ProjectedRecords{}, &MachineError{
+			Kind:      ErrorKindInternal,
+			Message:   "projected record getter is not configured",
+			Operation: op,
+			Product:   product,
+			Resource:  resource,
+		}
+	}
+	return getter.GetProjectedByID(ctx, product, resource, recordID)
+}
+
+func responseForRequest(req Request) Response {
+	product, resource := inputResource(req)
+	meta := &Meta{
+		RequestID: req.RequestID,
+		Product:   product,
+		Resource:  resource,
+		ReadOnly:  true,
+		Count:     0,
+	}
+	return Response{
+		RequestID:  req.RequestID,
+		Capability: req.Capability,
+		Operation:  req.Operation,
+		Meta:       meta,
+	}
+}
+
+func accumulateResponseEvent(resp *Response, event Event) error {
+	switch event.Kind {
+	case EventRecord:
+		if event.Record == nil {
+			return &MachineError{
+				Kind:      ErrorKindInternal,
+				Message:   "record event has no record",
+				Operation: resp.Operation,
+				Product:   event.Product,
+				Resource:  event.Resource,
+			}
+		}
+		resp.Records = append(resp.Records, event.Record.Fields())
+	case EventCompleted:
+		if event.Manifest != nil {
+			manifest := *event.Manifest
+			resp.Manifest = &manifest
+			resp.Meta.Count = len(manifest.Capabilities)
+			return nil
+		}
+		if resp.Records == nil {
+			resp.Records = make([]map[string]any, 0)
+		}
+		resp.Meta.Count = len(resp.Records)
+	case EventWarning:
+		return &MachineError{
+			Kind:      ErrorKindInternal,
+			Message:   "one-shot response cannot represent warning event",
+			Operation: resp.Operation,
+			Product:   event.Product,
+			Resource:  event.Resource,
+		}
+	case EventFailed, EventCanceled:
+		if event.Err == nil {
+			return &MachineError{
+				Kind:      ErrorKindInternal,
+				Message:   "terminal event has no machine error",
+				Operation: resp.Operation,
+				Product:   event.Product,
+				Resource:  event.Resource,
+			}
+		}
+		machineErr := copyMachineError(*event.Err)
+		resp.Error = &machineErr
+	}
+	return nil
+}
+
+func validateRequestSemantics(req Request, product, resource string) *MachineError {
+	if req.Input == nil {
+		return nil
+	}
+	if len(req.Input.Fields) > 0 && !IsResourceReadOperation(req.Operation) {
+		return &MachineError{
+			Kind:      ErrorKindUsage,
+			Message:   "input.fields applies to resource read operations only",
+			Operation: req.Operation,
+			Product:   product,
+			Resource:  resource,
+		}
+	}
+	if len(req.Input.Filters) > 0 && req.Operation != OperationList {
+		return &MachineError{
+			Kind:      ErrorKindUsage,
+			Message:   "input.filters applies to list operation only",
+			Operation: req.Operation,
+			Product:   product,
+			Resource:  resource,
+		}
+	}
+	if req.Input.Search != "" && req.Operation != OperationList {
+		return &MachineError{
+			Kind:      ErrorKindUsage,
+			Message:   "input.search applies to list operation only",
+			Operation: req.Operation,
+			Product:   product,
+			Resource:  resource,
+		}
+	}
+	if _, err := filtersFromInput(req.Input.Filters); err != nil {
+		return &MachineError{
+			Kind:      ErrorKindUsage,
+			Message:   sanitizedMachineMessage(err.Error()),
+			Operation: req.Operation,
+			Product:   product,
+			Resource:  resource,
+		}
+	}
+	return nil
+}
+
+// validateRequestNarrowing validates catalog field names before the projected
+// loader is called. The machine API has no access to source records at this
+// point, so this preflight is the only way to ensure an invalid --fields or
+// --filter request cannot trigger a live read or provider resolution.
+func (e Executor) validateRequestNarrowing(req Request, product, resource string) *MachineError {
+	if req.Input == nil || (len(req.Input.Fields) == 0 && len(req.Input.Filters) == 0) {
+		return nil
+	}
+	spec, ok := e.catalog().FindSpec(resources.Product(product), resource)
+	if !ok {
+		return &MachineError{
+			Kind:      ErrorKindUnknownResource,
+			Message:   unknownResourceMessage(product, resource),
+			Operation: req.Operation,
+			Product:   product,
+			Resource:  resource,
+		}
+	}
+	filters, err := filtersFromInput(req.Input.Filters)
+	if err != nil {
+		return &MachineError{
+			Kind:      ErrorKindUsage,
+			Message:   sanitizedMachineMessage(err.Error()),
+			Operation: req.Operation,
+			Product:   product,
+			Resource:  resource,
+		}
+	}
+	if err := resources.ValidateNarrowOptionsInMode(spec, e.Redaction, resources.NarrowOptions{
+		Fields:  fieldsFromInput(req.Input.Fields),
+		Filters: filters,
+	}); err != nil {
+		machineErr := machineErrorFromLoadError(err, req.Operation, product, resource)
+		return &machineErr
+	}
+	return nil
+}
+
+func (e Executor) narrowProjected(
+	req Request,
+	product string,
+	resource string,
+	projected resources.ProjectedRecords,
+) (resources.ProjectedRecords, error) {
+	if req.Input == nil {
+		return projected, nil
+	}
+	if len(req.Input.Fields) == 0 && len(req.Input.Filters) == 0 && req.Input.Search == "" {
+		return projected, nil
+	}
+	spec, ok := e.catalog().FindSpec(resources.Product(product), resource)
+	if !ok {
+		return resources.ProjectedRecords{},
+			fmt.Errorf("%w: %s/%s", resources.ErrUnknownResource, product, resource)
+	}
+	filters, err := filtersFromInput(req.Input.Filters)
+	if err != nil {
+		return resources.ProjectedRecords{}, err
+	}
+	return resources.NarrowProjectedRecords(spec, e.Redaction, projected, resources.NarrowOptions{
+		Fields:  fieldsFromInput(req.Input.Fields),
+		Filters: filters,
+		Search:  req.Input.Search,
+	})
+}
+
+func fieldsFromInput(fields []string) []string {
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if trimmed := strings.TrimSpace(field); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func filtersFromInput(filters []Filter) ([]resources.ProjectedFilter, error) {
+	out := make([]resources.ProjectedFilter, 0, len(filters))
+	for _, filter := range filters {
+		field := strings.TrimSpace(filter.Field)
+		if field == "" {
+			return nil, errors.New("input.filters.field is required")
+		}
+		projectedFilter := resources.ProjectedFilter{
+			Field: field,
+			Value: filter.Value,
+		}
+		switch strings.TrimSpace(filter.Operator) {
+		case "=", "exact":
+			projectedFilter.Substring = false
+		case "~", "contains":
+			projectedFilter.Substring = true
+		default:
+			return nil, errors.New(unsupportedFilterOperatorMessage)
+		}
+		out = append(out, projectedFilter)
+	}
+	return out, nil
+}
+
+func (e Executor) catalog() resources.ResourceCatalog {
+	if e.Catalog == nil {
+		return cloneEngineCatalog(resources.Catalog())
+	}
+	return cloneEngineCatalog(e.Catalog)
+}
+
+func machineErrorFromLoadError(err error, op Operation, product, resource string) MachineError {
+	if machineErr, ok := errors.AsType[*MachineError](err); ok {
+		return sanitizeMachineError(*machineErr)
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		return MachineError{
+			Kind:      ErrorKindCanceled,
+			Message:   "request canceled",
+			Operation: op,
+			Product:   product,
+			Resource:  resource,
+		}
+	case errors.Is(err, context.DeadlineExceeded):
+		return MachineError{
+			Kind:      ErrorKindDeadlineExceeded,
+			Message:   "request deadline exceeded",
+			Operation: op,
+			Product:   product,
+			Resource:  resource,
+			Detail:    FailureDetailOf(err),
+		}
+	case errors.Is(err, resources.ErrUnknownResource):
+		return MachineError{
+			Kind:      ErrorKindUnknownResource,
+			Message:   unknownResourceMessage(product, resource),
+			Operation: op,
+			Product:   product,
+			Resource:  resource,
+		}
+	case errors.Is(err, resources.ErrRecordNotFound):
+		return MachineError{
+			Kind:      ErrorKindNotFound,
+			Message:   "record not found",
+			Operation: op,
+			Product:   product,
+			Resource:  resource,
+		}
+	case errors.Is(err, resources.ErrInvalidResourceID):
+		return MachineError{
+			Kind:      ErrorKindInvalidResourceID,
+			Message:   "invalid resource ID",
+			Operation: op,
+			Product:   product,
+			Resource:  resource,
+			cause:     resources.ErrInvalidResourceID,
+		}
+	case errors.Is(err, resources.ErrMissingID), errors.Is(err, resources.ErrUnknownField),
+		errors.Is(err, resources.ErrSuppressedField):
+		return MachineError{
+			Kind:      ErrorKindUsage,
+			Message:   sanitizedMachineMessage(err.Error()),
+			Operation: op,
+			Product:   product,
+			Resource:  resource,
+		}
+	case errors.Is(err, resources.ErrUnsupportedLoad), errors.Is(err, resources.ErrMutatingOperation):
+		return MachineError{
+			Kind:      ErrorKindUnsupportedOperation,
+			Message:   "unsupported resource read operation",
+			Operation: op,
+			Product:   product,
+			Resource:  resource,
+		}
+	default:
+		machineErr := MachineError{
+			Kind:      ErrorKindLiveAccessFailed,
+			Message:   "resource read failed",
+			Operation: op,
+			Product:   product,
+			Resource:  resource,
+		}
+		machineErr.AttachFailure(err)
+		return machineErr
+	}
+}
+
+// sanitizedMachineMessage keeps client-controlled details in usage errors
+// from crossing the machine boundary as raw text. In particular, unknown
+// catalog names are reflected in their diagnostic, and may contain a token
+// shaped like a credential.
+func sanitizedMachineMessage(message string) string {
+	sanitized, _ := redact.New(redact.ModeStandard).ScanRenderedString(message)
+	return sanitized
+}
+
+func sanitizeMachineError(machineErr MachineError) MachineError {
+	machineErr.Message = sanitizedMachineMessage(machineErr.Message)
+	return machineErr
+}
+
+// unknownResourceMessage names a declared coverage gap, so a caller can tell
+// "zscalerctl cannot read this" from a mistyped name. It never echoes the
+// requested name.
+func unknownResourceMessage(product, resource string) string {
+	if gap, ok := resources.FindGap(resources.Product(product), resource); ok {
+		return resources.UnreadMessage(gap)
+	}
+	return "unknown resource"
+}

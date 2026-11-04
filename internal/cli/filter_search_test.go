@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/cli"
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/cli"
+	"zscalerctl/internal/resources"
 )
 
 const filterSecretCanary = "psk-canary-filter-value"
@@ -139,7 +139,6 @@ func TestSearchMatchesAcrossFieldTypes(t *testing.T) {
 		{name: "term across records", search: "192.0.2", want: "HQ,Branch West"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			args := []string{"--format", "json", "--search", tt.search, "zia", "locations", "list"}
@@ -181,28 +180,29 @@ func TestFilterNoMatchIsEmptySuccess(t *testing.T) {
 }
 
 // TestFilterSearchCannotReachSecretOrDroppedFields proves the safety property:
-// narrowing runs strictly post-projection, so a --filter naming a secret or
-// unmodeled field, or a --search for a secret's value, matches nothing — the
-// data was already dropped by the allow-list before narrowing ran, in every
-// redaction mode.
+// a --filter naming a secret or unmodeled field is a usage error before any
+// read (a filter that can never match would pose as an empty result), and a
+// --search for a secret's value matches nothing because narrowing runs
+// strictly post-projection, after the allow-list dropped the data.
 func TestFilterSearchCannotReachSecretOrDroppedFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		args []string
+		name      string
+		args      []string
+		wantUsage bool
 	}{
 		{
 			name: "exact filter on secret field",
-			args: []string{"--filter", "preSharedKey=" + filterSecretCanary},
+			args: []string{"--filter", "preSharedKey=" + filterSecretCanary}, wantUsage: true,
 		},
 		{
 			name: "substring filter on secret field",
-			args: []string{"--filter", "preSharedKey~psk"},
+			args: []string{"--filter", "preSharedKey~psk"}, wantUsage: true,
 		},
 		{
 			name: "filter on unmodeled field",
-			args: []string{"--filter", "notAField~anything"},
+			args: []string{"--filter", "notAField~anything"}, wantUsage: true,
 		},
 		{
 			name: "search for secret value",
@@ -210,15 +210,34 @@ func TestFilterSearchCannotReachSecretOrDroppedFields(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var out, errOut bytes.Buffer
-			app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: filterFixtureReader()})
+			reader := cli.ResourceReader(filterFixtureReader())
+			if tt.wantUsage {
+				// The catalog preflight must reject the name before any reader
+				// method is reached; this reader makes a late validation a test
+				// failure rather than a silent success.
+				reader = failingResourceReader{}
+			}
+			app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 			args := append([]string{"--format", "json"}, tt.args...)
 			args = append(args, "zia", "locations", "list")
-			if err := app.Run(context.Background(), args); err != nil {
+			err := app.Run(context.Background(), args)
+			if tt.wantUsage {
+				if !errors.Is(err, cli.ErrUsage) {
+					t.Fatalf("App.Run(%v) error = %v, want ErrUsage", args, err)
+				}
+				if out.Len() != 0 || errOut.Len() != 0 {
+					t.Fatalf("App.Run(%v) output = stdout=%q stderr=%q, want empty", args, out.String(), errOut.String())
+				}
+				if strings.Contains(err.Error(), filterSecretCanary) {
+					t.Errorf("App.Run(%v) error = %q echoes the secret canary", args, err.Error())
+				}
+				return
+			}
+			if err != nil {
 				t.Fatalf("App.Run(%v) error = %v, want nil", args, err)
 			}
 			if got := strings.TrimSpace(out.String()); got != "[]" {
@@ -242,12 +261,11 @@ func TestFilterSearchAreUsageErrorsOutsideList(t *testing.T) {
 		{name: "search on get", args: []string{"--search", "HQ", "zia", "locations", "get", "123"}},
 		{name: "filter on show", args: []string{"--filter", "apiSessionTimeout=30", "zia", "advanced-settings", "show"}},
 		{name: "search on show", args: []string{"--search", "30", "zia", "advanced-settings", "show"}},
-		{name: "filter on dump", args: []string{"--filter", "name=HQ", "dump", "--out", "ignored"}},
+		{name: "filter on dump", args: []string{"--filter", "name=HQ", "dump", "--output", "ignored"}},
 		{name: "filter on doctor", args: []string{"--filter", "name=HQ", "doctor"}},
 		{name: "search on version", args: []string{"--search", "HQ", "version"}},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -279,11 +297,11 @@ func TestFieldsIsUsageErrorOutsideResourceReads(t *testing.T) {
 		{name: "fields on schema list", args: []string{"--fields", "name", "schema", "list"}},
 		{name: "fields on doctor", args: []string{"--fields", "name", "doctor"}},
 		{name: "fields on version", args: []string{"--fields", "name", "version"}},
-		{name: "fields on dump", args: []string{"--fields", "name", "dump", "--out", "ignored"}},
+		{name: "fields on dump", args: []string{"--fields", "name", "dump", "--output", "ignored"}},
 		{name: "fields on resource without operation", args: []string{"--fields", "name", "zia", "locations"}},
+		{name: "fields on introspect", args: []string{"--fields", "name", "introspect"}},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -305,6 +323,98 @@ func TestFieldsIsUsageErrorOutsideResourceReads(t *testing.T) {
 	}
 }
 
+// TestFilterNestedPathMatchesGroupMembership is the group-membership report
+// case: a substring filter on the whole groups list matches APP_INFOSEC_DEV
+// for "_DEV", while a nested path matches each group name exactly.
+func TestFilterNestedPathMatchesGroupMembership(t *testing.T) {
+	t.Parallel()
+
+	group := func(id int, name string) map[string]any { return map[string]any{"id": id, "name": name} }
+	reader := fakeResourceReader{list: []resources.SourceRecord{
+		resources.NewSourceRecord(map[string]any{"id": 1, "name": "alice", "groups": []any{group(10, "APP_DEV")}}),
+		resources.NewSourceRecord(map[string]any{"id": 2, "name": "bob", "groups": []any{group(11, "APP_INFOSEC_DEV")}}),
+		resources.NewSourceRecord(map[string]any{"id": 3, "name": "carol"}),
+	}}
+	for _, tc := range []struct{ filter, want string }{
+		{"groups~_DEV", "alice,bob"},
+		{"groups.name=APP_DEV", "alice"},
+		{"groups.id=11", "bob"},
+		{"groups.name~infosec", "bob"},
+	} {
+		args := []string{"--format", "json", "--filter", tc.filter, "zia", "users", "list"}
+		var out, errOut bytes.Buffer
+		app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+		if err := app.Run(context.Background(), args); err != nil {
+			t.Fatalf("App.Run(%v) error = %v, want nil", args, err)
+		}
+		var decoded []map[string]any
+		if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+			t.Fatalf("json.Unmarshal(App.Run(%v)) error = %v; output=%q", args, err, out.String())
+		}
+		if got := recordNames(decoded); got != tc.want {
+			t.Errorf("App.Run(%v) records = %q, want %q", args, got, tc.want)
+		}
+	}
+
+	// A path that is not in the nested catalog is a usage error before any read.
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
+	args := []string{"--filter", "groups.notAField=x", "zia", "users", "list"}
+	if err := app.Run(context.Background(), args); !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(%v) error = %v, want ErrUsage", args, err)
+	}
+}
+
+// TestFieldsDottedPathNarrowsNestedValues pins --fields paths end to end: JSON
+// keeps the nested shape with only the selected keys, and the table gets one
+// column per path holding what it reaches.
+func TestFieldsDottedPathNarrowsNestedValues(t *testing.T) {
+	t.Parallel()
+
+	group := func(id int, name string) map[string]any { return map[string]any{"id": id, "name": name} }
+	reader := fakeResourceReader{list: []resources.SourceRecord{
+		resources.NewSourceRecord(map[string]any{"id": 1, "name": "alice", "groups": []any{group(10, "APP_DEV"), group(12, "Ops")}}),
+		resources.NewSourceRecord(map[string]any{"id": 3, "name": "carol"}),
+	}}
+
+	run := func(format string) string {
+		t.Helper()
+		args := []string{"--format", format, "--fields", "name,groups.id", "zia", "users", "list"}
+		var out, errOut bytes.Buffer
+		app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+		if err := app.Run(context.Background(), args); err != nil {
+			t.Fatalf("App.Run(%v) error = %v, want nil", args, err)
+		}
+		return out.String()
+	}
+
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(run("json")), &decoded); err != nil {
+		t.Fatalf("json.Unmarshal error = %v", err)
+	}
+	got, _ := json.Marshal(decoded)
+	if want := `[{"groups":[{"id":10},{"id":12}],"name":"alice"},{"name":"carol"}]`; string(got) != want {
+		t.Errorf("--fields name,groups.id json = %s, want %s", got, want)
+	}
+
+	table := run("table")
+	if want := "name\tgroups.id\nalice\t10,12\ncarol\t\n"; table != want {
+		t.Errorf("--fields name,groups.id table = %q, want %q", table, want)
+	}
+
+	// get renders key/value rows, one per path.
+	getReader := fakeResourceReader{get: reader.list[0]}
+	args := []string{"--format", "table", "--color", "never", "--fields", "name,groups.id", "zia", "users", "get", "1"}
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: getReader})
+	if err := app.Run(context.Background(), args); err != nil {
+		t.Fatalf("App.Run(%v) error = %v, want nil", args, err)
+	}
+	if got := out.String(); !strings.Contains(got, "groups.id") || !strings.Contains(got, "10,12") {
+		t.Errorf("--fields name,groups.id get table = %q, want a groups.id row holding 10,12", got)
+	}
+}
+
 func TestFilterInvalidExpressionIsUsageError(t *testing.T) {
 	t.Parallel()
 
@@ -316,7 +426,6 @@ func TestFilterInvalidExpressionIsUsageError(t *testing.T) {
 		{name: "missing key", expr: "=HQ"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -387,5 +496,83 @@ func TestFilterAppliesBeforeFieldsSelection(t *testing.T) {
 	}
 	if _, ok := decoded[0]["country"]; ok || len(decoded[0]) != 1 {
 		t.Errorf("App.Run(%v) record = %#v, want only the selected name field", args, decoded[0])
+	}
+}
+
+func TestFieldsNarrowListGetShowJSON(t *testing.T) {
+	t.Parallel()
+
+	listArgs := []string{
+		"--format", "json",
+		"--fields", "name",
+		"zia", "locations", "list",
+	}
+	listRecords := runListJSON(t, listArgs)
+	if len(listRecords) == 0 {
+		t.Fatalf("App.Run(%v) records = 0, want records", listArgs)
+	}
+	for _, record := range listRecords {
+		if _, ok := record["name"]; !ok || len(record) != 1 {
+			t.Fatalf("App.Run(%v) record = %#v, want only name", listArgs, record)
+		}
+	}
+
+	var getOut, getErr bytes.Buffer
+	getApp := cli.NewWithOptions(&getOut, &getErr, nil, cli.Options{
+		Reader: fakeResourceReader{
+			get: resources.NewSourceRecord(map[string]any{
+				"id":      2,
+				"name":    "HQ",
+				"country": "US",
+			}),
+		},
+	})
+	getArgs := []string{
+		"--format", "json",
+		"--fields", "name",
+		"zia", "locations", "get", "2",
+	}
+	if err := getApp.Run(context.Background(), getArgs); err != nil {
+		t.Fatalf("App.Run(%v) error = %v, want nil", getArgs, err)
+	}
+	if getErr.Len() != 0 {
+		t.Fatalf("App.Run(%v) stderr = %q, want empty", getArgs, getErr.String())
+	}
+	var getRecord map[string]any
+	if err := json.Unmarshal(getOut.Bytes(), &getRecord); err != nil {
+		t.Fatalf("json.Unmarshal(App.Run(%v) output) error = %v; output=%q", getArgs, err, getOut.String())
+	}
+	if _, ok := getRecord["name"]; !ok || len(getRecord) != 1 {
+		t.Fatalf("App.Run(%v) record = %#v, want only name", getArgs, getRecord)
+	}
+
+	var showOut, showErr bytes.Buffer
+	showApp := cli.NewWithOptions(&showOut, &showErr, nil, cli.Options{
+		Reader: fakeResourceReader{
+			show: resources.NewSourceRecord(map[string]any{
+				"apiSessionTimeout":                     30,
+				"ecsForAllEnabled":                      true,
+				"uiSessionTimeout":                      15,
+				"enableDnsResolutionOnTransparentProxy": true,
+			}),
+		},
+	})
+	showArgs := []string{
+		"--format", "json",
+		"--fields", "apiSessionTimeout",
+		"zia", "advanced-settings", "show",
+	}
+	if err := showApp.Run(context.Background(), showArgs); err != nil {
+		t.Fatalf("App.Run(%v) error = %v, want nil", showArgs, err)
+	}
+	if showErr.Len() != 0 {
+		t.Fatalf("App.Run(%v) stderr = %q, want empty", showArgs, showErr.String())
+	}
+	var showRecord map[string]any
+	if err := json.Unmarshal(showOut.Bytes(), &showRecord); err != nil {
+		t.Fatalf("json.Unmarshal(App.Run(%v) output) error = %v; output=%q", showArgs, err, showOut.String())
+	}
+	if _, ok := showRecord["apiSessionTimeout"]; !ok || len(showRecord) != 1 {
+		t.Fatalf("App.Run(%v) record = %#v, want only apiSessionTimeout", showArgs, showRecord)
 	}
 }

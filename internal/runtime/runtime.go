@@ -1,0 +1,446 @@
+// Package runtime assembles trusted read-only execution stacks for adapters.
+//
+// This package owns config loading, secret resolution, SDK reader construction,
+// browser projection, dump collection, and machine execution wiring. Transport
+// adapters can use it without importing the Cobra CLI adapter or duplicating
+// raw runtime setup.
+package runtime
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"time"
+
+	"zscalerctl/internal/browser"
+	"zscalerctl/internal/config"
+	"zscalerctl/internal/machine"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
+	"zscalerctl/internal/secret"
+	"zscalerctl/internal/zscaler"
+)
+
+type configLoader func([]string, config.LoadOptions) (config.Config, error)
+type readerFactory func(zscaler.ReaderConfig) (browser.RecordReader, error)
+
+// Options configures construction of a read-only machine runtime.
+type Options struct {
+	Env        []string
+	Profile    string
+	ConfigPath string
+
+	Timeout time.Duration
+
+	Redaction    redact.Mode
+	RedactionSet bool
+	NoCache      bool
+
+	Catalog    resources.ResourceCatalog
+	DiagLogger *slog.Logger
+	// Notices receives one-line operator notices before a live reader is
+	// built, such as which profile was chosen when the config file defines
+	// several and none was requested. They are written before the operation
+	// can still fail, so a host whose failures are a single stderr envelope
+	// must buffer them and write them only after success. Nil discards them.
+	Notices io.Writer
+
+	loadConfig configLoader
+	newReader  readerFactory
+}
+
+// Machine is the trusted read-only machine execution facade.
+type Machine struct {
+	service   browser.Service
+	catalog   resources.ResourceCatalog
+	redaction redact.Mode
+}
+
+// NewMachine loads runtime config, resolves credentials, constructs the
+// SDK-backed read-only reader, and returns a machine execution facade.
+func NewMachine(ctx context.Context, opts Options) (*Machine, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	env := append([]string(nil), opts.Env...)
+	loadConfig := opts.loadConfig
+	if loadConfig == nil {
+		loadConfig = config.LoadConfig
+	}
+	cfg, err := loadConfig(env, config.LoadOptions{
+		Profile:    opts.Profile,
+		ConfigPath: opts.ConfigPath,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return NewMachineFromConfig(ctx, cfg, opts)
+}
+
+// NewMachineFromConfig resolves credentials from an already-loaded effective
+// config, constructs the SDK-backed read-only reader, and returns a machine
+// execution facade.
+func NewMachineFromConfig(ctx context.Context, cfg config.Config, opts Options) (*Machine, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reader, err := newReaderFromConfig(ctx, &cfg, opts)
+	if err != nil {
+		return nil, err
+	}
+	return newMachineFromReader(reader, catalogFromOptions(opts.Catalog), cfg.Defaults.Redaction), nil
+}
+
+// NewReaderFromConfig resolves credentials from an already-loaded effective
+// config and constructs the SDK-backed read-only record reader.
+func NewReaderFromConfig(ctx context.Context, cfg config.Config, opts Options) (browser.RecordReader, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return newReaderFromConfig(ctx, &cfg, opts)
+}
+
+// NewMachineFromReader constructs a machine runtime around an already-trusted
+// read-only record reader. Tests and trusted in-process callers can use it when
+// they already own reader construction; adapters that need live Zscaler access
+// should prefer NewMachine or NewMachineFromConfig.
+func NewMachineFromReader(
+	reader browser.RecordReader,
+	catalog resources.ResourceCatalog,
+	mode redact.Mode,
+) *Machine {
+	return newMachineFromReader(reader, catalog, mode)
+}
+
+// Execute runs one machine request through the assembled read-only stack.
+func (m *Machine) Execute(ctx context.Context, req machine.Request) (machine.Response, error) {
+	if m == nil {
+		return machine.Response{}, errors.New("machine runtime is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return m.executor().Execute(ctx, req)
+}
+
+// Read runs one typed resource-read request through the assembled read-only
+// stack.
+func (m *Machine) Read(
+	ctx context.Context,
+	req machine.ResourceReadRequest,
+) (machine.ResourceReadResult, error) {
+	if m == nil {
+		return machine.ResourceReadResult{}, errors.New("machine runtime is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return m.executor().Read(ctx, req)
+}
+
+// ReadStream runs one typed resource-read request and delivers ordered events
+// synchronously to sink.
+func (m *Machine) ReadStream(
+	ctx context.Context,
+	req machine.ResourceReadRequest,
+	sink machine.EventSink,
+) error {
+	if m == nil {
+		return errors.New("machine runtime is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return m.executor().ReadStream(ctx, req, sink)
+}
+
+// ExecuteStream runs one machine request through the assembled read-only stack
+// and delivers ordered events synchronously to sink.
+func (m *Machine) ExecuteStream(ctx context.Context, req machine.Request, sink machine.EventSink) error {
+	if m == nil {
+		return errors.New("machine runtime is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return m.executor().ExecuteStream(ctx, req, sink)
+}
+
+// Manifest returns the capability manifest for the runtime catalog.
+func (m *Machine) Manifest() machine.Manifest {
+	if m == nil {
+		return machine.ManifestFromCatalog(nil)
+	}
+	return machine.ManifestFromCatalog(m.catalog)
+}
+
+// Catalog returns a copy of the runtime catalog.
+func (m *Machine) Catalog() resources.ResourceCatalog {
+	if m == nil {
+		return resources.ResourceCatalog{}
+	}
+	return copyCatalog(m.catalog)
+}
+
+// Redaction returns the effective redaction mode used by the runtime.
+func (m *Machine) Redaction() redact.Mode {
+	if m == nil {
+		return redact.ModeStandard
+	}
+	return redact.EffectiveMode(m.redaction)
+}
+
+func (m *Machine) executor() machine.Executor {
+	loader := &machineBrowserLoader{service: m.service}
+	return machine.Executor{
+		Browser:   loader,
+		Catalog:   m.catalog,
+		Redaction: m.redaction,
+	}
+}
+
+func applyOptions(cfg *config.Config, opts Options) error {
+	if opts.RedactionSet {
+		mode, err := redact.ParseMode(string(opts.Redaction))
+		if err != nil {
+			return fmt.Errorf("%w: %w", config.ErrInvalidConfig, err)
+		}
+		cfg.Defaults.Redaction = mode
+	}
+	if opts.NoCache {
+		cfg.Defaults.NoCache = true
+	}
+	if opts.Timeout < 0 {
+		return fmt.Errorf("%w: timeout must be positive", config.ErrInvalidConfig)
+	}
+	return nil
+}
+
+// readerSettings returns the non-secret settings the reader gets for the
+// effective auth mode, so they can be checked before any secret is resolved.
+func readerSettings(cfg config.Config) zscaler.Settings {
+	settings := zscaler.Settings{AuthMode: zscaler.AuthMode(cfg.EffectiveAuthMode())}
+	switch cfg.EffectiveAuthMode() {
+	case config.AuthModeOneAPI:
+		settings.VanityDomain = cfg.VanityDomain
+		settings.Cloud = cfg.Cloud
+	case config.AuthModeZIALegacy:
+		settings.ZIALegacyCloud = cfg.ZIALegacy.Cloud
+	}
+	return settings
+}
+
+func readerConfigFromConfig(
+	ctx context.Context,
+	cfg config.Config,
+	opts Options,
+) (zscaler.ReaderConfig, error) {
+	cfg = normalizeConfigSecretSources(cfg)
+	authMode := cfg.EffectiveAuthMode()
+	// Reject an unusable or incomplete configuration before resolving any
+	// secret, so no provider runs for a read certain to fail.
+	if err := zscaler.ValidateSettings(readerSettings(cfg)); err != nil {
+		return zscaler.ReaderConfig{}, err
+	}
+	if missing := cfg.MissingCredentials(); len(missing) > 0 {
+		return zscaler.ReaderConfig{}, &zscaler.MissingCredentialsError{Missing: missing}
+	}
+	var clientSecret, ziaPassword, ziaAPIKey secret.Secret
+	switch authMode {
+	case config.AuthModeOneAPI:
+		var err error
+		clientSecret, err = cfg.Credentials.ClientSecret.Resolve(ctx)
+		if err != nil {
+			return zscaler.ReaderConfig{}, fmt.Errorf("%w: %w (while resolving the client secret)", zscaler.ErrMissingCredentials, err)
+		}
+	case config.AuthModeZIALegacy:
+		var err error
+		ziaPassword, err = cfg.ZIALegacy.Password.Resolve(ctx)
+		if err != nil {
+			return zscaler.ReaderConfig{}, fmt.Errorf("%w: %w (while resolving the ZIA legacy password)", zscaler.ErrMissingCredentials, err)
+		}
+		ziaAPIKey, err = cfg.ZIALegacy.APIKey.Resolve(ctx)
+		if err != nil {
+			return zscaler.ReaderConfig{}, fmt.Errorf("%w: %w (while resolving the ZIA legacy API key)", zscaler.ErrMissingCredentials, err)
+		}
+	}
+	readerConfig := zscaler.ReaderConfig{
+		AuthMode: zscaler.AuthMode(authMode),
+		Timeout:  opts.Timeout,
+		NoCache:  cfg.Defaults.NoCache,
+		Proxy: zscaler.ProxyConfig{
+			URL:             cfg.Proxy.URL,
+			FromEnvironment: cfg.Proxy.FromEnvironment,
+		},
+		DiagLogger: opts.DiagLogger,
+	}
+	switch authMode {
+	case config.AuthModeOneAPI:
+		readerConfig.ClientID = cfg.Credentials.ClientID
+		readerConfig.ClientSecret = clientSecret
+		readerConfig.VanityDomain = cfg.VanityDomain
+		readerConfig.Cloud = cfg.Cloud
+		readerConfig.ZPACustomerID = cfg.ZPA.CustomerID
+		readerConfig.ZPAMicrotenantID = cfg.ZPA.MicrotenantID
+	case config.AuthModeZIALegacy:
+		readerConfig.ZIALegacy = zscaler.ZIALegacyConfig{
+			Username: cfg.ZIALegacy.Username,
+			Password: ziaPassword,
+			APIKey:   ziaAPIKey,
+			Cloud:    cfg.ZIALegacy.Cloud,
+		}
+	}
+	return readerConfig, nil
+}
+
+func newReaderFromConfig(
+	ctx context.Context,
+	cfg *config.Config,
+	opts Options,
+) (browser.RecordReader, error) {
+	if err := applyOptions(cfg, opts); err != nil {
+		return nil, err
+	}
+	writeProfileNotice(opts.Notices, *cfg)
+	readerConfig, err := readerConfigFromConfig(ctx, *cfg, opts)
+	if err != nil {
+		return nil, err
+	}
+	newReader := opts.newReader
+	if newReader == nil {
+		newReader = func(cfg zscaler.ReaderConfig) (browser.RecordReader, error) {
+			return zscaler.NewReader(cfg)
+		}
+	}
+	return newReader(readerConfig)
+}
+
+// writeProfileNotice names the profile a live read will use when the config
+// file defines several and the choice came from its default, so a read
+// against an unintended tenant is visible.
+func writeProfileNotice(w io.Writer, cfg config.Config) {
+	if w == nil || !cfg.ImplicitProfileAmongMany() {
+		return
+	}
+	how := "default_profile"
+	if cfg.ProfileSource == config.ProfileFromBuiltinDefault {
+		how = "no default_profile set"
+	}
+	_, _ = fmt.Fprintf(w, "zscalerctl: using profile %q (%s; %d profiles configured); pass --profile to choose\n",
+		cfg.Profile, how, cfg.ProfileCount)
+}
+
+func newMachineFromReader(
+	reader browser.RecordReader,
+	catalog resources.ResourceCatalog,
+	mode redact.Mode,
+) *Machine {
+	catalog = copyCatalog(catalog)
+	mode = redact.EffectiveMode(mode)
+	service := browser.Service{
+		Catalog: catalog,
+		Reader:  reader,
+		Mode:    mode,
+	}
+	return &Machine{
+		service:   service,
+		catalog:   catalog,
+		redaction: mode,
+	}
+}
+
+type machineBrowserLoader struct {
+	service browser.Service
+}
+
+func (l *machineBrowserLoader) ListProjected(
+	ctx context.Context,
+	product string,
+	resource string,
+) (resources.ProjectedRecords, error) {
+	records, err := l.service.ListProjected(ctx, product, resource)
+	if err != nil {
+		return resources.ProjectedRecords{}, resourceReadRuntimeBoundaryError(err, machine.ResourceReadRequest{
+			Operation: machine.OperationList,
+			Input: machine.ResourceReadInput{
+				Product:  product,
+				Resource: resource,
+			},
+		})
+	}
+	return records, nil
+}
+
+func (l *machineBrowserLoader) ShowProjected(
+	ctx context.Context,
+	product string,
+	resource string,
+) (resources.ProjectedRecords, error) {
+	records, err := l.service.ShowProjected(ctx, product, resource)
+	if err != nil {
+		return resources.ProjectedRecords{}, resourceReadRuntimeBoundaryError(err, machine.ResourceReadRequest{
+			Operation: machine.OperationShow,
+			Input: machine.ResourceReadInput{
+				Product:  product,
+				Resource: resource,
+			},
+		})
+	}
+	return records, nil
+}
+
+func (l *machineBrowserLoader) GetProjectedByID(
+	ctx context.Context,
+	product string,
+	resource string,
+	id string,
+) (resources.ProjectedRecords, error) {
+	records, err := l.service.GetProjectedByID(ctx, product, resource, id)
+	if err != nil {
+		return resources.ProjectedRecords{}, resourceReadRuntimeBoundaryError(err, machine.ResourceReadRequest{
+			Operation: machine.OperationGet,
+			Input: machine.ResourceReadInput{
+				Product:  product,
+				Resource: resource,
+				RecordID: id,
+			},
+		})
+	}
+	return records, nil
+}
+
+func catalogFromOptions(catalog resources.ResourceCatalog) resources.ResourceCatalog {
+	if catalog != nil {
+		return copyCatalog(catalog)
+	}
+	return resources.Catalog()
+}
+
+func copyCatalog(catalog resources.ResourceCatalog) resources.ResourceCatalog {
+	if catalog == nil {
+		return resources.ResourceCatalog{}
+	}
+	out := make(resources.ResourceCatalog, len(catalog))
+	for i, spec := range catalog {
+		out[i] = copyResourceSpec(spec)
+	}
+	return out
+}
+
+func copyResourceSpec(spec resources.ResourceSpec) resources.ResourceSpec {
+	spec.Operations = append([]resources.Operation(nil), spec.Operations...)
+	spec.Fields = copyFieldSpecs(spec.Fields)
+	return spec
+}
+
+func copyFieldSpecs(fields []resources.FieldSpec) []resources.FieldSpec {
+	out := append([]resources.FieldSpec(nil), fields...)
+	for i, field := range fields {
+		field.AllowedModes = append([]redact.Mode(nil), field.AllowedModes...)
+		field.Fields = copyFieldSpecs(field.Fields)
+		out[i] = field
+	}
+	return out
+}

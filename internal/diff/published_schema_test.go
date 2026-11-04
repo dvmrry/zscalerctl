@@ -18,17 +18,16 @@ func TestPublishedDiffSchemaMatchesStructs(t *testing.T) {
 		typ       reflect.Type
 		propsPath []string
 	}{
-		{"Report", reflect.TypeOf(Report{}), []string{"properties"}},
-		{"DumpRef", reflect.TypeOf(DumpRef{}), []string{"$defs", "dumpRef", "properties"}},
-		{"Summary", reflect.TypeOf(Summary{}), []string{"$defs", "summary", "properties"}},
-		{"ResourceDiff", reflect.TypeOf(ResourceDiff{}), []string{"$defs", "resourceDiff", "properties"}},
-		{"Identity", reflect.TypeOf(Identity{}), []string{"$defs", "identity", "properties"}},
-		{"RecordRef", reflect.TypeOf(RecordRef{}), []string{"$defs", "recordRef", "properties"}},
-		{"RecordChange", reflect.TypeOf(RecordChange{}), []string{"$defs", "recordChange", "properties"}},
-		{"FieldChange", reflect.TypeOf(FieldChange{}), []string{"$defs", "fieldChange", "properties"}},
+		{"Report", reflect.TypeFor[Report](), []string{"properties"}},
+		{"DumpRef", reflect.TypeFor[DumpRef](), []string{"$defs", "dumpRef", "properties"}},
+		{"Summary", reflect.TypeFor[Summary](), []string{"$defs", "summary", "properties"}},
+		{"ResourceDiff", reflect.TypeFor[ResourceDiff](), []string{"$defs", "resourceDiff", "properties"}},
+		{"Identity", reflect.TypeFor[Identity](), []string{"$defs", "identity", "properties"}},
+		{"RecordRef", reflect.TypeFor[RecordRef](), []string{"$defs", "recordRef", "properties"}},
+		{"RecordChange", reflect.TypeFor[RecordChange](), []string{"$defs", "recordChange", "properties"}},
+		{"FieldChange", reflect.TypeFor[FieldChange](), []string{"$defs", "fieldChange", "properties"}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			structFields := diffJSONFieldNames(tc.typ)
@@ -120,8 +119,7 @@ func diffSchemaPropertyKeys(t *testing.T, path []string) []string {
 
 func diffJSONFieldNames(typ reflect.Type) []string {
 	var names []string
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		if field.PkgPath != "" {
 			continue
 		}

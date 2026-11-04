@@ -9,6 +9,9 @@
   "labels": [
     "dependencies"
   ],
+  "addLabels": [
+    "no-release"
+  ],
   "timezone": "America/New_York",
   "schedule": [
     "before 6am on monday"
@@ -30,7 +33,7 @@
         "sdk-boundary"
       ],
       "prBodyNotes": [
-        "Zscaler SDK bumps require docs/DEPENDENCY_POLICY.md#sdk-upgrade-runbook before merge.",
+        "Zscaler SDK bumps need make verify-sdk-ledger and a live smoke before merge.",
         "Do not combine this SDK bump with new resources unless the review explicitly covers both changes."
       ]
     },

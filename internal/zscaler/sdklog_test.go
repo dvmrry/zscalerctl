@@ -2,6 +2,7 @@ package zscaler
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -37,16 +38,15 @@ func TestSDKLogAdapterForwardsRetryAndAuthEvents(t *testing.T) {
 	cases := []struct {
 		name   string
 		format string
-		args   []interface{}
+		args   []any
 		want   string
 	}{
-		{"retry_after_header", "[INFO] got Retry-After from header:%s\n", []interface{}{"5"}, "Retry-After"},
-		{"rate_limiter", "[DEBUG] Rate limiter triggered. Sleeping for %v", []interface{}{"2s"}, "Sleeping for 2s"},
+		{"retry_after_header", "[INFO] got Retry-After from header:%s\n", []any{"5"}, "Retry-After"},
+		{"rate_limiter", "[DEBUG] Rate limiter triggered. Sleeping for %v", []any{"2s"}, "Sleeping for 2s"},
 		{"session_refresh", "[INFO] Session is invalid or expired. Refreshing session...", nil, "Refreshing session"},
 		{"token_renewed", "[INFO] OAuth2 token successfully renewed", nil, "successfully renewed"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -64,6 +64,85 @@ func TestSDKLogAdapterForwardsRetryAndAuthEvents(t *testing.T) {
 				t.Errorf("Printf(%q) logged %q, want it emitted at DEBUG level", tc.format, out)
 			}
 		})
+	}
+}
+
+func TestSDKLogAdapterRedactsMalformedRetryAfterHeader(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		value       string
+		wantVisible bool
+	}{
+		{"short_assignment", "key=short-key-canary", false},
+		{"bare_hexadecimal", "b8e1093dc27f65a4e9021b7c8df6a350", false},
+		{"delta_seconds", "5", true},
+		{"http_date", "Sun, 06 Nov 1994 08:49:37 GMT", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			adapter := newSDKLogger(debugSlogLogger(&buf))
+			adapter.Printf("[WARN] Could not parse Retry-After header: %s", tc.value)
+			out := buf.String()
+			if tc.wantVisible {
+				if !strings.Contains(out, "header: "+tc.value) {
+					t.Errorf("SDK log output = %q, want valid Retry-After value %q", out, tc.value)
+				}
+				return
+			}
+			if strings.Contains(out, tc.value) {
+				t.Errorf("SDK log output = %q, want header canary redacted", out)
+			}
+			if !strings.Contains(out, "<REDACTED:SECRET>") {
+				t.Errorf("SDK log output = %q, want secret redaction marker", out)
+			}
+		})
+	}
+}
+
+func TestSDKLogAdapterRedactsMalformedRetryAfterInRateLimitSummary(t *testing.T) {
+	t.Parallel()
+
+	// The SDK logs raw rate-limit headers before it parses Retry-After, so the
+	// summary must not carry a malformed value either.
+	const format = "[DEBUG] Rate limit headers: Limit=%s, Remaining=%s, Reset=%s, Retry-After=%s, Status=%d"
+	for _, canary := range []string{"key=short-key-canary", "b8e1093dc27f65a4e9021b7c8df6a350"} {
+		var buf bytes.Buffer
+		adapter := newSDKLogger(debugSlogLogger(&buf))
+		adapter.Printf(format, "100", "1", "1", canary, 429)
+		out := buf.String()
+		if strings.Contains(out, canary) {
+			t.Errorf("SDK log output = %q, want Retry-After canary %q redacted", out, canary)
+		}
+		if !strings.Contains(out, "Limit=100, Remaining=1, Reset=1") || !strings.Contains(out, "Status=429") {
+			t.Errorf("SDK log output = %q, want numeric rate-limit headers kept", out)
+		}
+	}
+
+	var buf bytes.Buffer
+	adapter := newSDKLogger(debugSlogLogger(&buf))
+	adapter.Printf(format, "100", "1", "1", "5", 429)
+	if out := buf.String(); !strings.Contains(out, "Retry-After=5") {
+		t.Errorf("SDK log output = %q, want valid Retry-After value kept", out)
+	}
+}
+
+func TestSDKLogAdapterRedactsTextArgumentsInForwardedFormats(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	adapter := newSDKLogger(debugSlogLogger(&buf))
+	adapter.Printf("[DEBUG] retrying after error: %v (waiting %s)", errors.New("token=short-key-canary"), "2s")
+	out := buf.String()
+	if strings.Contains(out, "short-key-canary") {
+		t.Errorf("SDK log output = %q, want error text redacted", out)
+	}
+	if !strings.Contains(out, "waiting 2s") {
+		t.Errorf("SDK log output = %q, want duration kept", out)
 	}
 }
 
@@ -128,7 +207,6 @@ func TestSDKLogAdapterDropsAuthFailureBodies(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -159,7 +237,10 @@ func TestSDKLogAdapterStillForwardsSafeSessionEvents(t *testing.T) {
 	for _, format := range safe {
 		var buf bytes.Buffer
 		adapter := newSDKLogger(debugSlogLogger(&buf))
-		adapter.Printf(format)
+		// The SDK passes these as constant formats; a func value keeps vet's
+		// printf check from flagging the table-driven call.
+		printf := adapter.Printf
+		printf(format)
 		if buf.Len() == 0 {
 			t.Errorf("Printf(%q) logged nothing, want it forwarded as a safe session event", format)
 		}
@@ -190,7 +271,6 @@ func TestSDKLogAdapterSilentBelowDebug(t *testing.T) {
 		"error": slog.LevelError,
 	}
 	for name, lvl := range levels {
-		name, lvl := name, lvl
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 

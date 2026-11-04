@@ -49,7 +49,7 @@ require_field_contains() {
 require_contains 'Product:    ProductZIA'
 require_contains 'Review posture: generated drafts classify every SDK field they can model.'
 require_contains 'Only approved global names render by default; ambiguous, unknown, opaque, and secret-like names stay ClassSecret.'
-require_contains 'Shape-review import hint: fixture "github.com/dvmrry/zscalerctl/scripts/testdata/catalogdraft/fixture"'
+require_contains 'Shape-review import hint: fixture "zscalerctl/scripts/testdata/catalogdraft/fixture"'
 require_contains 'Name:       "draft-example"'
 require_contains 'Name:           "clientSecret"'
 require_contains 'Name:           "sessionToken"'

@@ -56,13 +56,13 @@ func wantNotContains(t *testing.T, where, body, unwant string) {
 func TestCredentialSkipAndRequire(t *testing.T) {
 	t.Parallel()
 
-	code, out, _ := runMode(t, "good", Options{NoManifest: true}, noEnv)
+	code, out, _ := runMode(t, "good", Options{}, noEnv)
 	if code != 0 {
 		t.Fatalf("no-creds exit = %d, want 0 (skip)", code)
 	}
 	wantContains(t, "stdout", out, "[SKIP] no supported live credentials configured")
 
-	code, _, errb := runMode(t, "good", Options{NoManifest: true, RequireCredentials: true}, noEnv)
+	code, _, errb := runMode(t, "good", Options{RequireCredentials: true}, noEnv)
 	if code != 1 {
 		t.Fatalf("no-creds --require exit = %d, want 1", code)
 	}
@@ -76,7 +76,7 @@ func TestZPARequiresCustomerID(t *testing.T) {
 		"ZSCALERCTL_CLIENT_SECRET": "client-secret",
 		"ZSCALERCTL_VANITY_DOMAIN": "vanity",
 	})
-	code, _, errb := runMode(t, "good", Options{NoManifest: true, RequireCredentials: true, Resources: []string{"zpa/server-groups"}}, env)
+	code, _, errb := runMode(t, "good", Options{RequireCredentials: true, Resources: []string{"zpa/server-groups"}}, env)
 	if code != 1 {
 		t.Fatalf("zpa-without-customer exit = %d, want 1", code)
 	}
@@ -85,7 +85,7 @@ func TestZPARequiresCustomerID(t *testing.T) {
 
 func TestMissingBin(t *testing.T) {
 	t.Parallel()
-	code, _, errb := runMode(t, "good", Options{NoManifest: true, SkipCredentialCheck: true, Bin: "/no/such/zscalerctl-binary"}, noEnv)
+	code, _, errb := runMode(t, "good", Options{SkipCredentialCheck: true, Bin: "/no/such/zscalerctl-binary"}, noEnv)
 	if code != 2 {
 		t.Fatalf("missing-bin exit = %d, want 2", code)
 	}
@@ -94,7 +94,7 @@ func TestMissingBin(t *testing.T) {
 
 func TestGoodFixturePasses(t *testing.T) {
 	t.Parallel()
-	code, out, errb := runMode(t, "good", Options{NoManifest: true, SkipCredentialCheck: true}, noEnv)
+	code, out, errb := runMode(t, "good", Options{SkipCredentialCheck: true}, noEnv)
 	if code != 0 {
 		t.Fatalf("good exit = %d, want 0\n--- stderr ---\n%s", code, errb)
 	}
@@ -128,7 +128,7 @@ func TestResourceSubsetAndManifest(t *testing.T) {
 	t.Parallel()
 
 	// --resources subset.
-	code, out, _ := runMode(t, "good", Options{NoManifest: true, SkipCredentialCheck: true, Resources: []string{"zia/locations", "rule-labels"}}, noEnv)
+	code, out, _ := runMode(t, "good", Options{SkipCredentialCheck: true, Resources: []string{"zia/locations", "rule-labels"}}, noEnv)
 	if code != 0 {
 		t.Fatalf("subset exit = %d, want 0", code)
 	}
@@ -161,7 +161,6 @@ func TestNonZIAManifests(t *testing.T) {
 		{"zidentity", "zidentity/groups\nzidentity/users\nzidentity/resource-servers\n", 3, "zidentity/groups zidentity/users zidentity/resource-servers", "zidentity groups list command completed", "manifest count matches resources/zidentity/users.json (1 records)"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.product, func(t *testing.T) {
 			t.Parallel()
 			manifest := filepath.Join(t.TempDir(), "m.manifest")
@@ -186,7 +185,7 @@ func TestUsageErrors(t *testing.T) {
 	}
 	wantContains(t, "stderr", errb, "live smoke manifest not found")
 
-	code, _, errb = runMode(t, "good", Options{NoManifest: true, SkipCredentialCheck: true, Resources: []string{"zia/not-real"}}, noEnv)
+	code, _, errb = runMode(t, "good", Options{SkipCredentialCheck: true, Resources: []string{"zia/not-real"}}, noEnv)
 	if code != 1 {
 		t.Fatalf("unknown-resource exit = %d, want 1", code)
 	}
@@ -211,10 +210,9 @@ func TestLeakAndShapeFailures(t *testing.T) {
 		{"json-list-fails", "error: live_access_failed - zscaler API request failed: list zia/gre-tunnels", `"error"`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.mode, func(t *testing.T) {
 			t.Parallel()
-			code, _, errb := runMode(t, tc.mode, Options{NoManifest: true, SkipCredentialCheck: true}, noEnv)
+			code, _, errb := runMode(t, tc.mode, Options{SkipCredentialCheck: true}, noEnv)
 			if code == 0 {
 				t.Fatalf("mode %s exit = 0, want failure", tc.mode)
 			}
@@ -226,9 +224,24 @@ func TestLeakAndShapeFailures(t *testing.T) {
 	}
 }
 
+func TestMisplacedLocationGroupFieldsFailListAndDumpSmoke(t *testing.T) {
+	t.Parallel()
+
+	code, _, errb := runMode(t, "misplaced-location-group-fields", Options{SkipCredentialCheck: true}, noEnv)
+	if code == 0 {
+		t.Fatal("misplaced-location-group-fields exit = 0, want failure")
+	}
+	for _, want := range []string{
+		"[FAIL] zia location-groups list contains denied field key(s): city managedBy",
+		"[FAIL] dump zia location-groups contains denied field key(s): city managedBy",
+	} {
+		wantContains(t, "stderr", errb, want)
+	}
+}
+
 func TestLeakFailureWritesSummary(t *testing.T) {
 	t.Parallel()
-	_, _, errb := runMode(t, "leaky", Options{NoManifest: true, SkipCredentialCheck: true}, noEnv)
+	_, _, errb := runMode(t, "leaky", Options{SkipCredentialCheck: true}, noEnv)
 	wantContains(t, "stderr", errb, "failure summary:")
 	wantContains(t, "stderr", errb, "failure markers:")
 	wantContains(t, "stderr", errb, "failure-summary.txt")
@@ -236,14 +249,14 @@ func TestLeakFailureWritesSummary(t *testing.T) {
 
 func TestListCommandFailureCapturesStderr(t *testing.T) {
 	t.Parallel()
-	_, _, errb := runMode(t, "list-fails", Options{NoManifest: true, SkipCredentialCheck: true}, noEnv)
+	_, _, errb := runMode(t, "list-fails", Options{SkipCredentialCheck: true}, noEnv)
 	wantContains(t, "stderr", errb, "mock API 404 not entitled")
 	wantContains(t, "stderr", errb, "failure-summary.txt")
 }
 
 func TestFailureSummaryRedactsCapturedNonJSONStderr(t *testing.T) {
 	t.Parallel()
-	_, _, errb := runMode(t, "leaky-stderr", Options{NoManifest: true, SkipCredentialCheck: true}, noEnv)
+	_, _, errb := runMode(t, "leaky-stderr", Options{SkipCredentialCheck: true}, noEnv)
 	for _, forbidden := range []string{"raw-live-smoke-token", "raw-live-smoke-secret"} {
 		wantNotContains(t, "stderr", errb, forbidden)
 	}

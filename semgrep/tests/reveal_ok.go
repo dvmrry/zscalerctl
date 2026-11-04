@@ -2,7 +2,7 @@
 
 package tests
 
-import "github.com/dvmrry/zscalerctl/internal/secret"
+import "zscalerctl/internal/secret"
 
 type sdkConfiguration struct {
 	ClientID     string

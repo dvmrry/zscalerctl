@@ -21,7 +21,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/resources"
 )
 
 type goPackage struct {

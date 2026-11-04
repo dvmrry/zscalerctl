@@ -1,0 +1,10 @@
+# Functions `deadcode -test ./...` reports unreachable on purpose on any of linux,
+# darwin or windows (an entry may be needed on one platform only), checked by
+# scripts/verify-deadcode.sh. One entry per line: a file glob and a function
+# glob (bash patterns), then a reason after "#". Every entry must match a
+# report, so a stale entry fails too. In these patterns `*` also matches `/`.
+
+# Called only by scripts/live-smoke.go, which is //go:build ignore.
+internal/livesmoke/run.go NewExecRunner   # make live-smoke
+internal/livesmoke/run.go newExecRunner   # make live-smoke
+internal/livesmoke/run.go execRunner.Run  # make live-smoke

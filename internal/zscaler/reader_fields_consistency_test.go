@@ -12,8 +12,8 @@ package zscaler
 import (
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/redact"
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
 )
 
 // TestLocationFamilyParentChildClassificationConsistency asserts that for

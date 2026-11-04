@@ -3,7 +3,7 @@ package zscaler
 import (
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/resources"
 )
 
 // TestAddHandlerPanicsOnDuplicateKey locks in the safety property restored by

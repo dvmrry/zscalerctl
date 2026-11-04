@@ -5,12 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/redact"
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
 )
 
 // TestPublishedSchemasMatchStructs guards the hand-written JSON Schemas under
@@ -28,15 +29,14 @@ func TestPublishedSchemasMatchStructs(t *testing.T) {
 		schemaFile string
 		propsPath  []string // JSON pointer segments to the "properties" object
 	}{
-		{"Manifest", reflect.TypeOf(Manifest{}), "manifest.schema.json", []string{"properties"}},
-		{"ManifestResource", reflect.TypeOf(ManifestResource{}), "manifest.schema.json", []string{"$defs", "manifestResource", "properties"}},
-		{"RedactionReport", reflect.TypeOf(RedactionReport{}), "redaction-report.schema.json", []string{"properties"}},
-		{"ResourceReport", reflect.TypeOf(ResourceReport{}), "redaction-report.schema.json", []string{"$defs", "resourceReport", "properties"}},
-		{"ResourceError", reflect.TypeOf(ResourceError{}), "dump-error.schema.json", []string{"properties"}},
+		{"Manifest", reflect.TypeFor[Manifest](), "manifest.schema.json", []string{"properties"}},
+		{"ManifestResource", reflect.TypeFor[ManifestResource](), "manifest.schema.json", []string{"$defs", "manifestResource", "properties"}},
+		{"RedactionReport", reflect.TypeFor[RedactionReport](), "redaction-report.schema.json", []string{"properties"}},
+		{"ResourceReport", reflect.TypeFor[ResourceReport](), "redaction-report.schema.json", []string{"$defs", "resourceReport", "properties"}},
+		{"ResourceError", reflect.TypeFor[ResourceError](), "dump-error.schema.json", []string{"properties"}},
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			structFields := jsonFieldNames(tc.typ)
@@ -153,18 +153,12 @@ func schemaNode(t *testing.T, file string, path []string) map[string]any {
 }
 
 func contains(values []string, want string) bool {
-	for _, v := range values {
-		if v == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func jsonFieldNames(typ reflect.Type) []string {
 	var names []string
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		if field.PkgPath != "" {
 			continue
 		}

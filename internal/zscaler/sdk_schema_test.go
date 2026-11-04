@@ -1,19 +1,19 @@
 package zscaler
 
 import (
+	"maps"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/resources"
 )
 
 func TestReviewedSDKShapesMatchCatalogOrIgnoredRegistry(t *testing.T) {
 	t.Parallel()
 
 	for _, shape := range reviewedSDKShapes() {
-		shape := shape
 		t.Run(shape.name, func(t *testing.T) {
 			t.Parallel()
 			shape.assertReviewed(t)
@@ -144,6 +144,11 @@ func reviewedSDKShapes() []sdkShapeReview {
 	shapes = append(shapes, reviewedSDKShapesZTW()...)
 	shapes = append(shapes, reviewedSDKShapesZCC()...)
 	shapes = append(shapes, reviewedSDKShapesZidentity()...)
+	shapes = append(shapes, reviewedSDKShapesSDKv3855()...)
+	shapes = append(shapes, reviewedSDKShapesZPAIdentity()...)
+	shapes = append(shapes, reviewedSDKShapesZPAScout()...)
+	shapes = append(shapes, reviewedSDKShapesOtherScout()...)
+	shapes = append(shapes, reviewedSDKShapesZDX()...)
 	return shapes
 }
 
@@ -178,8 +183,7 @@ func exportedJSONFields(typ reflect.Type) []string {
 		typ = typ.Elem()
 	}
 	var fields []string
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		if field.PkgPath != "" {
 			continue
 		}
@@ -218,9 +222,7 @@ func ignoredBecause(reason string, fields ...string) map[string]string {
 func mergeIgnoredFields(items ...map[string]string) map[string]string {
 	merged := map[string]string{}
 	for _, item := range items {
-		for field, reason := range item {
-			merged[field] = reason
-		}
+		maps.Copy(merged, item)
 	}
 	return merged
 }

@@ -20,8 +20,8 @@ import (
 
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 
-	"github.com/dvmrry/zscalerctl/internal/redact"
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
 )
 
 const (

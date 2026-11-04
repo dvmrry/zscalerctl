@@ -3,6 +3,7 @@ package livesmoke
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -49,7 +50,7 @@ func (s *smoke) validateDump() {
 	if len(s.requested) > 0 {
 		args = append(args, "--resources", strings.Join(s.resources, ","))
 	}
-	args = append(args, "--out", dumpDir)
+	args = append(args, "--output", dumpDir)
 
 	start := s.rep.failures
 	_, stderr, code := s.runner.Run(args...)
@@ -174,7 +175,7 @@ func (s *smoke) validateRedactionReport(path string) {
 }
 
 func (s *smoke) expectedDumpPaths() []string {
-	var out []string
+	out := make([]string, 0, len(s.resources))
 	for _, q := range s.resources {
 		out = append(out, fmt.Sprintf("resources/%s/%s.json", resourceProduct(q), resourceName(q)))
 	}
@@ -188,16 +189,24 @@ func (s *smoke) validateDumpFileSet(dumpDir string) {
 		return
 	}
 	var actual []string
-	_ = filepath.Walk(resourcesDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".json") {
+	err := filepath.WalkDir(resourcesDir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".json") {
 			return nil
 		}
-		rel, rerr := filepath.Rel(dumpDir, path)
-		if rerr == nil {
-			actual = append(actual, filepath.ToSlash(rel))
+		rel, err := filepath.Rel(dumpDir, path)
+		if err != nil {
+			return err
 		}
+		actual = append(actual, filepath.ToSlash(rel))
 		return nil
 	})
+	if err != nil {
+		s.rep.fail("dump resources directory unreadable: %v", err)
+		return
+	}
 	if reflect.DeepEqual(sortedCopy(s.expectedDumpPaths()), sortedCopy(actual)) {
 		s.rep.pass("dump resource files match selected resources")
 	} else {

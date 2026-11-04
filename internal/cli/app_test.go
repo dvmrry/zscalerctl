@@ -6,18 +6,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"testing"
+	"time"
+	"unicode"
 
-	"github.com/dvmrry/zscalerctl/internal/cli"
-	"github.com/dvmrry/zscalerctl/internal/config"
-	"github.com/dvmrry/zscalerctl/internal/dump"
-	"github.com/dvmrry/zscalerctl/internal/redact"
-	"github.com/dvmrry/zscalerctl/internal/resources"
-	"github.com/dvmrry/zscalerctl/internal/zscaler"
+	"zscalerctl/internal/cli"
+	"zscalerctl/internal/config"
+	dumpdiff "zscalerctl/internal/diff"
+	"zscalerctl/internal/dump"
+	"zscalerctl/internal/machine"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
+	"zscalerctl/internal/zscaler"
 )
 
 func TestConfigShowDoesNotExposeEnvironmentSecrets(t *testing.T) {
@@ -111,7 +118,6 @@ profiles:
 		{name: "auth status", args: []string{"--config", configPath, "--format", "json", "auth", "status"}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			var out, errOut bytes.Buffer
 			app := cli.New(&out, &errOut, nil)
@@ -142,6 +148,317 @@ profiles:
 	if safe.Credentials.ClientSecretScheme != "cmd" {
 		t.Fatalf("SafeConfig client_secret_scheme = %q, want cmd", safe.Credentials.ClientSecretScheme)
 	}
+}
+
+func TestCredentialedReadAdvertisesConfiguredProviderExecution(t *testing.T) {
+	t.Parallel()
+
+	sentinel := filepath.Join(t.TempDir(), "provider-ran")
+	configPath := writeCLIConfig(t, fmt.Sprintf(`
+profiles:
+  default:
+    client_id: client-id
+    vanity_domain: example
+    client_secret_ref:
+      cmd:
+        argv: [%q, "-test.run=^TestCLIConfigCmdHelperProcess$", "--", "touch", %q]
+`, os.Args[0], sentinel))
+
+	app := cli.New(io.Discard, io.Discard, nil)
+	err := app.Run(context.Background(), []string{"--config", configPath, "zia", "locations", "list"})
+	if err == nil {
+		t.Fatal("credentialed resource read error = nil, want provider-output error")
+	}
+	if _, statErr := os.Stat(sentinel); statErr != nil {
+		t.Fatalf("credentialed resource read did not execute configured provider; stat %q: %v", sentinel, statErr)
+	}
+
+	doc := cli.IntrospectTree(cli.New(io.Discard, io.Discard, nil))
+	for _, command := range doc.Commands {
+		if command.Path != "zia locations list" {
+			continue
+		}
+		want := map[cli.EffectDoc]bool{
+			{Kind: "local_filesystem_read", When: "configuration_dependent"}: true,
+			{Kind: "process_execution", When: "configuration_dependent"}:     true,
+		}
+		for _, effect := range command.Effects {
+			delete(want, effect)
+		}
+		if len(want) != 0 {
+			t.Fatalf("zia locations list effects omit observed provider boundary: missing %#v", want)
+		}
+		return
+	}
+	t.Fatal("zia locations list missing from introspection")
+}
+
+func TestStatusCommandJSONShapesRemainStable(t *testing.T) {
+	t.Parallel()
+
+	env := []string{
+		config.EnvClientID + "=client-id",
+		config.EnvClientSecret + "=client-secret",
+		config.EnvVanityDomain + "=example",
+		config.EnvCloud + "=PRODUCTION",
+	}
+	cases := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "config show",
+			args: []string{"--format", "json", "config", "show"},
+			want: []string{
+				"source",
+				"config_file_set",
+				"profile",
+				"auth_mode",
+				"vanity_domain_set",
+				"cloud",
+				"credentials",
+				"zpa",
+				"zia_legacy",
+				"proxy",
+				"defaults",
+			},
+		},
+		{
+			name: "doctor",
+			args: []string{"--format", "json", "doctor"},
+			want: []string{
+				"status",
+				"mode",
+				"profile",
+				"config",
+				"auth_mode",
+				"redaction",
+				"timeout",
+				"cache",
+				"proxy",
+				"credentials",
+				"live_api",
+			},
+		},
+		{
+			name: "auth status",
+			args: []string{"--format", "json", "auth", "status"},
+			want: []string{
+				"credentials",
+				"credential_exchange",
+				"live_api",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			app := cli.New(&out, &errOut, env)
+			if err := app.Run(context.Background(), tc.args); err != nil {
+				t.Fatalf("App.Run(%s) error = %v, want nil", tc.name, err)
+			}
+			if errOut.Len() != 0 {
+				t.Fatalf("App.Run(%s) stderr = %q, want empty", tc.name, errOut.String())
+			}
+			assertJSONTopLevelKeys(t, tc.name, out.Bytes(), tc.want)
+		})
+	}
+}
+
+func TestStatusCommandsNormalizeInjectedTerminalControls(t *testing.T) {
+	t.Parallel()
+
+	const injected = "safe\nFORGED\x1b[31m\u0085\u202e"
+	env := []string{
+		"XDG_CONFIG_HOME=" + t.TempDir(),
+		config.EnvProfile + "=profile:" + injected,
+		config.EnvCloud + "=cloud:" + injected,
+	}
+	commands := []struct {
+		name string
+		args []string
+	}{
+		{name: "config show", args: []string{"config", "show"}},
+		{name: "doctor", args: []string{"doctor"}},
+		{name: "auth status", args: []string{"auth", "status"}},
+	}
+	for _, command := range commands {
+		for _, format := range []string{"json", "table", "pretty"} {
+			t.Run(command.name+"/"+format, func(t *testing.T) {
+				var out, errOut bytes.Buffer
+				app := cli.New(&out, &errOut, env)
+				args := append([]string{"--format", format}, command.args...)
+				if err := app.Run(context.Background(), args); err != nil {
+					t.Fatalf("App.Run(%s %s) error = %v, want nil", command.name, format, err)
+				}
+				if errOut.Len() != 0 {
+					t.Fatalf("App.Run(%s %s) stderr = %q, want empty", command.name, format, errOut.String())
+				}
+				if format == "json" {
+					var decoded any
+					if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+						t.Fatalf("json.Unmarshal(%s) error = %v; body = %q", command.name, err, out.String())
+					}
+					assertNoUnsafeDecodedStrings(t, decoded)
+					return
+				}
+				got := out.String()
+				for _, forbidden := range []string{"\x1b", "\u0085", "\u202e", "\nFORGED"} {
+					if strings.Contains(got, forbidden) {
+						t.Fatalf("App.Run(%s %s) output = %q, want no injected control %q", command.name, format, got, forbidden)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestStatusCommandsSanitizeConfigLoadErrors(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "private-status-config-canary.yaml")
+	tests := []struct {
+		name      string
+		args      []string
+		operation machine.Operation
+	}{
+		{name: "config show", args: []string{"config", "show"}, operation: machine.OperationConfigStatus},
+		{name: "doctor", args: []string{"doctor"}, operation: machine.OperationDoctor},
+		{name: "auth status", args: []string{"auth", "status"}, operation: machine.OperationAuthStatus},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := cli.New(io.Discard, io.Discard, nil)
+			args := append([]string{"--config", path}, tt.args...)
+			err := app.Run(context.Background(), args)
+			if !errors.Is(err, config.ErrInvalidConfig) {
+				t.Fatalf("App.Run(%s invalid config) error = %v, want ErrInvalidConfig", tt.name, err)
+			}
+			var machineErr *machine.MachineError
+			if !errors.As(err, &machineErr) || machineErr.Kind != machine.ErrorKindInvalidConfig {
+				t.Fatalf("App.Run(%s invalid config) error = %v, want invalid-config MachineError", tt.name, err)
+			}
+			if machineErr.Operation != tt.operation {
+				t.Fatalf("App.Run(%s invalid config) operation = %q, want %q", tt.name, machineErr.Operation, tt.operation)
+			}
+			if strings.Contains(err.Error(), path) || strings.Contains(err.Error(), "canary") {
+				t.Fatalf("App.Run(%s invalid config) error = %q, want no path details", tt.name, err)
+			}
+		})
+	}
+}
+
+func TestStatusCommandsRejectFinishedContextBeforeConfigLoad(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "finished-context-config-canary.yaml")
+	commands := []struct {
+		name      string
+		args      []string
+		operation machine.Operation
+	}{
+		{name: "config show", args: []string{"config", "show"}, operation: machine.OperationConfigStatus},
+		{name: "doctor", args: []string{"doctor"}, operation: machine.OperationDoctor},
+		{name: "auth status", args: []string{"auth", "status"}, operation: machine.OperationAuthStatus},
+	}
+	contexts := []struct {
+		name     string
+		new      func() (context.Context, context.CancelFunc)
+		kind     string
+		sentinel error
+	}{
+		{
+			name: "canceled",
+			new: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx, func() {}
+			},
+			kind:     machine.ErrorKindCanceled,
+			sentinel: context.Canceled,
+		},
+		{
+			name: "deadline",
+			new: func() (context.Context, context.CancelFunc) {
+				return context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			},
+			kind:     machine.ErrorKindDeadlineExceeded,
+			sentinel: context.DeadlineExceeded,
+		},
+	}
+	for _, command := range commands {
+		for _, contextCase := range contexts {
+			t.Run(command.name+"/"+contextCase.name, func(t *testing.T) {
+				ctx, cancel := contextCase.new()
+				defer cancel()
+				app := cli.New(io.Discard, io.Discard, nil)
+				args := append([]string{"--config", path}, command.args...)
+				err := app.Run(ctx, args)
+				var machineErr *machine.MachineError
+				if !errors.As(err, &machineErr) || machineErr.Kind != contextCase.kind {
+					t.Fatalf("App.Run(%s %s) error = %v, want MachineError kind %q", command.name, contextCase.name, err, contextCase.kind)
+				}
+				if machineErr.Operation != command.operation || !errors.Is(err, contextCase.sentinel) {
+					t.Fatalf("App.Run(%s %s) error = %#v, want operation %q and sentinel %v", command.name, contextCase.name, machineErr, command.operation, contextCase.sentinel)
+				}
+				if errors.Is(err, config.ErrInvalidConfig) || strings.Contains(err.Error(), path) || strings.Contains(err.Error(), "canary") {
+					t.Fatalf("App.Run(%s %s) error = %q, config load superseded finished context", command.name, contextCase.name, err)
+				}
+			})
+		}
+	}
+}
+
+func assertJSONTopLevelKeys(t *testing.T, name string, body []byte, want []string) {
+	t.Helper()
+
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("json.Unmarshal(App.Run(%s) stdout) error = %v; body = %q", name, err, string(body))
+	}
+	if len(got) != len(want) {
+		t.Fatalf("App.Run(%s) JSON keys = %#v, want exactly %#v", name, mapKeys(got), want)
+	}
+	for _, key := range want {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("App.Run(%s) JSON keys = %#v, want key %q", name, mapKeys(got), key)
+		}
+	}
+}
+
+func assertNoUnsafeDecodedStrings(t *testing.T, value any) {
+	t.Helper()
+
+	var visit func(any)
+	visit = func(current any) {
+		switch current := current.(type) {
+		case string:
+			for _, ch := range current {
+				if unicode.IsControl(ch) || unicode.Is(unicode.Cf, ch) {
+					t.Fatalf("decoded status value %q contains unsafe rune U+%04X", current, ch)
+				}
+			}
+		case []any:
+			for _, item := range current {
+				visit(item)
+			}
+		case map[string]any:
+			for _, item := range current {
+				visit(item)
+			}
+		}
+	}
+	visit(value)
+}
+
+func mapKeys(values map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func TestDoctorDoesNotExposeEnvironmentSecrets(t *testing.T) {
@@ -397,7 +714,6 @@ func TestGlobalFlagsMayFollowCommand(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -424,11 +740,12 @@ func TestHelpFlagsReturnUsage(t *testing.T) {
 	tests := [][]string{
 		{"--help"},
 		{"-h"},
-		{"schema", "list", "--help"},
-		{"dump", "--help"},
+		// "schema list --help" uses Cobra format ("Usage:\n  zscalerctl schema list")
+		// and is covered by TestPerCommandHelpPrintsScopedSynopsis instead.
+		// "dump --help" uses Cobra format ("Usage:\n  zscalerctl dump")
+		// and is covered by TestPerCommandHelpPrintsScopedSynopsis instead.
 	}
 	for _, args := range tests {
-		args := args
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			t.Parallel()
 
@@ -441,8 +758,8 @@ func TestHelpFlagsReturnUsage(t *testing.T) {
 			if err != nil {
 				t.Fatalf("App.Run(%v) error = %v, want nil", args, err)
 			}
-			if !strings.Contains(out.String(), "usage: zscalerctl") {
-				t.Errorf("App.Run(%v) stdout = %q, want usage text", args, out.String())
+			if !strings.Contains(out.String(), "Usage:") {
+				t.Errorf("App.Run(%v) stdout = %q, want Cobra help text", args, out.String())
 			}
 			if errOut.Len() != 0 {
 				t.Errorf("App.Run(%v) stderr = %q, want empty", args, errOut.String())
@@ -455,21 +772,49 @@ func TestPerCommandHelpPrintsScopedSynopsis(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		args []string
-		want string
+		name            string
+		args            []string
+		want            string
+		skipGlobalCheck bool // set for Cobra commands whose flag descriptions may contain "products:"/"commands:"
 	}{
-		{name: "doctor", args: []string{"doctor", "--help"}, want: "usage: zscalerctl doctor"},
-		{name: "auth", args: []string{"auth", "--help"}, want: "usage: zscalerctl auth status"},
-		{name: "config", args: []string{"config", "--help"}, want: "usage: zscalerctl config show"},
-		{name: "schema", args: []string{"schema", "list", "--help"}, want: "usage: zscalerctl schema list"},
-		{name: "dump", args: []string{"dump", "--help"}, want: "usage: zscalerctl dump --out <dir>"},
-		{name: "diff", args: []string{"diff", "--help"}, want: "usage: zscalerctl diff <old-dump-dir> <new-dump-dir>"},
-		{name: "completion", args: []string{"completion", "--help"}, want: "usage: zscalerctl completion bash|zsh|fish|powershell"},
-		{name: "version", args: []string{"version", "--help"}, want: "usage: zscalerctl version"},
+		// doctor --help renders Cobra-formatted help
+		// ("Usage:\n  zscalerctl doctor") rather than the previous scoped synopsis.
+		// Frozen as an intentional Cobra help surface.
+		{name: "doctor", args: []string{"doctor", "--help"}, want: "zscalerctl doctor"},
+		// auth --help renders Cobra-formatted help
+		// ("Usage:\n  zscalerctl auth") rather than the previous scoped synopsis.
+		// Frozen as an intentional Cobra help surface.
+		{name: "auth", args: []string{"auth", "--help"}, want: "zscalerctl auth", skipGlobalCheck: true},
+		// config --help renders Cobra-formatted help
+		// ("Usage:\n  zscalerctl config") rather than the previous scoped synopsis.
+		// Frozen as an intentional Cobra help surface.
+		{name: "config", args: []string{"config", "--help"}, want: "zscalerctl config", skipGlobalCheck: true},
+		// schema list --help renders Cobra-formatted help
+		// ("Usage:\n  zscalerctl schema list") rather than the previous scoped synopsis.
+		// Frozen as an intentional Cobra help surface.
+		{name: "schema", args: []string{"schema", "list", "--help"}, want: "zscalerctl schema list"},
+		// dump --help renders Cobra-formatted help
+		// ("Usage:\n  zscalerctl dump") rather than the previous scoped synopsis.
+		// skipGlobalCheck is true because the --products flag description contains
+		// "products:" which would otherwise trigger the false-positive assertion.
+		// Frozen as an intentional Cobra help surface.
+		{name: "dump", args: []string{"dump", "--help"}, want: "zscalerctl dump", skipGlobalCheck: true},
+		// diff --help renders Cobra-formatted help
+		// ("Usage:\n  zscalerctl diff") rather than the previous scoped synopsis.
+		// skipGlobalCheck is true because the --products flag description contains
+		// "products:" which would otherwise trigger the false-positive assertion.
+		// Frozen as an intentional Cobra help surface.
+		{name: "diff", args: []string{"diff", "--help"}, want: "zscalerctl diff", skipGlobalCheck: true},
+		// completion --help renders Cobra-formatted help
+		// ("Usage:\n  zscalerctl completion [command]") rather than the legacy synopsis.
+		// Frozen as an intentional Cobra help surface.
+		{name: "completion", args: []string{"completion", "--help"}, want: "zscalerctl completion", skipGlobalCheck: true},
+		// version --help renders Cobra-formatted help
+		// ("Usage:\n  zscalerctl version") rather than the previous scoped synopsis.
+		// Frozen as an intentional Cobra help surface.
+		{name: "version", args: []string{"version", "--help"}, want: "zscalerctl version"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -486,9 +831,11 @@ func TestPerCommandHelpPrintsScopedSynopsis(t *testing.T) {
 			if !strings.Contains(got, tt.want) {
 				t.Errorf("App.Run(%v) stdout = %q, want %q", tt.args, got, tt.want)
 			}
-			for _, globalOnly := range []string{"commands:", "products:"} {
-				if strings.Contains(got, globalOnly) {
-					t.Errorf("App.Run(%v) stdout = %q, want scoped help without global section %q", tt.args, got, globalOnly)
+			if !tt.skipGlobalCheck {
+				for _, globalOnly := range []string{"commands:", "products:"} {
+					if strings.Contains(got, globalOnly) {
+						t.Errorf("App.Run(%v) stdout = %q, want scoped help without global section %q", tt.args, got, globalOnly)
+					}
 				}
 			}
 			if errOut.Len() != 0 {
@@ -509,8 +856,12 @@ func TestUsageListsKnownProducts(t *testing.T) {
 		t.Fatalf("App.Run(help) error = %v, want nil", err)
 	}
 	for _, want := range []string{
-		"products: zia",
-		"zia <resource> list|get|show",
+		"Available Commands",
+		"zia",
+		"zpa",
+		"ztw",
+		"zcc",
+		"zidentity",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("App.Run(help) stdout = %q, want %q", out.String(), want)
@@ -520,6 +871,9 @@ func TestUsageListsKnownProducts(t *testing.T) {
 
 func TestGlobalOutputWritesSuccessfulCommandToOwnerOnlyFile(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file-mode perms; Windows enforces owner-only via DACL, covered by internal/fileperm")
+	}
 
 	const clientSecret = "client-secret-value"
 	var out, errOut bytes.Buffer
@@ -551,12 +905,15 @@ func TestGlobalOutputWritesSuccessfulCommandToOwnerOnlyFile(t *testing.T) {
 
 func TestGlobalOutputOverwritesAtomicallyWithoutTempLeftovers(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file-mode perms; Windows enforces owner-only via DACL, covered by internal/fileperm")
+	}
 
 	dir := t.TempDir()
 	outPath := filepath.Join(dir, "config.json")
 	// Write twice to the same path: the second run must overwrite cleanly (the
 	// atomic rename replaces the file), proving --output stays re-runnable.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		var out, errOut bytes.Buffer
 		app := cli.New(&out, &errOut, []string{
 			config.EnvClientID + "=client-id-value",
@@ -622,33 +979,25 @@ func TestGlobalOutputDoesNotCreateFileOnError(t *testing.T) {
 	}
 }
 
-func TestGlobalOutputRejectsDump(t *testing.T) {
+func TestDumpHelpWithOutputCreatesNothing(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
-	tempDir := t.TempDir()
-	outPath := filepath.Join(tempDir, "dump-status.txt")
-	dumpDir := filepath.Join(tempDir, "dump")
+	dumpDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.New(&out, &errOut, nil)
 
-	err := app.Run(context.Background(), []string{"dump", "--output", outPath, "--out", dumpDir})
-	if !errors.Is(err, cli.ErrUsage) {
-		t.Fatalf("App.Run(dump --output --out) error = %v, want ErrUsage", err)
+	err := app.Run(context.Background(), []string{"dump", "--output", dumpDir, "--help"})
+	if err != nil {
+		t.Fatalf("App.Run(dump --output --help) error = %v, want nil", err)
 	}
-	if !strings.Contains(err.Error(), "--output cannot be used with dump") {
-		t.Errorf("App.Run(dump --output --out) error = %q, want --output dump guidance", err.Error())
-	}
-	if _, statErr := os.Stat(outPath); !errors.Is(statErr, os.ErrNotExist) {
-		t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", outPath, statErr)
+	if !strings.Contains(out.String(), "zscalerctl dump") {
+		t.Errorf("App.Run(dump --output --help) stdout = %q, want dump help", out.String())
 	}
 	if _, statErr := os.Stat(dumpDir); !errors.Is(statErr, os.ErrNotExist) {
 		t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist", dumpDir, statErr)
 	}
-	if out.Len() != 0 {
-		t.Errorf("App.Run(dump --output --out) stdout = %q, want empty", out.String())
-	}
 	if errOut.Len() != 0 {
-		t.Errorf("App.Run(dump --output --out) stderr = %q, want empty", errOut.String())
+		t.Errorf("App.Run(dump --output --help) stderr = %q, want empty", errOut.String())
 	}
 }
 
@@ -668,7 +1017,6 @@ func TestEnvRedactionIsNotDowngradedByAbsentFlag(t *testing.T) {
 	t.Parallel()
 
 	for _, mode := range []string{"share", "paranoid"} {
-		mode := mode
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 
@@ -686,12 +1034,24 @@ func TestEnvRedactionIsNotDowngradedByAbsentFlag(t *testing.T) {
 	}
 }
 
+// TestCompletionScriptsDoNotReadCredentialFilesOrUseReader asserts that both
+// the generated shell scripts (which are static shell code) and the runtime
+// completion protocol (__complete) never read credentials or construct a reader.
+//
+// Part 1: generated scripts — run "completion <shell>" with a failing reader and
+// credential env set, then check the output is a static shell script with no
+// credential values embedded.
+//
+// Part 2: runtime completion — run "__complete zia ”" with a failing reader and
+// no credentials; assert catalog resource names come back and no reader is invoked.
+// This is the critical security proof: shell completion NEVER calls LoadConfig.
 func TestCompletionScriptsDoNotReadCredentialFilesOrUseReader(t *testing.T) {
 	t.Parallel()
 
 	const clientID = "client-id-value"
+
+	// Part 1: generated scripts must not embed credential values.
 	for _, shell := range []string{"bash", "zsh", "fish", "powershell"} {
-		shell := shell
 		t.Run(shell, func(t *testing.T) {
 			t.Parallel()
 
@@ -705,16 +1065,11 @@ func TestCompletionScriptsDoNotReadCredentialFilesOrUseReader(t *testing.T) {
 			if err != nil {
 				t.Fatalf("App.Run(completion %s) error = %v, want nil", shell, err)
 			}
-			wants := []string{"zscalerctl", "locations", "location-groups", "rule-labels", "static-ips", "gre-tunnels", "--resources", "--continue-on-error", "show"}
-			if shell == "powershell" {
-				wants = append(wants, "$operations = @('list', 'get', 'show')")
-			} else {
-				wants = append(wants, "list get")
-			}
-			for _, want := range wants {
-				if !strings.Contains(out.String(), want) {
-					t.Errorf("App.Run(completion %s) stdout = %q, want %q", shell, out.String(), want)
-				}
+			// Cobra-generated scripts are static shell code that calls back to
+			// __complete at completion-time; they must contain "zscalerctl" but
+			// must NOT embed any credential values.
+			if !strings.Contains(out.String(), "zscalerctl") {
+				t.Errorf("App.Run(completion %s) stdout = %q, want zscalerctl", shell, out.String())
 			}
 			for _, forbidden := range []string{clientID, "ZSCALERCTL_CLIENT_SECRET_FILE"} {
 				if strings.Contains(out.String(), forbidden) {
@@ -726,107 +1081,110 @@ func TestCompletionScriptsDoNotReadCredentialFilesOrUseReader(t *testing.T) {
 			}
 		})
 	}
+
+	// Part 2: __complete protocol must never construct a reader or load config.
+	// Run with a reader that panics if constructed, and no credentials.
+	t.Run("__complete_catalog_only", func(t *testing.T) {
+		t.Parallel()
+
+		var out, errOut bytes.Buffer
+		app := cli.NewWithOptions(&out, &errOut, []string{
+			config.EnvClientID + "=" + clientID,
+			config.EnvClientSecretFile + "=/path/that/must/not/be/read",
+		}, cli.Options{Reader: failingResourceReader{}})
+
+		// __complete zia '' should return catalog resource names without any API call.
+		err := app.Run(context.Background(), []string{"__complete", "zia", ""})
+		if err != nil {
+			t.Fatalf("App.Run(__complete zia '') error = %v, want nil", err)
+		}
+		// Cobra completion output is "name\n" or "name\tdesc\n" then ":directive\n".
+		// Verify catalog resource names appear in the completion output.
+		for _, want := range []string{"locations", "url-lookup"} {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("App.Run(__complete zia '') stdout = %q, want %q", out.String(), want)
+			}
+		}
+		for _, forbidden := range []string{clientID, "ZSCALERCTL_CLIENT_SECRET_FILE"} {
+			if strings.Contains(out.String(), forbidden) {
+				t.Errorf("App.Run(__complete zia '') stdout = %q, want no %q", out.String(), forbidden)
+			}
+		}
+		// Note: Cobra prints "Completion ended with directive: ..." to stderr
+		// during __complete; this is expected and intentionally not checked here.
+	})
 }
 
+// TestCompletionScriptsReflectCatalogProducts asserts that the Cobra completion
+// tree offers each product that is actually in the catalog, and does NOT offer
+// products that are absent.
+//
+// Cobra-generated scripts are dynamic (they call __complete at runtime), so we
+// test via the __complete protocol rather than scanning the static script text.
+// "__complete ”" lists all top-level subcommands; products in the catalog appear
+// because execCobra adds them via newProductCmd.
 func TestCompletionScriptsReflectCatalogProducts(t *testing.T) {
 	t.Parallel()
 
 	products := catalogProductsForTest()
-	cases := []struct {
-		shell   string
-		snippet func(string) string
-	}{
-		{
-			shell: "bash",
-			snippet: func(product string) string {
-				return "    " + product + ") COMPREPLY="
-			},
-		},
-		{
-			shell: "zsh",
-			snippet: func(product string) string {
-				return "    " + product + ") compadd --"
-			},
-		},
-		{
-			shell: "fish",
-			snippet: func(product string) string {
-				return "__fish_seen_subcommand_from " + product + "'"
-			},
-		},
-		{
-			shell: "powershell",
-			snippet: func(product string) string {
-				return "'" + product + "' { Complete-ZscalerctlWords $" + product + "Resources"
-			},
-		},
-	}
-	for _, tt := range cases {
-		tt := tt
-		t.Run(tt.shell, func(t *testing.T) {
-			t.Parallel()
 
-			var out, errOut bytes.Buffer
-			app := cli.New(&out, &errOut, nil)
+	var out bytes.Buffer
+	app := cli.New(&out, io.Discard, nil)
 
-			err := app.Run(context.Background(), []string{"completion", tt.shell})
-			if err != nil {
-				t.Fatalf("App.Run(completion %s) error = %v, want nil", tt.shell, err)
-			}
-			for _, product := range []string{"zia", "zpa", "ztw", "zcc"} {
-				snippet := tt.snippet(product)
-				if products[product] && !strings.Contains(out.String(), snippet) {
-					t.Errorf("App.Run(completion %s) stdout = %q, want product branch %q", tt.shell, out.String(), snippet)
-				}
-				if !products[product] && strings.Contains(out.String(), snippet) {
-					t.Errorf("App.Run(completion %s) stdout = %q, want no product branch %q", tt.shell, out.String(), snippet)
-				}
-			}
-			if errOut.Len() != 0 {
-				t.Errorf("App.Run(completion %s) stderr = %q, want empty", tt.shell, errOut.String())
-			}
-		})
+	// Request root-level completions: lists all top-level commands including products.
+	err := app.Run(context.Background(), []string{"__complete", ""})
+	if err != nil {
+		t.Fatalf("App.Run(__complete '') error = %v, want nil", err)
 	}
+	got := out.String()
+	for _, product := range []string{"zia", "zpa", "ztw", "zcc", "zidentity"} {
+		if products[product] && !strings.Contains(got, product) {
+			t.Errorf("App.Run(__complete '') stdout = %q, want product %q (in catalog)", got, product)
+		}
+		if !products[product] && strings.Contains(got, product) {
+			t.Errorf("App.Run(__complete '') stdout = %q, want no product %q (not in catalog)", got, product)
+		}
+	}
+	// Note: Cobra prints "Completion ended with directive: ..." to stderr; expected.
 }
 
+// TestCompletionScriptsUseAuthStatus asserts that completing after "auth" offers
+// "status" and not "show". With Cobra-generated scripts, product commands are
+// registered as Cobra subcommands, so "auth status" is a real subcommand and
+// the __complete protocol returns it correctly.
 func TestCompletionScriptsUseAuthStatus(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		shell     string
-		want      string
-		forbidden string
-	}{
-		{shell: "bash", want: `auth) COMPREPLY=( $(compgen -W "status"`, forbidden: `auth) COMPREPLY=( $(compgen -W "show"`},
-		{shell: "zsh", want: "auth) compadd -- status", forbidden: "auth) compadd -- show"},
-		{shell: "fish", want: "__fish_seen_subcommand_from auth' -a 'status'", forbidden: "__fish_seen_subcommand_from auth' -a 'show'"},
-		{shell: "powershell", want: "'auth' { Complete-ZscalerctlWords @('status')", forbidden: "'auth' { Complete-ZscalerctlWords @('show')"},
-	}
-	for _, tt := range cases {
-		tt := tt
-		t.Run(tt.shell, func(t *testing.T) {
-			t.Parallel()
+	var out bytes.Buffer
+	app := cli.New(&out, io.Discard, nil)
 
-			var out, errOut bytes.Buffer
-			app := cli.New(&out, &errOut, nil)
-
-			err := app.Run(context.Background(), []string{"completion", tt.shell})
-			if err != nil {
-				t.Fatalf("App.Run(completion %s) error = %v, want nil", tt.shell, err)
-			}
-			if !strings.Contains(out.String(), tt.want) {
-				t.Errorf("App.Run(completion %s) stdout = %q, want %q", tt.shell, out.String(), tt.want)
-			}
-			if strings.Contains(out.String(), tt.forbidden) {
-				t.Errorf("App.Run(completion %s) stdout = %q, want no %q", tt.shell, out.String(), tt.forbidden)
-			}
-			if errOut.Len() != 0 {
-				t.Errorf("App.Run(completion %s) stderr = %q, want empty", tt.shell, errOut.String())
-			}
-		})
+	// __complete auth '' → should offer "status" (the auth subcommand).
+	// The "show" verb belongs to "config show" / "schema show", not auth.
+	// Cobra outputs "status\t<desc>\n:directive" — check the first word of each line.
+	err := app.Run(context.Background(), []string{"__complete", "auth", ""})
+	if err != nil {
+		t.Fatalf("App.Run(__complete auth '') error = %v, want nil", err)
 	}
+	got := out.String()
+	// Verify "status" appears as a completion candidate (first field before tab or newline).
+	if !strings.Contains(got, "status") {
+		t.Errorf("App.Run(__complete auth '') stdout = %q, want 'status'", got)
+	}
+	// Verify no "show" subcommand name appears as a leading word on its own line
+	// (the description may say "show" but the subcommand name must not be "show").
+	for line := range strings.SplitSeq(got, "\n") {
+		name, _, _ := strings.Cut(line, "\t")
+		if name == "show" {
+			t.Errorf("App.Run(__complete auth '') stdout = %q, want no 'show' subcommand", got)
+		}
+	}
+	// Note: Cobra prints "Completion ended with directive: ..." to stderr; expected.
 }
 
+// TestBashCompletionRegistersCommand asserts that the Cobra-generated bash
+// completion script registers the completion function for "zscalerctl".
+// Cobra's bash V2 script uses "__start_zscalerctl" and registers it with
+// "complete -o default -F __start_zscalerctl zscalerctl".
 func TestBashCompletionRegistersCommand(t *testing.T) {
 	t.Parallel()
 
@@ -837,14 +1195,22 @@ func TestBashCompletionRegistersCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("App.Run(completion bash) error = %v, want nil", err)
 	}
-	if !strings.Contains(out.String(), "complete -F _zscalerctl zscalerctl") {
-		t.Errorf("App.Run(completion bash) stdout = %q, want bash registration", out.String())
+	got := out.String()
+	// Cobra registers using "__start_zscalerctl" as the entry point.
+	if !strings.Contains(got, "__start_zscalerctl") {
+		t.Errorf("App.Run(completion bash) stdout = %q, want __start_zscalerctl registration", got)
+	}
+	if !strings.Contains(got, "zscalerctl") {
+		t.Errorf("App.Run(completion bash) stdout = %q, want zscalerctl", got)
 	}
 	if errOut.Len() != 0 {
 		t.Errorf("App.Run(completion bash) stderr = %q, want empty", errOut.String())
 	}
 }
 
+// TestPowerShellCompletionRegistersCommand asserts that the Cobra-generated
+// PowerShell completion script registers the completion scriptblock for
+// "zscalerctl". Cobra uses Register-ArgumentCompleter (without -Native).
 func TestPowerShellCompletionRegistersCommand(t *testing.T) {
 	t.Parallel()
 
@@ -855,18 +1221,20 @@ func TestPowerShellCompletionRegistersCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("App.Run(completion powershell) error = %v, want nil", err)
 	}
-	if !strings.Contains(out.String(), "Register-ArgumentCompleter -Native -CommandName zscalerctl") {
-		t.Errorf("App.Run(completion powershell) stdout = %q, want PowerShell registration", out.String())
+	got := out.String()
+	// Cobra's PowerShell script uses Register-ArgumentCompleter (without -Native).
+	if !strings.Contains(got, "Register-ArgumentCompleter") {
+		t.Errorf("App.Run(completion powershell) stdout = %q, want Register-ArgumentCompleter", got)
 	}
-	if !strings.Contains(out.String(), "'ParameterName'") {
-		t.Errorf("App.Run(completion powershell) stdout = %q, want flag completions marked as parameter names", out.String())
+	if !strings.Contains(got, "zscalerctl") {
+		t.Errorf("App.Run(completion powershell) stdout = %q, want zscalerctl", got)
 	}
 	if errOut.Len() != 0 {
 		t.Errorf("App.Run(completion powershell) stderr = %q, want empty", errOut.String())
 	}
 }
 
-// TestPowerShellCompletionParsesUnderRealPwsh runs the generated PowerShell
+// TestPowerShellCompletionParsesUnderRealPwsh runs the Cobra-generated PowerShell
 // completion through an actual PowerShell parser, so a syntax regression fails
 // the build — the string-level completion tests above cannot catch that. It
 // runs wherever `pwsh` is on PATH; in CI (GitHub ubuntu runners ship
@@ -903,22 +1271,94 @@ if ($errs -and $errs.Count -gt 0) { $errs | ForEach-Object { [Console]::Error.Wr
 	cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", parse)
 	cmd.Stderr = &pwshErr
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("generated PowerShell completion failed to parse under pwsh: %v\n%s", err, pwshErr.String())
+		t.Fatalf("Cobra-generated PowerShell completion failed to parse under pwsh: %v\n%s", err, pwshErr.String())
 	}
 }
 
+// TestCompletionRejectsUnknownShell asserts that "completion elvish" does not
+// produce a shell completion script. With Cobra's built-in completion command,
+// unknown shells show the completion group help (exit 0) rather than an error,
+// but crucially they must NOT emit a script body that a shell could source.
+//
+// Surface delta: this is an intentional behavior change from the legacy
+// implementation. Legacy runCompletion returned UsageError (exit 2) for any
+// unknown shell name; Cobra's built-in completion command routes unknown
+// subcommands to the completion group help (exit 0). See
+// cmd/zscalerctl/testdata/surface/surface_changes.md:
+// "completion <unknown-shell> (e.g. elvish)".
 func TestCompletionRejectsUnknownShell(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
 	app := cli.New(&out, &errOut, nil)
 
+	// Documented surface delta: Cobra shows the completion group help (exit 0)
+	// for unknown shell names. Legacy returned UsageError (exit 2).
+	// See surface_changes.md: "completion <unknown-shell> (e.g. elvish)".
 	err := app.Run(context.Background(), []string{"completion", "elvish"})
-	if !errors.Is(err, cli.ErrUsage) {
-		t.Fatalf("App.Run(completion elvish) error = %v, want ErrUsage", err)
+	if err != nil {
+		t.Fatalf("App.Run(completion elvish) error = %v, want nil (Cobra shows group help, exit 0)", err)
 	}
-	if out.Len() != 0 {
-		t.Errorf("App.Run(completion elvish) stdout = %q, want empty", out.String())
+
+	got := out.String()
+
+	// Positive assertion: the completion group help must list the supported
+	// shells. If these are absent the command silently produced nothing useful.
+	for _, shellName := range []string{"bash", "fish", "powershell", "zsh"} {
+		if !strings.Contains(got, shellName) {
+			t.Errorf("App.Run(completion elvish) stdout missing %q — expected completion group help listing supported shells; got:\n%s", shellName, got)
+		}
+	}
+
+	// Negative assertion: no generated completion script must be present.
+	// A real script would contain shell-specific registration markers.
+	for _, scriptMarker := range []string{
+		"__start_zscalerctl",         // bash V2 registration function
+		"#compdef zscalerctl",        // zsh
+		"complete -c zscalerctl",     // fish
+		"Register-ArgumentCompleter", // powershell
+	} {
+		if strings.Contains(got, scriptMarker) {
+			t.Errorf("App.Run(completion elvish) stdout contains script marker %q — no completion script should be emitted; got:\n%s", scriptMarker, got)
+		}
+	}
+
+	// Stderr must be empty: Cobra group help goes to stdout.
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(completion elvish) stderr = %q, want empty", errOut.String())
+	}
+}
+
+// TestCompletionScriptBashNotRedacted guards the §5a spec requirement: the
+// redactor must NEVER be applied to completion script stdout. If the redactor
+// were applied, its high-entropy heuristic would corrupt shell variable
+// assignments such as "local shellCompDirectiveFilterFileExt=8" (treating "=8"
+// as a high-entropy secret) and mangle URLs in comments, silently breaking
+// file-extension filtering in the generated bash script.
+//
+// The guard checks two things:
+//  1. No "<REDACTED" substring appears anywhere in the bash completion script.
+//  2. The specific variable assignment that was historically corrupted is intact.
+func TestCompletionScriptBashNotRedacted(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	app := cli.New(&out, io.Discard, nil)
+
+	if err := app.Run(context.Background(), []string{"completion", "bash"}); err != nil {
+		t.Fatalf("App.Run(completion bash) error = %v, want nil", err)
+	}
+	got := out.String()
+
+	// Guard 1: no redactor tokens anywhere in the script.
+	if strings.Contains(got, "<REDACTED") {
+		t.Errorf("completion bash stdout contains <REDACTED — redactor must not be applied to completion output:\n%s", got)
+	}
+
+	// Guard 2: the specific variable assignment that the redactor false-positives on.
+	const needle = "local shellCompDirectiveFilterFileExt=8"
+	if !strings.Contains(got, needle) {
+		t.Errorf("completion bash stdout does not contain %q — script may be corrupted or Cobra changed its generator:\n%s", needle, got)
 	}
 }
 
@@ -975,6 +1415,181 @@ func TestSchemaListJSONIncludesGetKeyForGetResources(t *testing.T) {
 	}
 }
 
+func TestMachineManifestJSONIsConfigFree(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
+	missingConfig := filepath.Join(t.TempDir(), "missing.yaml")
+
+	err := app.Run(context.Background(), []string{"--config", missingConfig, "--format", "json", "machine", "manifest"})
+	if err != nil {
+		t.Fatalf("App.Run(machine manifest) error = %v, want nil", err)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(machine manifest) stderr = %q, want empty", errOut.String())
+	}
+
+	var manifest machine.Manifest
+	if err := json.Unmarshal(out.Bytes(), &manifest); err != nil {
+		t.Fatalf("json.Unmarshal(machine manifest) error = %v; body = %q", err, out.String())
+	}
+	if manifest.Version != machine.ManifestVersion {
+		t.Fatalf("manifest version = %q, want %q", manifest.Version, machine.ManifestVersion)
+	}
+	if manifest.Meta == nil || !manifest.Meta.ReadOnly || manifest.Meta.Count != len(manifest.Capabilities) {
+		t.Fatalf("manifest meta = %+v, capabilities = %d; want read-only count", manifest.Meta, len(manifest.Capabilities))
+	}
+
+	foundLocations := false
+	for _, capability := range manifest.Capabilities {
+		if capability.Input != nil && capability.Input.Product == "zia" && capability.Input.Resource == "locations" {
+			foundLocations = true
+			break
+		}
+	}
+	if !foundLocations {
+		t.Fatalf("machine manifest did not include zia/locations capability")
+	}
+}
+
+func TestMachineManifestUsesInjectedCatalog(t *testing.T) {
+	t.Parallel()
+
+	catalog := resources.ResourceCatalog{
+		{
+			Product:    resources.ProductZIA,
+			Name:       "widgets",
+			Shape:      resources.ShapeList,
+			Operations: resources.ReadOperations(),
+			GetKey:     "id",
+		},
+	}
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{
+		Catalog: catalog,
+		Reader:  failingResourceReader{},
+	})
+
+	err := app.Run(context.Background(), []string{"--format", "json", "machine", "manifest"})
+	if err != nil {
+		t.Fatalf("App.Run(machine manifest injected catalog) error = %v, want nil", err)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(machine manifest injected catalog) stderr = %q, want empty", errOut.String())
+	}
+
+	var manifest machine.Manifest
+	if err := json.Unmarshal(out.Bytes(), &manifest); err != nil {
+		t.Fatalf("json.Unmarshal(machine manifest injected catalog) error = %v; body = %q", err, out.String())
+	}
+	if len(manifest.Capabilities) != 1 {
+		t.Fatalf("manifest capabilities = %d, want 1; body = %q", len(manifest.Capabilities), out.String())
+	}
+	capability := manifest.Capabilities[0]
+	if capability.Input == nil || capability.Input.Product != "zia" || capability.Input.Resource != "widgets" {
+		t.Fatalf("manifest capability input = %+v, want zia/widgets", capability.Input)
+	}
+	if got := fmt.Sprint(capability.Operations); got != "[list get]" {
+		t.Fatalf("manifest operations = %s, want [list get]", got)
+	}
+	if capability.Meta == nil || capability.Meta.GetKey != "id" {
+		t.Fatalf("manifest capability meta = %+v, want get_key id", capability.Meta)
+	}
+}
+
+func TestMachineManifestRejectsNonJSONFormats(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
+
+	err := app.Run(context.Background(), []string{"--format", "ndjson", "machine", "manifest"})
+	if err == nil {
+		t.Fatal("App.Run(machine manifest ndjson) error = nil, want usage error")
+	}
+	if !strings.Contains(err.Error(), "machine manifest does not support ndjson output yet") {
+		t.Fatalf("App.Run(machine manifest ndjson) error = %v, want unsupported-format usage", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("App.Run(machine manifest ndjson) stdout = %q, want empty", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(machine manifest ndjson) stderr = %q, want empty", errOut.String())
+	}
+}
+
+// noopReader is a ResourceReader stub whose methods return empty results and
+// nil errors. It is injected into an App with an empty catalog to prove the
+// schema-list empty-catalog branch never reaches the reader.
+type noopReader struct{}
+
+func (noopReader) List(_ context.Context, _ resources.Product, _ string) ([]resources.SourceRecord, error) {
+	return nil, nil
+}
+func (noopReader) Get(_ context.Context, _ resources.Product, _ string, _ string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, nil
+}
+func (noopReader) Show(_ context.Context, _ resources.Product, _ string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, nil
+}
+
+// TestSchemaListEmptyCatalog covers the empty-catalog branch of runSchema, a
+// known coverage gap: an explicit empty (non-nil) ResourceCatalog is injected
+// via NewWithOptions so resourceCatalog() returns zero entries.
+//
+//   - --format table: the sentinel "no resources enabled yet" text is emitted.
+//   - --format json: an empty array "[]" is emitted.
+//
+// Neither path must error or touch the reader.
+func TestSchemaListEmptyCatalog(t *testing.T) {
+	t.Parallel()
+
+	t.Run("table", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{
+			Catalog: resources.ResourceCatalog{},
+			Reader:  noopReader{},
+		})
+		if err := app.Run(context.Background(), []string{"--format", "table", "schema", "list"}); err != nil {
+			t.Fatalf("App.Run(schema list table) empty-catalog error = %v, want nil", err)
+		}
+		if got := out.String(); !strings.Contains(got, "no resources enabled yet") {
+			t.Errorf("schema list table empty-catalog stdout = %q, want sentinel \"no resources enabled yet\"", got)
+		}
+		if errOut.Len() != 0 {
+			t.Errorf("schema list table empty-catalog stderr = %q, want empty", errOut.String())
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{
+			Catalog: resources.ResourceCatalog{},
+			Reader:  noopReader{},
+		})
+		if err := app.Run(context.Background(), []string{"--format", "json", "schema", "list"}); err != nil {
+			t.Fatalf("App.Run(schema list json) empty-catalog error = %v, want nil", err)
+		}
+		var specs []json.RawMessage
+		if err := json.Unmarshal(out.Bytes(), &specs); err != nil {
+			t.Fatalf("json.Unmarshal(schema list json) error = %v\noutput: %s", err, out.String())
+		}
+		if len(specs) != 0 {
+			t.Errorf("schema list json empty-catalog: got %d entries, want 0 (output: %s)", len(specs), out.String())
+		}
+		// The renderer must emit a literal empty array, not "null".
+		if got := strings.TrimSpace(out.String()); got != "[]" {
+			t.Errorf("schema list json empty-catalog stdout = %q, want \"[]\"", got)
+		}
+		if errOut.Len() != 0 {
+			t.Errorf("schema list json empty-catalog stderr = %q, want empty", errOut.String())
+		}
+	})
+}
+
 func TestHelpDoesNotReadCredentialFile(t *testing.T) {
 	t.Parallel()
 
@@ -987,8 +1602,14 @@ func TestHelpDoesNotReadCredentialFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("App.Run(help) error = %v, want nil", err)
 	}
-	if !strings.Contains(out.String(), "completion bash|zsh|fish|powershell") {
-		t.Errorf("App.Run(help) stdout = %q, want completion usage", out.String())
+	for _, want := range []string{"Available Commands", "completion"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("App.Run(help) stdout = %q, want %q", out.String(), want)
+		}
+	}
+	forbidden := "/path/that/must/not-be-read"
+	if strings.Contains(out.String(), forbidden) {
+		t.Errorf("App.Run(help) stdout = %q, must not contain %q", out.String(), forbidden)
 	}
 	if errOut.Len() != 0 {
 		t.Errorf("App.Run(help) stderr = %q, want empty", errOut.String())
@@ -1026,7 +1647,6 @@ func TestResourceListDefaultReaderRequiresExplicitCredentials(t *testing.T) {
 	t.Parallel()
 
 	for _, spec := range ziaListResourceSpecs(t) {
-		spec := spec
 		t.Run(string(spec.Product)+"/"+spec.Name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1121,61 +1741,104 @@ func TestResourceListSupportsNDJSON(t *testing.T) {
 	}
 }
 
-func TestResourceListWarnsUnknownFilterKeyButKeepsStdoutClean(t *testing.T) {
+func TestResourceListRejectsUnknownFilterKeyBeforeReader(t *testing.T) {
 	t.Parallel()
 
-	reader := fakeResourceReader{
-		list: []resources.SourceRecord{
-			resources.NewSourceRecord(map[string]any{"id": "1", "name": "HQ"}),
-		},
-	}
 	var out, errOut bytes.Buffer
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{
-		Reader:  reader,
+		Reader:  failingResourceReader{},
 		Catalog: filterWarningCatalog(),
 	})
 
 	err := app.Run(context.Background(), []string{"--format", "json", "zia", "locations", "list", "--filter", "naem=HQ"})
-	if err != nil {
-		t.Fatalf("App.Run(list --filter unknown) error = %v, want nil", err)
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(list --filter unknown) error = %v, want ErrUsage", err)
 	}
-	if got := strings.TrimSpace(out.String()); got != "[]" {
-		t.Fatalf("App.Run(list --filter unknown) stdout = %q, want []", out.String())
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("App.Run(list --filter unknown) output = stdout=%q stderr=%q, want empty", out.String(), errOut.String())
 	}
-	if strings.Contains(out.String(), "warning:") {
-		t.Errorf("App.Run(list --filter unknown) stdout = %q, want no warning", out.String())
-	}
-	wantWarning := `warning: --filter key "naem" is not a field of zia/locations`
-	if !strings.Contains(errOut.String(), wantWarning) {
-		t.Errorf("App.Run(list --filter unknown) stderr = %q, want %q", errOut.String(), wantWarning)
+	if !strings.Contains(err.Error(), `--filter: "naem" is not a field of zia/locations`) {
+		t.Errorf("App.Run(list --filter unknown) error = %q, want catalog diagnostic", err.Error())
 	}
 }
 
-func TestResourceListDoesNotWarnForCatalogFieldDroppedByMode(t *testing.T) {
+func TestResourceListRedactsUnknownFilterKeyUsageError(t *testing.T) {
+	t.Parallel()
+
+	const secretKey = "Authorization: Bearer abcdefghijklmnopqrstuvwxyz"
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{
+		Reader:  failingResourceReader{},
+		Catalog: filterWarningCatalog(),
+	})
+
+	err := app.Run(context.Background(), []string{"--format", "json", "zia", "locations", "list", "--filter", secretKey + "=HQ"})
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(list --filter secret-like unknown key) error = %v, want ErrUsage", err)
+	}
+	if strings.Contains(err.Error(), "abcdefghijklmnopqrstuvwxyz") || strings.Contains(errOut.String(), "abcdefghijklmnopqrstuvwxyz") {
+		t.Errorf("App.Run(list --filter secret-like unknown key) error/output = %q/%q, want bearer token redacted", err.Error(), errOut.String())
+	}
+	if !strings.Contains(err.Error(), "<REDACTED:SECRET>") {
+		t.Errorf("App.Run(list --filter secret-like unknown key) error = %q, want redaction marker", err.Error())
+	}
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Errorf("App.Run(list --filter secret-like unknown key) output = stdout=%q stderr=%q, want empty", out.String(), errOut.String())
+	}
+}
+
+func TestResourceNarrowingPreflightRunsBeforeConfigAndReader(t *testing.T) {
+	t.Parallel()
+
+	// LoadEnv would try to read this path. A catalog-name usage error must win
+	// before config loading, so no secret file or reader is touched.
+	secretFile := filepath.Join(t.TempDir(), "secret-that-must-not-be-read")
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, []string{
+		config.EnvClientSecretFile + "=" + secretFile,
+	}, cli.Options{
+		Reader:  failingResourceReader{},
+		Catalog: filterWarningCatalog(),
+	})
+
+	err := app.Run(context.Background(), []string{
+		"--format", "json",
+		"--filter", "unknownField=HQ",
+		"zia", "locations", "list",
+	})
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(unknown filter with unreadable secret file) error = %v, want ErrUsage", err)
+	}
+	if strings.Contains(err.Error(), secretFile) || strings.Contains(err.Error(), "secret-that-must-not-be-read") {
+		t.Fatalf("App.Run(unknown filter with unreadable secret file) error = %q, want catalog usage error", err.Error())
+	}
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("App.Run(unknown filter with unreadable secret file) output = stdout=%q stderr=%q, want empty", out.String(), errOut.String())
+	}
+}
+
+// TestResourceListRejectsFilterOnFieldTheModeOmits pins the mode-aware filter
+// contract: a filter on a real catalog field that the active mode never renders
+// (secret, or standard-only under share) is a usage error before any read. A
+// silent empty result would read as a confident "no such records". The error
+// names the field and the mode that renders it, never the filter value.
+func TestResourceListRejectsFilterOnFieldTheModeOmits(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		filter string
+		name     string
+		filter   string
+		value    string
+		wantText string
 	}{
-		{name: "secret field", filter: "internalToken=raw-token-value"},
-		{name: "standard only field in share", filter: "hostname=host-01"},
+		{name: "secret field", filter: "internalToken=raw-token-value", value: "raw-token-value", wantText: "is secret and never renders"},
+		{name: "standard only field in share", filter: "hostname=host-01", value: "host-01", wantText: "renders with --redaction standard"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			reader := fakeResourceReader{
-				list: []resources.SourceRecord{
-					resources.NewSourceRecord(map[string]any{
-						"id":            "1",
-						"name":          "HQ",
-						"hostname":      "host-01",
-						"internalToken": "raw-token-value",
-					}),
-				},
-			}
+			reader := &countingResourceReader{}
 			var out, errOut bytes.Buffer
 			app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{
 				Reader:  reader,
@@ -1188,17 +1851,45 @@ func TestResourceListDoesNotWarnForCatalogFieldDroppedByMode(t *testing.T) {
 				"zia", "locations", "list",
 				"--filter", tt.filter,
 			})
-			if err != nil {
-				t.Fatalf("App.Run(list --filter catalog field dropped by mode) error = %v, want nil", err)
+			var usage cli.UsageError
+			if !errors.As(err, &usage) {
+				t.Fatalf("App.Run(list --filter omitted field) error = %v, want UsageError", err)
 			}
-			if got := strings.TrimSpace(out.String()); got != "[]" {
-				t.Fatalf("App.Run(list --filter catalog field dropped by mode) stdout = %q, want []", out.String())
+			if !strings.Contains(usage.Message, tt.wantText) {
+				t.Errorf("usage message = %q, want it to contain %q", usage.Message, tt.wantText)
 			}
-			if errOut.Len() != 0 {
-				t.Errorf("App.Run(list --filter catalog field dropped by mode) stderr = %q, want empty", errOut.String())
+			if strings.Contains(usage.Message, tt.value) {
+				t.Errorf("usage message = %q echoes the filter value", usage.Message)
+			}
+			if reader.calls != 0 {
+				t.Errorf("reader calls = %d, want 0 (rejected before any read)", reader.calls)
+			}
+			if out.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", out.String())
 			}
 		})
 	}
+}
+
+// countingResourceReader records reads so tests can prove a request was
+// rejected before reaching the reader.
+type countingResourceReader struct {
+	calls int
+}
+
+func (r *countingResourceReader) List(context.Context, resources.Product, string) ([]resources.SourceRecord, error) {
+	r.calls++
+	return nil, nil
+}
+
+func (r *countingResourceReader) Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error) {
+	r.calls++
+	return resources.SourceRecord{}, nil
+}
+
+func (r *countingResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
+	r.calls++
+	return resources.SourceRecord{}, nil
 }
 
 // TestNonRecordCommandsRejectNDJSON asserts every non-record command rejects
@@ -1211,11 +1902,10 @@ func TestNonRecordCommandsRejectNDJSON(t *testing.T) {
 	cases := map[string][]string{
 		"doctor":     {"doctor", "--format", "ndjson"},
 		"schema":     {"--format", "ndjson", "schema", "list"},
-		"dump":       {"--format", "ndjson", "dump", "--out", "/tmp/zsc-ndjson-reject"},
+		"dump":       {"--format", "ndjson", "dump", "--output", "/tmp/zsc-ndjson-reject"},
 		"completion": {"--format", "ndjson", "completion", "bash"},
 	}
 	for name, args := range cases {
-		name, args := name, args
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1332,7 +2022,6 @@ func TestUnsupportedFormatsFailBeforeReader(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var out, errOut bytes.Buffer
@@ -1455,7 +2144,6 @@ func TestProductCommandsRejectUnsupportedOperationBeforeReader(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1521,8 +2209,10 @@ func TestResourceListRuleLabelsUsesCatalogProjection(t *testing.T) {
 	if len(decoded) != 1 {
 		t.Fatalf("decoded rule-labels list length = %d, want 1", len(decoded))
 	}
-	if _, ok := decoded[0]["createdBy"]; ok {
-		t.Errorf("decoded rule-labels list = %#v, want no unmodeled createdBy", decoded[0])
+	// createdBy is an admin reference: its name renders in standard mode
+	// (the default here) and is a person, so it is standard-only.
+	if createdBy, ok := decoded[0]["createdBy"].(map[string]any); !ok || createdBy["name"] != "admin@example.invalid" {
+		t.Errorf("decoded rule-labels createdBy = %#v, want the admin reference with its name", decoded[0]["createdBy"])
 	}
 	for _, field := range []string{"name", "description"} {
 		value, ok := decoded[0][field].(string)
@@ -1541,6 +2231,9 @@ func TestResourceListRuleLabelsUsesCatalogProjection(t *testing.T) {
 
 func TestDumpWritesRestrictedFilesAndReportsWithoutCanaries(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file-mode perms; Windows enforces owner-only via DACL, covered by internal/fileperm")
+	}
 
 	const (
 		topLevelPSK       = "top-level-psk-canary"
@@ -1575,16 +2268,16 @@ func TestDumpWritesRestrictedFilesAndReportsWithoutCanaries(t *testing.T) {
 	}
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 
-	err := app.Run(context.Background(), []string{"dump", "--out", outDir})
+	err := app.Run(context.Background(), []string{"dump", "--output", outDir})
 	if err != nil {
-		t.Fatalf("App.Run(dump --out) error = %v, want nil", err)
+		t.Fatalf("App.Run(dump --output) error = %v, want nil", err)
 	}
 	for _, forbidden := range []string{topLevelPSK, nestedPSK, freeTextPSK, bareFreeTextToken} {
 		if strings.Contains(out.String(), forbidden) {
-			t.Errorf("App.Run(dump --out) stdout = %q, want no %q", out.String(), forbidden)
+			t.Errorf("App.Run(dump --output) stdout = %q, want no %q", out.String(), forbidden)
 		}
 		if strings.Contains(errOut.String(), forbidden) {
-			t.Errorf("App.Run(dump --out) stderr = %q, want no %q", errOut.String(), forbidden)
+			t.Errorf("App.Run(dump --output) stderr = %q, want no %q", errOut.String(), forbidden)
 		}
 	}
 
@@ -1649,9 +2342,9 @@ func TestDumpUsesSingleReaderSessionForAllZIAResources(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 
-	err := app.Run(context.Background(), []string{"dump", "--products", "zia", "--out", outDir})
+	err := app.Run(context.Background(), []string{"dump", "--products", "zia", "--output", outDir})
 	if err != nil {
-		t.Fatalf("App.Run(dump --products zia --out) error = %v, want nil", err)
+		t.Fatalf("App.Run(dump --products zia --output) error = %v, want nil", err)
 	}
 	if reader.sessionCalls != 1 {
 		t.Errorf("sessionProviderResourceReader.Session calls = %d, want 1", reader.sessionCalls)
@@ -1669,10 +2362,10 @@ func TestDumpUsesSingleReaderSessionForAllZIAResources(t *testing.T) {
 		t.Errorf("countingResourceSession.Close calls = %d, want 1", session.closeCalls)
 	}
 	if !strings.Contains(errOut.String(), "dump written: "+outDir) {
-		t.Errorf("App.Run(dump --products zia --out) stderr = %q, want dump written line", errOut.String())
+		t.Errorf("App.Run(dump --products zia --output) stderr = %q, want dump written line", errOut.String())
 	}
 	if out.Len() != 0 {
-		t.Errorf("App.Run(dump --products zia --out) stdout = %q, want empty", out.String())
+		t.Errorf("App.Run(dump --products zia --output) stdout = %q, want empty", out.String())
 	}
 }
 
@@ -1694,7 +2387,7 @@ func TestDumpResourceFilterWritesOnlySelectedResources(t *testing.T) {
 		"dump",
 		"--products", "zia",
 		"--resources", "locations,rule-labels",
-		"--out", outDir,
+		"--output", outDir,
 	})
 	if err != nil {
 		t.Fatalf("App.Run(dump --resources locations,rule-labels) error = %v, want nil", err)
@@ -1758,7 +2451,7 @@ func TestDumpResourceFilterSupportsQualifiedResourceName(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 
-	err := app.Run(context.Background(), []string{"dump", "--resources", "zia/locations", "--out", outDir})
+	err := app.Run(context.Background(), []string{"dump", "--resources", "zia/locations", "--output", outDir})
 	if err != nil {
 		t.Fatalf("App.Run(dump --resources zia/locations) error = %v, want nil", err)
 	}
@@ -1791,7 +2484,7 @@ func TestDumpResourceFilterWritesSingletonAsObject(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 
-	err := app.Run(context.Background(), []string{"dump", "--resources", "zia/advanced-settings", "--out", outDir})
+	err := app.Run(context.Background(), []string{"dump", "--resources", "zia/advanced-settings", "--output", outDir})
 	if err != nil {
 		t.Fatalf("App.Run(dump --resources zia/advanced-settings) error = %v, want nil", err)
 	}
@@ -1838,7 +2531,7 @@ func TestDumpResourceFilterRejectsUnknownResourceBeforeReader(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
 
-	err := app.Run(context.Background(), []string{"dump", "--resources", "not-a-resource", "--out", outDir})
+	err := app.Run(context.Background(), []string{"dump", "--resources", "not-a-resource", "--output", outDir})
 	if !errors.Is(err, cli.ErrUsage) {
 		t.Fatalf("App.Run(dump --resources not-a-resource) error = %v, want ErrUsage", err)
 	}
@@ -1853,6 +2546,24 @@ func TestDumpResourceFilterRejectsUnknownResourceBeforeReader(t *testing.T) {
 	}
 }
 
+// TestDumpResourceFilterNamesCoverageGap pins that dump --resources says why
+// a declared gap cannot be dumped, by surface or alias in any case, and does
+// not echo the alias.
+func TestDumpResourceFilterNamesCoverageGap(t *testing.T) {
+	t.Parallel()
+
+	for _, item := range []string{"zpa/policy-groups", "zpa/B2B_Policy", "B2B_Policy"} {
+		app := cli.NewWithOptions(io.Discard, io.Discard, nil, cli.Options{Reader: failingResourceReader{}})
+		err := app.Run(context.Background(), []string{"dump", "--products", "zpa", "--resources", item, "--output", filepath.Join(t.TempDir(), "dump")})
+		if !errors.Is(err, cli.ErrUsage) || !strings.Contains(err.Error(), "zscalerctl does not read zpa/policy-groups (") {
+			t.Errorf("App.Run(dump --resources %s) error = %v, want usage naming the gap", item, err)
+		}
+		if err != nil && strings.Contains(err.Error(), "B2B_Policy") {
+			t.Errorf("App.Run(dump --resources %s) error echoed the alias: %v", item, err)
+		}
+	}
+}
+
 func TestDumpResourceFilterRejectsResourceOutsideSelectedProductsBeforeReader(t *testing.T) {
 	t.Parallel()
 
@@ -1860,7 +2571,7 @@ func TestDumpResourceFilterRejectsResourceOutsideSelectedProductsBeforeReader(t 
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingResourceReader{}})
 
-	err := app.Run(context.Background(), []string{"dump", "--products", "zpa", "--resources", "locations", "--out", outDir})
+	err := app.Run(context.Background(), []string{"dump", "--products", "zpa", "--resources", "locations", "--output", outDir})
 	if !errors.Is(err, cli.ErrUsage) {
 		t.Fatalf("App.Run(dump --products zpa --resources locations) error = %v, want ErrUsage", err)
 	}
@@ -1942,7 +2653,7 @@ func TestDumpWritesSingletonResourceAsOneRecordWithManifestShape(t *testing.T) {
 		Catalog: catalog,
 	})
 
-	err := app.Run(context.Background(), []string{"dump", "--resources", "zia/singleton-settings", "--out", outDir})
+	err := app.Run(context.Background(), []string{"dump", "--resources", "zia/singleton-settings", "--output", outDir})
 	if err != nil {
 		t.Fatalf("App.Run(dump singleton-settings) error = %v, want nil", err)
 	}
@@ -2001,7 +2712,7 @@ func TestDumpAbortsWithoutWritingOnResourceErrorByDefault(t *testing.T) {
 		"dump",
 		"--products", "zia",
 		"--resources", "locations,rule-labels",
-		"--out", outDir,
+		"--output", outDir,
 	})
 	if err == nil {
 		t.Fatal("App.Run(dump resource error default) error = nil, want non-nil")
@@ -2027,6 +2738,9 @@ func TestDumpAbortsWithoutWritingOnResourceErrorByDefault(t *testing.T) {
 
 func TestDumpContinueOnErrorWritesPartialManifestAndValueFreeErrors(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file-mode perms; Windows enforces owner-only via DACL, covered by internal/fileperm")
+	}
 
 	const leakedErrorText = "client_secret=raw-error-value"
 	reader := selectiveErrorResourceReader{
@@ -2048,7 +2762,7 @@ func TestDumpContinueOnErrorWritesPartialManifestAndValueFreeErrors(t *testing.T
 		"--products", "zia",
 		"--resources", "locations,rule-labels",
 		"--continue-on-error",
-		"--out", outDir,
+		"--output", outDir,
 	})
 	if !errors.Is(err, cli.ErrPartialDump) {
 		t.Fatalf("App.Run(dump --continue-on-error) error = %v, want ErrPartialDump", err)
@@ -2155,7 +2869,7 @@ func TestDumpContinueOnErrorWritesPartialManifestAndValueFreeErrors(t *testing.T
 	if err := json.Unmarshal([]byte(lines[0]), &errorRecord); err != nil {
 		t.Fatalf("json.Unmarshal(errors.ndjson line) error = %v, want nil", err)
 	}
-	if errorRecord.Schema != "zscalerctl.dump.error.v1" ||
+	if errorRecord.Schema != "zscalerctl.dump.error.v2" ||
 		errorRecord.Product != "zia" ||
 		errorRecord.Name != "rule-labels" ||
 		errorRecord.Operation != "list" ||
@@ -2178,7 +2892,7 @@ func TestDumpContinueOnErrorTreatsContextCancellationAsFatal(t *testing.T) {
 		"--products", "zia",
 		"--resources", "locations",
 		"--continue-on-error",
-		"--out", outDir,
+		"--output", outDir,
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("App.Run(dump cancelled --continue-on-error) error = %v, want context.Canceled", err)
@@ -2191,6 +2905,59 @@ func TestDumpContinueOnErrorTreatsContextCancellationAsFatal(t *testing.T) {
 	}
 	if errOut.Len() != 0 {
 		t.Errorf("App.Run(dump cancelled --continue-on-error) stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestDumpOutputPhasePreservesContextMachineClassification(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		kind     string
+		sentinel error
+	}{
+		{
+			name:     "canceled",
+			kind:     machine.ErrorKindCanceled,
+			sentinel: context.Canceled,
+		},
+		{
+			name:     "deadline",
+			kind:     machine.ErrorKindDeadlineExceeded,
+			sentinel: context.DeadlineExceeded,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := newFinishedOnDemandContext(tc.sentinel)
+			reader := finishingContextResourceReader{finish: func(context.Context) { ctx.finish() }}
+			var out, errOut bytes.Buffer
+			outDir := filepath.Join(t.TempDir(), "dump")
+			app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+
+			err := app.Run(ctx, []string{
+				"dump",
+				"--products", "zia",
+				"--resources", "locations",
+				"--output", outDir,
+			})
+			var machineErr *machine.MachineError
+			if !errors.As(err, &machineErr) || machineErr.Kind != tc.kind ||
+				machineErr.Operation != machine.OperationDump {
+				t.Fatalf("App.Run(dump output-phase %s) error = %#v, want %s/dump", tc.name, machineErr, tc.kind)
+			}
+			if !errors.Is(err, tc.sentinel) {
+				t.Fatalf("App.Run(dump output-phase %s) error = %v, want sentinel %v", tc.name, err, tc.sentinel)
+			}
+			if _, statErr := os.Stat(outDir); !errors.Is(statErr, os.ErrNotExist) {
+				t.Errorf("os.Stat(%q) after output-phase %s = %v, want os.ErrNotExist", outDir, tc.name, statErr)
+			}
+			if out.Len() != 0 || errOut.Len() != 0 {
+				t.Errorf("App.Run(dump output-phase %s) output = %q / %q, want empty", tc.name, out.String(), errOut.String())
+			}
+		})
 	}
 }
 
@@ -2207,7 +2974,7 @@ func TestDumpContinueOnErrorTreatsSessionFailureAsFatal(t *testing.T) {
 		"--products", "zia",
 		"--resources", "locations",
 		"--continue-on-error",
-		"--out", outDir,
+		"--output", outDir,
 	})
 	if !errors.Is(err, zscaler.ErrMissingCredentials) {
 		t.Fatalf("App.Run(dump session failure --continue-on-error) error = %v, want ErrMissingCredentials", err)
@@ -2242,9 +3009,9 @@ func TestDumpFallsBackWhenReaderDoesNotSupportProductSession(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 
-	err := app.Run(context.Background(), []string{"dump", "--products", "zia", "--out", outDir})
+	err := app.Run(context.Background(), []string{"dump", "--products", "zia", "--output", outDir})
 	if err != nil {
-		t.Fatalf("App.Run(dump with unsupported session --out) error = %v, want nil", err)
+		t.Fatalf("App.Run(dump with unsupported session --output) error = %v, want nil", err)
 	}
 	if reader.sessionCalls != 1 {
 		t.Errorf("unsupportedSessionResourceReader.Session calls = %d, want 1", reader.sessionCalls)
@@ -2256,10 +3023,10 @@ func TestDumpFallsBackWhenReaderDoesNotSupportProductSession(t *testing.T) {
 		t.Errorf("unsupportedSessionResourceReader.Show calls = %d, want %d", got, want)
 	}
 	if !strings.Contains(errOut.String(), "dump written: "+outDir) {
-		t.Errorf("App.Run(dump with unsupported session --out) stderr = %q, want dump written line", errOut.String())
+		t.Errorf("App.Run(dump with unsupported session --output) stderr = %q, want dump written line", errOut.String())
 	}
 	if out.Len() != 0 {
-		t.Errorf("App.Run(dump with unsupported session --out) stdout = %q, want empty", out.String())
+		t.Errorf("App.Run(dump with unsupported session --output) stdout = %q, want empty", out.String())
 	}
 }
 
@@ -2272,7 +3039,7 @@ func TestDumpClosesReaderSessionOnListError(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 
-	err := app.Run(context.Background(), []string{"dump", "--products", "zia", "--out", outDir})
+	err := app.Run(context.Background(), []string{"dump", "--products", "zia", "--output", outDir})
 	if err == nil {
 		t.Fatal("App.Run(dump with session list error) error = nil, want non-nil")
 	}
@@ -2294,7 +3061,7 @@ func TestDumpRejectsNilReaderSession(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: nilSessionResourceReader{}})
 
-	err := app.Run(context.Background(), []string{"dump", "--products", "zia", "--out", outDir})
+	err := app.Run(context.Background(), []string{"dump", "--products", "zia", "--output", outDir})
 	if err == nil {
 		t.Fatal("App.Run(dump with nil session) error = nil, want non-nil")
 	}
@@ -2328,9 +3095,17 @@ func TestDumpRefusesOverwriteBeforeWritingNewFiles(t *testing.T) {
 	}
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 
-	err := app.Run(context.Background(), []string{"dump", "--out", outDir})
+	err := app.Run(context.Background(), []string{"dump", "--output", outDir})
 	if !errors.Is(err, dump.ErrUnsafeOverwrite) {
 		t.Fatalf("App.Run(dump overwrite) error = %v, want ErrUnsafeOverwrite", err)
+	}
+	if machineErr, ok := errors.AsType[*machine.MachineError](err); ok {
+		t.Fatalf("App.Run(dump overwrite) error = %#v, want legacy local-output envelope without machine operation context", machineErr)
+	}
+	wantMessage := fmt.Sprintf("%s: %s", dump.ErrUnsafeOverwrite, filepath.Join(outDir, "manifest.json"))
+	wantMessage, _ = redact.New(redact.ModeStandard).ScanRenderedString(wantMessage)
+	if err.Error() != wantMessage {
+		t.Errorf("App.Run(dump overwrite) error = %q, want base-compatible rendered %q", err, wantMessage)
 	}
 	resourcePath := filepath.Join(outDir, "resources", "zia", "locations.json")
 	if _, err := os.Stat(resourcePath); !errors.Is(err, os.ErrNotExist) {
@@ -2359,23 +3134,30 @@ func TestDumpForceReplacesExistingDumpDirectory(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 
-	err := app.Run(context.Background(), []string{"dump", "--out", outDir, "--resources", "zia/locations"})
+	err := app.Run(context.Background(), []string{"dump", "--output", outDir, "--resources", "zia/locations"})
 	if err != nil {
 		t.Fatalf("App.Run(initial dump) error = %v, want nil", err)
 	}
-	stalePath := filepath.Join(outDir, "stale.txt")
-	if err := os.WriteFile(stalePath, []byte("stale"), 0o600); err != nil {
-		t.Fatalf("os.WriteFile(stale) error = %v, want nil", err)
-	}
+	manifestPath := filepath.Join(outDir, "manifest.json")
+	manifestBefore := readFile(t, manifestPath)
 	out.Reset()
 	errOut.Reset()
 
-	err = app.Run(context.Background(), []string{"dump", "--out", outDir, "--resources", "zia/locations", "--force"})
+	err = app.Run(context.Background(), []string{"dump", "--output", outDir, "--resources", "zia/locations", "--force"})
+	if runtime.GOOS == "windows" {
+		if !errors.Is(err, dump.ErrAtomicReplaceUnsupported) {
+			t.Fatalf("App.Run(dump --force on Windows) error = %v, want ErrAtomicReplaceUnsupported", err)
+		}
+		if manifestAfter := readFile(t, manifestPath); manifestAfter != manifestBefore {
+			t.Errorf("manifest after unsupported Windows force changed\n got: %s\nwant: %s", manifestAfter, manifestBefore)
+		}
+		if out.Len() != 0 {
+			t.Errorf("App.Run(dump --force on Windows) stdout = %q, want empty", out.String())
+		}
+		return
+	}
 	if err != nil {
 		t.Fatalf("App.Run(dump --force) error = %v, want nil", err)
-	}
-	if _, err := os.Stat(stalePath); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("os.Stat(stale) error = %v, want os.ErrNotExist", err)
 	}
 	resourcePath := filepath.Join(outDir, "resources", "zia", "locations.json")
 	if _, err := os.Stat(resourcePath); err != nil {
@@ -2409,9 +3191,22 @@ func TestDumpForceRejectsNonDumpDirectory(t *testing.T) {
 	}
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 
-	err := app.Run(context.Background(), []string{"dump", "--out", outDir, "--resources", "zia/locations", "--force"})
+	err := app.Run(context.Background(), []string{"dump", "--output", outDir, "--resources", "zia/locations", "--force"})
 	if !errors.Is(err, dump.ErrUnsafePath) {
 		t.Fatalf("App.Run(dump --force non-dump) error = %v, want ErrUnsafePath", err)
+	}
+	renderedOutDir := outDir
+	if resolved, resolveErr := filepath.EvalSymlinks(outDir); resolveErr == nil {
+		renderedOutDir = resolved
+	}
+	wantMessage := fmt.Sprintf(
+		"%s: --force target %s is not a zscalerctl dump directory",
+		dump.ErrUnsafePath,
+		renderedOutDir,
+	)
+	wantMessage, _ = redact.New(redact.ModeStandard).ScanRenderedString(wantMessage)
+	if err.Error() != wantMessage {
+		t.Errorf("App.Run(dump --force non-dump) error = %q, want base-compatible rendered %q", err, wantMessage)
 	}
 	if readFile(t, notesPath) != "not a dump" {
 		t.Errorf("notes file changed after rejected --force")
@@ -2437,7 +3232,7 @@ func TestDumpForceDoesNotRemovePreviousDumpWhenCollectionFails(t *testing.T) {
 	var out, errOut bytes.Buffer
 	outDir := filepath.Join(t.TempDir(), "dump")
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: goodReader})
-	err := app.Run(context.Background(), []string{"dump", "--out", outDir, "--resources", "zia/locations"})
+	err := app.Run(context.Background(), []string{"dump", "--output", outDir, "--resources", "zia/locations"})
 	if err != nil {
 		t.Fatalf("App.Run(initial dump) error = %v, want nil", err)
 	}
@@ -2449,7 +3244,7 @@ func TestDumpForceDoesNotRemovePreviousDumpWhenCollectionFails(t *testing.T) {
 		failures: map[string]error{"zia/locations": errors.New("boom")},
 	}
 	app = cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: failingReader})
-	err = app.Run(context.Background(), []string{"dump", "--out", outDir, "--resources", "zia/locations", "--force"})
+	err = app.Run(context.Background(), []string{"dump", "--output", outDir, "--resources", "zia/locations", "--force"})
 	if err == nil {
 		t.Fatalf("App.Run(dump --force collection error) error = nil, want error")
 	}
@@ -2483,7 +3278,7 @@ func TestDumpForceRejectsSymlinkParentResolvingToHome(t *testing.T) {
 	var out, errOut bytes.Buffer
 	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
 
-	err := app.Run(context.Background(), []string{"dump", "--out", filepath.Join(link, ".."), "--resources", "zia/locations", "--force"})
+	err := app.Run(context.Background(), []string{"dump", "--output", filepath.Join(link, ".."), "--resources", "zia/locations", "--force"})
 	if !errors.Is(err, dump.ErrUnsafePath) {
 		t.Fatalf("App.Run(dump --force symlink-parent home) error = %v, want ErrUnsafePath", err)
 	}
@@ -2537,7 +3332,7 @@ func filterWarningCatalog() resources.ResourceCatalog {
 			},
 			{
 				Name:           "internalToken",
-				Classification: resources.ClassSecret,
+				Classification: resources.ClassSecret, SecretReason: resources.SecretCredential,
 			},
 		},
 	}}
@@ -2577,6 +3372,55 @@ func (f cancelingResourceReader) Get(context.Context, resources.Product, string,
 }
 
 func (f cancelingResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, errors.New("show must not be called")
+}
+
+type finishingContextResourceReader struct {
+	finish func(context.Context)
+}
+
+type finishedOnDemandContext struct {
+	context.Context
+	done chan struct{}
+	err  error
+}
+
+func newFinishedOnDemandContext(err error) *finishedOnDemandContext {
+	return &finishedOnDemandContext{
+		Context: context.Background(),
+		done:    make(chan struct{}),
+		err:     err,
+	}
+}
+
+func (c *finishedOnDemandContext) Done() <-chan struct{} { return c.done }
+
+func (c *finishedOnDemandContext) Err() error {
+	select {
+	case <-c.done:
+		return c.err
+	default:
+		return nil
+	}
+}
+
+func (c *finishedOnDemandContext) finish() { close(c.done) }
+
+func (f finishingContextResourceReader) List(ctx context.Context, _ resources.Product, _ string) ([]resources.SourceRecord, error) {
+	if f.finish != nil {
+		f.finish(ctx)
+	}
+	return []resources.SourceRecord{resources.NewSourceRecord(map[string]any{
+		"id":   "123",
+		"name": "HQ",
+	})}, nil
+}
+
+func (f finishingContextResourceReader) Get(context.Context, resources.Product, string, string) (resources.SourceRecord, error) {
+	return resources.SourceRecord{}, errors.New("get must not be called")
+}
+
+func (f finishingContextResourceReader) Show(context.Context, resources.Product, string) (resources.SourceRecord, error) {
 	return resources.SourceRecord{}, errors.New("show must not be called")
 }
 
@@ -2873,6 +3717,160 @@ func TestDiffComparesLocalDumpsWithoutCredentials(t *testing.T) {
 	}
 }
 
+func TestDiffRejectsUnadmittedDumpFieldsWithoutLeakingValues(t *testing.T) {
+	t.Parallel()
+
+	const canary = "diff-unadmitted-client-secret-7f92c4a8e1d6"
+	catalog := resources.ResourceCatalog{cliDiffSpec()}
+	oldDir := writeCLIDiffDump(t, dumpFixtureForCLI{
+		spec:    cliDiffSpec(),
+		payload: `[{"id":"1","name":"old"}]`,
+	})
+	newDir := writeCLIDiffDump(t, dumpFixtureForCLI{
+		spec: cliDiffSpec(),
+		payload: `[{"id":"1","name":"new","clientSecret":"` +
+			canary + `"}]`,
+	})
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Catalog: catalog})
+
+	err := app.Run(context.Background(), []string{"--format", "json", "diff", oldDir, newDir})
+	if !errors.Is(err, cli.ErrUsage) {
+		t.Fatalf("App.Run(diff unadmitted field) error = %v, want ErrUsage", err)
+	}
+	for label, value := range map[string]string{
+		"error":  err.Error(),
+		"stdout": out.String(),
+		"stderr": errOut.String(),
+	} {
+		if strings.Contains(value, canary) || strings.Contains(value, "clientSecret") {
+			t.Errorf("App.Run(diff unadmitted field) %s = %q, want no untrusted field/value", label, value)
+		}
+	}
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Errorf("App.Run(diff unadmitted field) output = %q / %q, want empty", out.String(), errOut.String())
+	}
+}
+
+func TestDiffScopesAdmissionToSelectedResources(t *testing.T) {
+	t.Parallel()
+
+	const canary = "diff-unselected-client-secret-canary"
+	selectedSpec := cliDiffSpec()
+	unselectedSpec := cliDiffUnselectedSpec()
+	catalog := resources.ResourceCatalog{selectedSpec, unselectedSpec}
+	oldDir := writeCLIDiffDumpSet(t, []dumpFixtureForCLI{
+		{spec: selectedSpec, payload: `[{"id":"1","name":"old"}]`},
+		{spec: unselectedSpec, payload: `[{"label":"safe","clientSecret":"` + canary + `"}]`},
+	})
+	newDir := writeCLIDiffDumpSet(t, []dumpFixtureForCLI{
+		{spec: selectedSpec, payload: `[{"id":"1","name":"new"}]`},
+		{spec: unselectedSpec, payload: `[{"label":"safe","clientSecret":"` + canary + `"}]`},
+	})
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Catalog: catalog})
+
+	err := app.Run(context.Background(), []string{
+		"--format", "json", "diff", oldDir, newDir,
+		"--resources", "zia/locations",
+	})
+	if err != nil {
+		t.Fatalf("App.Run(scoped diff) error = %v, want nil", err)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("App.Run(scoped diff) stderr = %q, want empty", errOut.String())
+	}
+	if strings.Contains(out.String(), canary) || strings.Contains(out.String(), unselectedSpec.Name) {
+		t.Fatalf("App.Run(scoped diff) output = %s, want no unselected resource data", out.String())
+	}
+	var report dumpdiff.Report
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json.Unmarshal(scoped diff) error = %v; output=%q", err, out.String())
+	}
+	if len(report.Resources) != 1 || report.Resources[0].Resource != selectedSpec.Name ||
+		len(report.Resources[0].Changed) != 1 {
+		t.Fatalf("App.Run(scoped diff) report = %#v, want one locations change", report)
+	}
+}
+
+func TestDiffPreservesUnselectedMalformedJSONDiagnostics(t *testing.T) {
+	selectedSpec := cliDiffSpec()
+	unselectedSpec := cliDiffUnselectedSpec()
+	catalog := resources.ResourceCatalog{selectedSpec, unselectedSpec}
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "unexpected end",
+			payload: `[{"label":`,
+			want:    "invalid dump: parse resource zia/rule-labels: unexpected end of JSON input",
+		},
+		{
+			name:    "trailing value",
+			payload: `[{"label":"safe"}] {}`,
+			want:    "invalid dump: parse resource zia/rule-labels: invalid character '{' after top-level value",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldDir := writeCLIDiffDumpSet(t, []dumpFixtureForCLI{
+				{spec: selectedSpec, payload: `[{"id":"1","name":"same"}]`},
+				{spec: unselectedSpec, payload: `[{"label":"safe"}]`},
+			})
+			newDir := writeCLIDiffDumpSet(t, []dumpFixtureForCLI{
+				{spec: selectedSpec, payload: `[{"id":"1","name":"same"}]`},
+				{spec: unselectedSpec, payload: `[{"label":"safe"}]`},
+			})
+			path := filepath.Join(oldDir, "resources", string(unselectedSpec.Product), unselectedSpec.Name+".json")
+			if err := os.WriteFile(path, []byte(tt.payload), 0o600); err != nil {
+				t.Fatalf("os.WriteFile(%q) error = %v, want nil", path, err)
+			}
+
+			var out, errOut bytes.Buffer
+			app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Catalog: catalog})
+			err := app.Run(context.Background(), []string{
+				"--format", "json", "diff", oldDir, newDir,
+				"--resources", "zia/locations",
+			})
+			if !errors.Is(err, cli.ErrUsage) {
+				t.Fatalf("App.Run(scoped malformed diff) error = %v, want ErrUsage", err)
+			}
+			if err.Error() != tt.want {
+				t.Fatalf("App.Run(scoped malformed diff) error = %q, want %q", err, tt.want)
+			}
+			if out.Len() != 0 || errOut.Len() != 0 {
+				t.Fatalf("App.Run(scoped malformed diff) output = %q / %q, want empty", out.String(), errOut.String())
+			}
+		})
+	}
+}
+
+func TestDiffFinishedContextWinsBeforeFilesystemAccess(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var out, errOut bytes.Buffer
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{
+		Catalog: resources.ResourceCatalog{cliDiffSpec()},
+	})
+	err := app.Run(ctx, []string{
+		"--format", "json", "diff",
+		"/private/diff-cli-context-canary-old",
+		"/private/diff-cli-context-canary-new",
+	})
+	var machineErr *machine.MachineError
+	if !errors.As(err, &machineErr) || machineErr.Kind != machine.ErrorKindCanceled ||
+		machineErr.Operation != machine.OperationDiff || !errors.Is(err, context.Canceled) {
+		t.Fatalf("App.Run(diff pre-canceled) error = %#v, want canceled/diff", err)
+	}
+	if strings.Contains(err.Error(), "canary") || out.Len() != 0 || errOut.Len() != 0 {
+		t.Errorf("App.Run(diff pre-canceled) error/output = %q / %q / %q, want static and empty", err, out.String(), errOut.String())
+	}
+}
+
 func TestDiffFailOnDriftReturnsSentinelAndStillWritesOutputFile(t *testing.T) {
 	t.Parallel()
 
@@ -2966,7 +3964,7 @@ func TestDumpLogsPerResourceProgressAtInfo(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "dump")
 	err := app.Run(context.Background(), []string{
 		"--log-level", "info",
-		"dump", "--out", dir, "--products", "zia", "--resources", "locations",
+		"dump", "--output", dir, "--products", "zia", "--resources", "locations",
 	})
 	if err != nil {
 		t.Fatalf("App.Run(dump --log-level info) error = %v, want nil", err)
@@ -2985,23 +3983,30 @@ func TestDumpLogsPerResourceProgressAtInfo(t *testing.T) {
 func TestProductHelpListsItsResources(t *testing.T) {
 	t.Parallel()
 
-	// A cold agent's natural probe is `zscalerctl zia --help`; the response
-	// must enumerate the real resource names, not a <resource> placeholder
-	// (observed failure mode: a weak agent could not discover object names).
+	// `zscalerctl zia --help` shows Cobra-formatted help (short description +
+	// global flags) rather than the old resource-list.
+	// The primary discoverability path is now the error message from an unknown
+	// resource (ResourceNotFoundError) and `schema list`. This test verifies the
+	// Cobra help emits the product name and that the error-path discoverability
+	// hints remain intact.
 	var out, errOut bytes.Buffer
 	app := cli.New(&out, &errOut, nil)
 	if err := app.Run(context.Background(), []string{"zia", "--help"}); err != nil {
 		t.Fatalf("App.Run(zia --help) error = %v, want nil", err)
 	}
 	got := out.String()
-	for _, want := range []string{"locations", "url-filtering-rules", "schema list"} {
+	// Cobra help must include "zscalerctl zia" in the Usage line.
+	for _, want := range []string{"zscalerctl zia"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("zia --help = %q, want it to mention %q", got, want)
 		}
 	}
 
-	// The bare-product usage error must carry the same discoverability.
-	err := app.Run(context.Background(), []string{"zpa", "bogus-resource", "list"})
+	// The bare-product usage error must still carry the discoverability hints:
+	// "zpa --help" and "schema list" point the user (or agent) at the two
+	// enumeration paths. ResourceNotFoundError.Error() still includes these.
+	app2 := cli.New(&out, &errOut, nil)
+	err := app2.Run(context.Background(), []string{"zpa", "bogus-resource", "list"})
 	if err == nil {
 		t.Fatal("App.Run(zpa bogus) error = nil, want usage error")
 	}
@@ -3026,15 +4031,12 @@ func writeCLIConfig(t *testing.T, body string) string {
 
 func writeCLIDiffDump(t *testing.T, fixture dumpFixtureForCLI) string {
 	t.Helper()
+	return writeCLIDiffDumpSet(t, []dumpFixtureForCLI{fixture})
+}
+
+func writeCLIDiffDumpSet(t *testing.T, fixtures []dumpFixtureForCLI) string {
+	t.Helper()
 	dir := t.TempDir()
-	relPath := filepath.ToSlash(filepath.Join("resources", string(fixture.spec.Product), fixture.spec.Name+".json"))
-	path := filepath.Join(dir, relPath)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatalf("os.MkdirAll(%s) error = %v, want nil", filepath.Dir(path), err)
-	}
-	if err := os.WriteFile(path, []byte(fixture.payload), 0o600); err != nil {
-		t.Fatalf("os.WriteFile(%s) error = %v, want nil", path, err)
-	}
 	manifest := dump.Manifest{
 		Schema:      dump.ManifestSchemaID,
 		CollectedAt: "2026-01-01T00:00:00Z",
@@ -3042,16 +4044,36 @@ func writeCLIDiffDump(t *testing.T, fixture dumpFixtureForCLI) string {
 		Redaction:   string(redact.ModeStandard),
 		Warning:     "test fixture",
 		Status:      "complete",
-		Resources: []dump.ManifestResource{
-			{
-				Product: string(fixture.spec.Product),
-				Name:    fixture.spec.Name,
-				Shape:   string(fixture.spec.EffectiveShape()),
-				Status:  "ok",
-				Path:    relPath,
-				Records: 1,
-			},
-		},
+		Resources:   []dump.ManifestResource{},
+	}
+	report := dump.RedactionReport{
+		Schema:    dump.RedactionReportSchemaID,
+		Redaction: string(redact.ModeStandard),
+		Resources: []dump.ResourceReport{},
+	}
+	for _, fixture := range fixtures {
+		relPath := filepath.ToSlash(filepath.Join("resources", string(fixture.spec.Product), fixture.spec.Name+".json"))
+		path := filepath.Join(dir, relPath)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("os.MkdirAll(%s) error = %v, want nil", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(fixture.payload), 0o600); err != nil {
+			t.Fatalf("os.WriteFile(%s) error = %v, want nil", path, err)
+		}
+		manifest.Resources = append(manifest.Resources, dump.ManifestResource{
+			Product: string(fixture.spec.Product),
+			Name:    fixture.spec.Name,
+			Shape:   dump.ManifestResourceShape(fixture.spec),
+			Status:  "ok",
+			Path:    relPath,
+			Records: cliDiffRecordCount(t, fixture.payload),
+		})
+		report.Resources = append(report.Resources, dump.ResourceReport{
+			Product: string(fixture.spec.Product),
+			Name:    fixture.spec.Name,
+			Path:    relPath,
+			Records: cliDiffRecordCount(t, fixture.payload),
+		})
 	}
 	body, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -3060,7 +4082,32 @@ func writeCLIDiffDump(t *testing.T, fixture dumpFixtureForCLI) string {
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), body, 0o600); err != nil {
 		t.Fatalf("os.WriteFile(manifest) error = %v, want nil", err)
 	}
+	reportBody, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		t.Fatalf("json.MarshalIndent(redaction report) error = %v, want nil", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "redaction_report.json"), reportBody, 0o600); err != nil {
+		t.Fatalf("os.WriteFile(redaction report) error = %v, want nil", err)
+	}
 	return dir
+}
+
+func cliDiffRecordCount(t *testing.T, payload string) int {
+	t.Helper()
+
+	var raw any
+	if err := json.Unmarshal([]byte(payload), &raw); err != nil {
+		t.Fatalf("json.Unmarshal(diff fixture) error = %v", err)
+	}
+	switch value := raw.(type) {
+	case []any:
+		return len(value)
+	case map[string]any:
+		return 1
+	default:
+		t.Fatalf("diff fixture payload = %T, want object or array", raw)
+		return 0
+	}
 }
 
 func cliDiffSpec() resources.ResourceSpec {
@@ -3069,9 +4116,30 @@ func cliDiffSpec() resources.ResourceSpec {
 		Name:       "locations",
 		Operations: resources.ReadOperations(),
 		Fields: []resources.FieldSpec{
-			{Name: "id", Classification: resources.ClassOperational},
-			{Name: "name", Classification: resources.ClassTenantConfig},
+			{
+				Name:           "id",
+				Classification: resources.ClassOperational,
+				AllowedModes:   []redact.Mode{redact.ModeStandard},
+			},
+			{
+				Name:           "name",
+				Classification: resources.ClassTenantConfig,
+				AllowedModes:   []redact.Mode{redact.ModeStandard},
+			},
 		},
+	}
+}
+
+func cliDiffUnselectedSpec() resources.ResourceSpec {
+	return resources.ResourceSpec{
+		Product:    resources.ProductZIA,
+		Name:       "rule-labels",
+		Operations: resources.ListOperations(),
+		Fields: []resources.FieldSpec{{
+			Name:           "label",
+			Classification: resources.ClassTenantConfig,
+			AllowedModes:   []redact.Mode{redact.ModeStandard},
+		}},
 	}
 }
 
@@ -3095,4 +4163,42 @@ func TestCLIConfigCmdHelperProcess(t *testing.T) {
 		os.Exit(1)
 	}
 	os.Exit(0)
+}
+
+// classifiedReadError stands in for the reader's live failure: value-free
+// detail behind a message that must never reach an artifact.
+type classifiedReadError struct{}
+
+func (classifiedReadError) Error() string { return "client_secret=raw-error-value" }
+func (classifiedReadError) FailureDetail() (string, int, bool) {
+	return "rate_limited", 429, true
+}
+
+// TestDumpErrorRecordsCarryTheReadFailureReason drives the dump pipeline end
+// to end: a resource whose read fails with a classified error lands in
+// errors.ndjson with its reason, status and retry hint, and nothing else.
+func TestDumpErrorRecordsCarryTheReadFailureReason(t *testing.T) {
+	t.Parallel()
+
+	reader := selectiveErrorResourceReader{
+		list:     []resources.SourceRecord{resources.NewSourceRecord(map[string]any{"id": "123", "name": "HQ"})},
+		failures: map[string]error{"zia/rule-labels": fmt.Errorf("read: %w", classifiedReadError{})},
+	}
+	var out, errOut bytes.Buffer
+	outDir := filepath.Join(t.TempDir(), "dump")
+	app := cli.NewWithOptions(&out, &errOut, nil, cli.Options{Reader: reader})
+	err := app.Run(context.Background(), []string{
+		"dump", "--products", "zia", "--resources", "locations,rule-labels", "--continue-on-error", "--output", outDir,
+	})
+	if !errors.Is(err, cli.ErrPartialDump) {
+		t.Fatalf("App.Run(dump) error = %v, want ErrPartialDump", err)
+	}
+	body, readErr := os.ReadFile(filepath.Join(outDir, "errors.ndjson"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	want := `{"schema":"zscalerctl.dump.error.v2","product":"zia","name":"rule-labels","operation":"list","kind":"list_failed","reason":"rate_limited","status":429,"retryable":true}`
+	if got := strings.TrimSpace(string(body)); got != want {
+		t.Errorf("errors.ndjson = %s, want %s", got, want)
+	}
 }

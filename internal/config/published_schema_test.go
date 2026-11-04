@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/secretref"
+	"zscalerctl/internal/secretref"
 )
 
 // configSchemaNode reads docs/schema/config.schema.json and walks to the node
@@ -65,8 +65,7 @@ func configSchemaPropertyKeys(t *testing.T, path []string) []string {
 // the "yaml" struct tag, not "json", because the config file is YAML.
 func configYAMLFieldNames(typ reflect.Type) []string {
 	var names []string
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		tag := field.Tag.Get("yaml")
 		if tag == "" || tag == "-" {
 			continue
@@ -103,9 +102,8 @@ func configSetDiff(a, b []string) []string {
 func TestPublishedConfigSchemaFieldTypes(t *testing.T) {
 	t.Parallel()
 
-	typ := reflect.TypeOf(profileData{})
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	typ := reflect.TypeFor[profileData]()
+	for field := range typ.Fields() {
 		tag := field.Tag.Get("yaml")
 		if tag == "" || tag == "-" {
 			continue
@@ -128,7 +126,7 @@ func TestPublishedConfigSchemaFieldTypes(t *testing.T) {
 		t.Run(tag, func(t *testing.T) {
 			t.Parallel()
 			switch {
-			case field.Type == reflect.TypeOf((*secretref.SecretRef)(nil)):
+			case field.Type == reflect.TypeFor[*secretref.SecretRef]():
 				// *secretref.SecretRef → schema must use $ref
 				if _, ok := node["$ref"]; !ok {
 					t.Errorf("schema property %q: Go type is *secretref.SecretRef but schema node has no \"$ref\" key (got %v)", tag, node)
@@ -160,18 +158,17 @@ func TestPublishedConfigSchemaMatchesStructs(t *testing.T) {
 	}{
 		{
 			name:      "profileFile",
-			typ:       reflect.TypeOf(profileFile{}),
+			typ:       reflect.TypeFor[profileFile](),
 			propsPath: []string{"properties"},
 		},
 		{
 			name:      "profileData",
-			typ:       reflect.TypeOf(profileData{}),
+			typ:       reflect.TypeFor[profileData](),
 			propsPath: []string{"$defs", "profile", "properties"},
 		},
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			structFields := configYAMLFieldNames(tc.typ)

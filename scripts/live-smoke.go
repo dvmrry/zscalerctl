@@ -7,7 +7,7 @@
 // Usage:
 //
 //	go run ./scripts/live-smoke.go [--out DIR] [--bin PATH] [--resources LIST]
-//	    [--manifest FILE] [--no-manifest] [--require-credentials]
+//	    [--manifest FILE] [--require-credentials]
 //	    [--require-nonempty] [--strict-counts] [--skip-credential-check]
 package main
 
@@ -16,10 +16,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dvmrry/zscalerctl/internal/livesmoke"
+	"zscalerctl/internal/livesmoke"
 )
 
-const usage = `usage: go run ./scripts/live-smoke.go [--out DIR] [--bin PATH] [--resources LIST] [--manifest FILE] [--no-manifest] [--require-credentials] [--require-nonempty] [--strict-counts]
+const usage = `usage: go run ./scripts/live-smoke.go [--out DIR] [--bin PATH] [--resources LIST] [--manifest FILE] [--require-credentials] [--require-nonempty] [--strict-counts]
 
 Runs a read-only live smoke against the currently configured zscalerctl
 credentials and prints PASS/FAIL markers for pre-PR validation. By default all
@@ -58,8 +58,6 @@ func main() {
 		case "--manifest":
 			opts.ManifestPath = need(i, "--manifest")
 			i++
-		case "--no-manifest":
-			opts.NoManifest = true
 		case "--require-credentials":
 			opts.RequireCredentials = true
 		case "--require-nonempty":

@@ -3,14 +3,15 @@ SHELL := bash
 
 STATICCHECK_VERSION ?= v0.7.0
 GOVULNCHECK_VERSION ?= v1.3.0
-SEMGREP_VERSION ?= 1.166.0
+SEMGREP_VERSION ?= 1.179.0
 GITLEAKS_VERSION ?= v8.30.1
+DEADCODE_VERSION ?= v0.38.0
 FUZZTIME ?= 5s
 LIVE_SMOKE_OUT ?=
 LIVE_SMOKE_FLAGS ?= --require-credentials
 LIVE_SMOKE_MANIFEST ?=
 
-.PHONY: fmt-check test race vet vuln staticcheck docs-check semgrep-check secret-scan vendor verify-vendor verify-licenses verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-release-automation verify-release-artifacts verify-catalog-draft verify-resource-scaffold verify-sdk-surface-inventory verify-script-registry verify-agents-skill scaffold-resource sdk-surface-inventory field-coverage live-smoke fuzz-smoke check release-check
+.PHONY: fmt-check test race vet vuln vuln-root vuln-tools staticcheck docs-check docs-cli-check gen-cli-docs semgrep-check secret-scan verify-gitleaks-allowlist verify-go-toolchain verify-ci-jobs vendor verify-vendor verify-licenses verify-sdk-boundary verify-core-boundaries verify-machine-contract verify-ci-no-live-creds verify-actions-pinned verify-surface-changes-manifest verify-pty-escape-clean verify-release-automation verify-release-artifacts verify-catalog-draft verify-resource-scaffold verify-sdk-surface-inventory verify-sdk-ledger verify-script-registry verify-deadcode scaffold-resource field-coverage field-types resources-doc live-smoke fuzz-smoke heavy-check check release-check
 
 fmt-check:
 	@files="$$(git ls-files -co --exclude-standard '*.go' ':!:vendor/**' | xargs gofmt -l)"; \
@@ -18,15 +19,22 @@ fmt-check:
 
 test:
 	go test -mod=vendor ./...
+	go test -tags=zscalerctl_testhooks -mod=vendor ./internal/diff ./internal/dump
 
 race:
 	go test -race -mod=vendor ./...
+	go test -race -tags=zscalerctl_testhooks -mod=vendor ./internal/diff ./internal/dump
 
 vet:
 	go vet -mod=vendor ./...
 
-vuln:
+vuln: vuln-root vuln-tools
+
+vuln-root:
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+vuln-tools:
+	cd tools && go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) $$(go list -f '{{.ImportPath}}' tool)
 
 # Scan the working tree for secrets with the same config CI's secret-scan job
 # uses, so a leak (or an allowlist gap) is caught locally before it reaches CI.
@@ -34,11 +42,34 @@ vuln:
 secret-scan:
 	GOFLAGS=-mod=mod go run github.com/zricethezav/gitleaks/v8@$(GITLEAKS_VERSION) dir --no-banner --config=.gitleaks.toml .
 
+verify-gitleaks-allowlist:
+	bash scripts/test-verify-gitleaks-history-policy.sh
+	GITLEAKS_VERSION=$(GITLEAKS_VERSION) bash scripts/test-gitleaks-allowlist.sh
+
+verify-go-toolchain:
+	bash scripts/verify-go-toolchain.sh
+	bash scripts/test-verify-go-toolchain.sh
+
+verify-ci-jobs:
+	bash scripts/test-require-ci-jobs.sh
+	bash scripts/test-windows-ci-scope.sh
+
 staticcheck:
 	go run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./...
 
 docs-check:
 	bash scripts/verify-docs.sh
+
+# Regenerate the CLI reference from the live Cobra command tree.
+# Commit the result after any command/flag change.
+gen-cli-docs:
+	go run -mod=vendor ./scripts/gen-cli-docs.go
+
+# Verify that docs/cli/zscalerctl.md matches the current command tree.
+# Fails if the committed file is stale — fix with: make gen-cli-docs
+docs-cli-check:
+	bash scripts/verify-cli-docs.sh
+	bash scripts/test-verify-cli-docs.sh
 
 semgrep-check:
 	SEMGREP_VERSION=$(SEMGREP_VERSION) bash scripts/verify-semgrep.sh
@@ -57,6 +88,14 @@ verify-sdk-boundary:
 	bash scripts/verify-sdk-boundary.sh
 	bash scripts/test-verify-sdk-boundary.sh
 
+verify-core-boundaries:
+	bash scripts/verify-core-boundaries.sh
+	bash scripts/test-verify-core-boundaries.sh
+
+verify-machine-contract:
+	bash scripts/verify-machine-contract.sh
+	bash scripts/test-verify-machine-contract.sh
+
 verify-ci-no-live-creds:
 	bash scripts/verify-ci-no-live-creds.sh
 	bash scripts/test-verify-ci-no-live-creds.sh
@@ -65,10 +104,15 @@ verify-actions-pinned:
 	bash scripts/verify-actions-pinned.sh
 	bash scripts/test-verify-actions-pinned.sh
 
+verify-surface-changes-manifest:
+	bash scripts/verify-surface-changes-manifest.sh
+	bash scripts/test-verify-surface-changes-manifest.sh
+
+verify-pty-escape-clean:
+	bash scripts/verify-pty-escape-clean.sh
+
 verify-release-automation:
-	bash scripts/test-verify-semver-label.sh
-	bash scripts/test-next-version.sh
-	bash scripts/test-pr-labels-for-commit.sh
+	bash scripts/test-release-version.sh
 
 verify-release-artifacts:
 	bash scripts/verify-release-artifacts.sh
@@ -83,13 +127,17 @@ verify-resource-scaffold:
 verify-sdk-surface-inventory:
 	bash scripts/test-sdk-surface-inventory.sh
 
+verify-sdk-ledger:
+	bash scripts/verify-sdk-ledger.sh
+	bash scripts/test-verify-sdk-ledger.sh
+
 verify-script-registry:
 	bash scripts/verify-script-registry.sh
 	bash scripts/test-verify-script-registry.sh
 
-verify-agents-skill:
-	bash scripts/sync-agents-skill.sh --check
-	bash scripts/test-sync-agents-skill.sh
+verify-deadcode:
+	DEADCODE_VERSION=$(DEADCODE_VERSION) bash scripts/verify-deadcode.sh
+	bash scripts/test-verify-deadcode.sh
 
 scaffold-resource:
 	@test -n "$(PRODUCT)" || (echo "PRODUCT is required" >&2; exit 2)
@@ -98,15 +146,24 @@ scaffold-resource:
 	@test -n "$(TYPE)" || (echo "TYPE is required" >&2; exit 2)
 	bash scripts/scaffold-resource.sh --product "$(PRODUCT)" --resource "$(RESOURCE)" --package "$(PACKAGE)" --type "$(TYPE)" $(if $(OUT),--out "$(OUT)") $(if $(FORCE),--force)
 
-sdk-surface-inventory:
-	@go run ./scripts/sdk-surface-inventory.go $(if $(SDK_DIR),--sdk-dir "$(SDK_DIR)") $(if $(FORMAT),--format "$(FORMAT)")
-
 # Regenerate docs/FIELD_COVERAGE.md and docs/field-coverage.json from
 # reviewedSDKShapes() and the resource catalog. The same test asserts the
 # committed artifacts are current under plain `go test`, so this target is only
 # needed after an SDK bump or a classification change moves the numbers.
 field-coverage:
 	FIELD_COVERAGE_WRITE=1 go test -mod=vendor ./internal/zscaler -run TestFieldCoverageReportIsCurrent
+
+# Regenerate internal/resources/field_types_gen.go (schema list field types)
+# from reviewedSDKShapes(). Plain `go test` asserts it is current, so this is
+# only needed after an SDK bump or a catalog change.
+field-types:
+	FIELD_TYPES_WRITE=1 go test -mod=vendor ./internal/zscaler -run TestFieldTypesAreCurrent
+
+# Regenerate the field tables in docs/RESOURCES.md from the catalog. Plain
+# `go test` asserts they are current; run after a catalog change or
+# `make field-types`.
+resources-doc:
+	RESOURCES_DOC_WRITE=1 go test -mod=vendor ./internal/resources -run TestResourcesDocFieldsAreCurrent
 
 live-smoke:
 	go run ./scripts/live-smoke.go $(LIVE_SMOKE_FLAGS) $(if $(LIVE_SMOKE_BIN),--bin "$(LIVE_SMOKE_BIN)") $(if $(LIVE_SMOKE_RESOURCES),--resources "$(LIVE_SMOKE_RESOURCES)") $(if $(LIVE_SMOKE_MANIFEST),--manifest "$(LIVE_SMOKE_MANIFEST)") $(if $(LIVE_SMOKE_OUT),--out "$(LIVE_SMOKE_OUT)")
@@ -116,6 +173,12 @@ fuzz-smoke:
 	go test -mod=vendor ./internal/redact -run '^$$' -fuzz FuzzScanRenderedStringRedactsBareHighEntropyCanary -fuzztime=$(FUZZTIME)
 	go test -mod=vendor ./internal/resources -run '^$$' -fuzz FuzzProjectRecordSubsetAndCanaryRedaction -fuzztime=$(FUZZTIME)
 
-check: fmt-check test race vet vuln staticcheck verify-licenses docs-check semgrep-check secret-scan verify-sdk-boundary verify-ci-no-live-creds verify-actions-pinned verify-release-automation verify-release-artifacts verify-catalog-draft verify-resource-scaffold verify-sdk-surface-inventory verify-script-registry verify-agents-skill
+# Race and fuzz here and make test on ZSCALERCTL_LINUX_HOST, with throwaway Go
+# caches; POST=1 posts the result for HEAD as a commit status. Private-repo
+# pull requests rely on it in place of CI's unit and race jobs.
+heavy-check:
+	bash scripts/heavy-check.sh $(if $(POST),--post)
+
+check: fmt-check test race vet vuln staticcheck verify-licenses docs-check docs-cli-check semgrep-check secret-scan verify-gitleaks-allowlist verify-go-toolchain verify-ci-jobs verify-sdk-boundary verify-core-boundaries verify-machine-contract verify-ci-no-live-creds verify-actions-pinned verify-surface-changes-manifest verify-pty-escape-clean verify-release-automation verify-release-artifacts verify-catalog-draft verify-resource-scaffold verify-sdk-surface-inventory verify-sdk-ledger verify-script-registry verify-deadcode
 
 release-check: verify-vendor check

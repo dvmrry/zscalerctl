@@ -2,11 +2,17 @@ package zscaler
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"sort"
+	"strconv"
+	"strings"
 
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
 	activation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/activation"
+	adaptiveaccess "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adaptive_access"
 	ziaadminusers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/admins"
 	ziaadminroles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/roles"
 	advancedsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/advanced_settings"
@@ -29,6 +35,7 @@ import (
 	dlpengines "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_engines"
 	dlpexactdatamatch "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match"
 	dlpedmlite "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match_lite"
+	dlpglobaloptions "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_global_options"
 	dlpicapservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers"
 	dlpidmprofilelite "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profile_lite"
 	dlpidmprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profiles"
@@ -38,11 +45,14 @@ import (
 	dlpdictionaries "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlpdictionaries"
 	emailprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/email_profiles"
 	endusernotification "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/end_user_notification"
+	endpointdlprules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/endpoint_dlp/endpoint_dlp_rules"
+	emaildlprules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/endpoint_dlp/outbound_email_dlp"
 	filetypecontrol "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol"
 	customfiletypes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol/custom_file_types"
 	firewalldnscontrolpolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewalldnscontrolpolicies"
 	applicationservices "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices"
 	appservicegroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups"
+	dnsappgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_application_groups"
 	dnsgateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways"
 	filteringrules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/filteringrules"
 	ipdestinationgroups "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipdestinationgroups"
@@ -57,6 +67,8 @@ import (
 	proxygateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways"
 	zpagateways "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/zpa_gateways"
 	ftpcontrolpolicy "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ftp_control_policy"
+	httpheaderactionprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/http_header_control/http_header_action_profile"
+	httpheaderprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/http_header_control/http_header_profile"
 	intermediatecacertificates "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/intermediatecacertificates"
 	ipspolicies "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_policies"
 	ipssignaturerules "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_signature_rules"
@@ -76,6 +88,7 @@ import (
 	sandboxsettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sandbox/sandbox_settings"
 	securebrowsing "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/secure_browsing"
 	securitypolicysettings "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/security_policy_settings"
+	alertdefinitions "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/security_ueba_alerts/alert_definitions"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection"
 	tenancyrestriction "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction"
 	timeintervals "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals"
@@ -94,52 +107,393 @@ import (
 	vzennodes "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_nodes"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
 
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/resources"
 )
 
 // ziaMaxPages is a fail-closed ceiling on the number of pages the bounded ZIA
-// paginators will fetch. Like the zcc/zidentity guards, termination otherwise
-// relies entirely on the server returning a short final page; an endpoint that
-// keeps returning a persistently-full page would loop until --timeout fires on
-// every request. The ceiling never trips on a real tenant (even at the smallest
-// 1000-record page size it admits a million records) but converts a
-// pathological infinite loop into a visible, descriptive error.
+// paginators will fetch. Like the zcc/zidentity guards, it converts a
+// pathological endpoint into a visible, descriptive error instead of an
+// unbounded loop. Even when an endpoint clamps pages to 20 records, the ceiling
+// still admits nearly 20,000 records before requiring a terminal short page.
 const ziaMaxPages = 1000
 
-// ziaPaginate walks every page of a ZIA list endpoint, mirroring the SDK's
-// ReadAllPages contract (advance until a page returns fewer than pageSize
-// records) while enforcing the ziaMaxPages ceiling the vendored ReadAllPages
-// lacks. fetchPage is injectable so the ceiling is unit-testable without a live
-// tenant.
-func ziaPaginate[T any](ctx context.Context, pageSize int, fetchPage func(ctx context.Context, page, pageSize int) ([]T, error)) ([]T, error) {
-	var all []T
+// errPaginationValidation marks a list a page walker (ZIA, ZPA, ZCC, ZTW,
+// ZIdentity, and the single-page network-applications read) refused because
+// it could not prove the result complete; it classifies as
+// pagination_incomplete. Callers that tolerate per-parent read errors must
+// still propagate it.
+var errPaginationValidation = errors.New("pagination validation failed")
+
+// paginationError is a page walker's refusal. Its check names the failed
+// check with counts, offsets and page numbers only, never record values, so
+// the error envelope can show it.
+type paginationError struct{ check string }
+
+func (e paginationError) Error() string { return errPaginationValidation.Error() + ": " + e.check }
+
+func (e paginationError) Is(target error) bool { return target == errPaginationValidation }
+
+func paginationFailure(format string, args ...any) error {
+	return paginationError{check: fmt.Sprintf(format, args...)}
+}
+
+// ziaWalkPages walks a ZIA list endpoint while enforcing the
+// ziaMaxPages ceiling the vendored ReadAllPages lacks. Some ZIA endpoints
+// silently clamp a requested page size (observed at 20 records), so a short
+// first page does not prove completion. The first nonempty response establishes
+// the effective page width; a later short page completes the walk. Repeated
+// pages, repeated record identities, and width growth fail closed because each
+// can indicate that the server ignored pagination or changed its pagination
+// contract mid-read. One repeat can be resolved instead. When page 1 was
+// shorter than requested and page 2 returns the same records, in any order and
+// whether or not they carry ids, the endpoint ignored the page
+// parameter. That alone does not prove page 1 was complete, because a server
+// that caps each response (min(pageSize, cap)) and ignores the page would look
+// the same. So the walker asks for page 1 again with a page size one smaller:
+// an endpoint that still returns every record ignores paging entirely, and
+// page 1 is everything it will return (observed live for urlCategories, about
+// 25 ZIA list endpoints in all); one that returns fewer honors sizes and may
+// be capping, so the walk fails closed. A fixed window that ignores both page
+// and size is indistinguishable and accepted; no client can read past it.
+// Records must match field for field, so a tenant change between requests
+// still fails closed. visitPage may
+// stop the walk after inspecting a validated page; point lookups use that path
+// so an already-found record does not depend on a later confirmation request.
+func ziaWalkPages[T any](
+	ctx context.Context,
+	pageSize int,
+	fetchPage func(ctx context.Context, page, pageSize int) ([]T, error),
+	visitPage func([]T) bool,
+) error {
+	if pageSize <= 0 {
+		return paginationFailure("zia pagination page size must be positive: %d", pageSize)
+	}
+
+	var (
+		effectivePageSize int
+		recordsSeen       int
+		pageFingerprints  = make(map[pageFingerprint]struct{})
+		recordIdentities  = make(map[string]struct{})
+		firstPage         pageSummary
+	)
 	for page := 1; ; page++ {
 		if page > ziaMaxPages {
-			return nil, fmt.Errorf("zia pagination exceeded the ceiling of %d pages (%d records); the endpoint kept returning full pages, so completeness cannot be guaranteed", ziaMaxPages, len(all))
+			return paginationFailure("zia pagination exceeded the ceiling of %d pages (%d records); the endpoint kept returning full pages, so completeness cannot be guaranteed", ziaMaxPages, recordsSeen)
 		}
 		items, err := fetchPage(ctx, page, pageSize)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		all = append(all, items...)
-		if len(items) < pageSize {
+		if len(items) == 0 {
 			break
 		}
+		if effectivePageSize == 0 {
+			effectivePageSize = len(items)
+		} else if len(items) > effectivePageSize {
+			return paginationFailure("zia pagination page width changed from %d to %d on page %d; completeness cannot be guaranteed", effectivePageSize, len(items), page)
+		}
+
+		fingerprint, err := fingerprintPage(items)
+		if err != nil {
+			return paginationFailure("failed to fingerprint zia page %d", page)
+		}
+		summary, err := summarizePage(items)
+		if err != nil {
+			return paginationFailure("failed to inspect zia records on page %d", page)
+		}
+		if page == 1 {
+			firstPage = summary
+		} else if page == 2 && firstPage.records < pageSize && summary.sameRecords(firstPage) {
+			complete, err := ziaIgnoresPaging(ctx, firstPage, fetchPage)
+			if err != nil {
+				return err
+			}
+			if complete {
+				return nil
+			}
+			return paginationFailure("zia endpoint ignored the page parameter but honored a smaller page size, so page 1 may be capped; completeness cannot be guaranteed")
+		}
+		if _, seen := pageFingerprints[fingerprint]; seen {
+			return paginationFailure("zia pagination received repeated page content at page %d; completeness cannot be guaranteed", page)
+		}
+		pageFingerprints[fingerprint] = struct{}{}
+		repeated := 0
+		for _, item := range items {
+			identity, hasIdentity, err := paginationRecordIdentity(item)
+			if err != nil {
+				return paginationFailure("failed to inspect zia record identity on page %d", page)
+			}
+			if !hasIdentity {
+				continue
+			}
+			if _, seen := recordIdentities[identity]; seen {
+				repeated++
+				continue
+			}
+			recordIdentities[identity] = struct{}{}
+		}
+		if repeated > 0 {
+			return paginationFailure("zia pagination received duplicate record identity on page %d: %d of its %d records repeat an id already read (page 1 had %d); completeness cannot be guaranteed", page, repeated, len(items), firstPage.records)
+		}
+
+		recordsSeen += len(items)
+		if visitPage(items) {
+			return nil
+		}
+		if page > 1 && len(items) < effectivePageSize {
+			break
+		}
+	}
+	return nil
+}
+
+// ziaIgnoresPaging re-requests page 1 with a page size one below what page 1
+// returned. Every record coming back shows the endpoint ignores page and size
+// alike, so page 1 is everything it will return. A one-record page cannot be
+// probed smaller; a cap of one record is not a real server limit, so it is
+// accepted. The probe is one request outside the ziaMaxPages ceiling.
+func ziaIgnoresPaging[T any](
+	ctx context.Context,
+	firstPage pageSummary,
+	fetchPage func(ctx context.Context, page, pageSize int) ([]T, error),
+) (bool, error) {
+	if firstPage.records <= 1 {
+		return true, nil
+	}
+	probe, err := fetchPage(ctx, 1, firstPage.records-1)
+	if err != nil {
+		return false, err
+	}
+	summary, err := summarizePage(probe)
+	if err != nil {
+		return false, paginationFailure("failed to inspect zia page-size probe")
+	}
+	return summary.sameRecords(firstPage), nil
+}
+
+// ziaPaginate collects every validated page. It discards the partial aggregate
+// whenever ziaWalkPages cannot prove completeness.
+func ziaPaginate[T any](ctx context.Context, pageSize int, fetchPage func(ctx context.Context, page, pageSize int) ([]T, error)) ([]T, error) {
+	var all []T
+	err := ziaWalkPages(ctx, pageSize, fetchPage, func(items []T) bool {
+		all = append(all, items...)
+		return false
+	})
+	if err != nil {
+		return nil, err
 	}
 	return all, nil
 }
 
+func getZIAAllPages[T any](
+	ctx context.Context,
+	service *zsdk.Service,
+	endpoint string,
+) ([]T, error) {
+	return getZIAAllPagesWithSize[T](ctx, service, endpoint, ziacommon.GetPageSize())
+}
+
+func getZIAAllPagesWithSize[T any](
+	ctx context.Context,
+	service *zsdk.Service,
+	endpoint string,
+	pageSize int,
+) ([]T, error) {
+	items, err := ziaPaginate(ctx, pageSize, func(ctx context.Context, page, size int) ([]T, error) {
+		var pageItems []T
+		err := ziacommon.ReadPage(ctx, service.Client, endpoint, page, &pageItems, size)
+		return pageItems, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	items, err = zsdk.ApplyJMESPathFromContext(ctx, items)
+	if err != nil {
+		return nil, fmt.Errorf("apply zia list filter: %w", err)
+	}
+	return items, nil
+}
+
+func ziaSortedListEndpoint(service *zsdk.Service, endpoint string) string {
+	query := url.Values{}
+	if service.SortBy != "" {
+		query.Set("sortBy", string(service.SortBy))
+	}
+	if service.SortOrder != "" {
+		query.Set("sortOrder", string(service.SortOrder))
+	}
+	if len(query) == 0 {
+		return endpoint
+	}
+	return endpoint + "?" + query.Encode()
+}
+
+func getZIASublocationsForParentAllPages(
+	ctx context.Context,
+	service *zsdk.Service,
+	parentID int,
+) ([]locationmanagement.Locations, error) {
+	endpoint := fmt.Sprintf("/zia/api/v1/locations/%d/sublocations", parentID)
+	return getZIAAllPages[locationmanagement.Locations](ctx, service, endpoint)
+}
+
+func getZIASublocationForParentByID(
+	ctx context.Context,
+	service *zsdk.Service,
+	parentID int,
+	id int,
+) (*locationmanagement.Locations, error) {
+	endpoint := fmt.Sprintf("/zia/api/v1/locations/%d/sublocations", parentID)
+	var found *locationmanagement.Locations
+	err := ziaWalkPages(ctx, ziacommon.GetPageSize(), func(ctx context.Context, page, size int) ([]locationmanagement.Locations, error) {
+		var items []locationmanagement.Locations
+		err := ziacommon.ReadPage(ctx, service.Client, endpoint, page, &items, size)
+		return items, err
+	}, func(items []locationmanagement.Locations) bool {
+		for index := range items {
+			if items[index].ID == id {
+				item := items[index]
+				found = &item
+				return true
+			}
+		}
+		return false
+	})
+	if err != nil {
+		return nil, err
+	}
+	return found, nil
+}
+
+func getZIASublocationsAllPages(ctx context.Context, service *zsdk.Service) ([]locationmanagement.Locations, error) {
+	parents, err := getZIALocationsAllPages(ctx, service)
+	if err != nil {
+		return nil, err
+	}
+
+	var sublocations []locationmanagement.Locations
+	for _, parent := range parents {
+		items, err := getZIASublocationsForParentAllPages(ctx, service, parent.ID)
+		if err != nil {
+			return nil, err
+		}
+		sublocations = append(sublocations, items...)
+	}
+	return sublocations, nil
+}
+
+func getZIASublocationByID(
+	ctx context.Context,
+	service *zsdk.Service,
+	id int,
+) (*locationmanagement.Locations, error) {
+	var found *locationmanagement.Locations
+	var searchErr, skipped error
+	const pageSize = 1000
+	err := ziaWalkPages(ctx, pageSize, func(ctx context.Context, page, size int) ([]locationmanagement.Locations, error) {
+		var parents []locationmanagement.Locations
+		err := ziacommon.ReadPage(ctx, service.Client, "/zia/api/v1/locations", page, &parents, size)
+		return parents, err
+	}, func(parents []locationmanagement.Locations) bool {
+		for _, parent := range parents {
+			sublocation, err := getZIASublocationForParentByID(ctx, service, parent.ID, id)
+			if err != nil {
+				// Preserve the SDK get helper's tolerance for an inaccessible
+				// parent, but propagate pagination validation errors and never
+				// turn caller cancellation into a false not-found.
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					searchErr = ctxErr
+					return true
+				}
+				if errors.Is(err, errPaginationValidation) {
+					searchErr = err
+					return true
+				}
+				// Keep one skip to report on a miss; a parent that 404s (deleted
+				// mid-scan) must not hide a later one that may hold the ID.
+				if skipped == nil || sdkStatusCode(skipped) == http.StatusNotFound {
+					skipped = err
+				}
+				continue
+			}
+			if sublocation != nil {
+				found = sublocation
+				return true
+			}
+		}
+		return false
+	})
+	if searchErr != nil {
+		return nil, searchErr
+	}
+	if err != nil {
+		return nil, err
+	}
+	if found != nil {
+		return found, nil
+	}
+	// A miss is not-found only when every parent was read; a parent skipped
+	// above may hold the ID, so its error is the answer (exit 5, not 4). A
+	// complete scan has no HTTP 404 to classify downstream, so it carries the
+	// not-found sentinel itself.
+	if skipped != nil {
+		return nil, skipped
+	}
+	return nil, fmt.Errorf("%w: %w", ErrResourceNotFound, resources.ErrRecordNotFound)
+}
+
+func getZIABrowserIsolationAllPages(
+	ctx context.Context,
+	service *zsdk.Service,
+) ([]browserisolation.CBIProfile, error) {
+	items, err := getZIAAllPages[browserisolation.CBIProfile](
+		ctx,
+		service,
+		"/zia/api/v1/browserIsolation/profiles",
+	)
+	if err == nil {
+		return items, nil
+	}
+	return nil, normalizeZIABrowserIsolationListError(err)
+}
+
+func normalizeZIABrowserIsolationListError(err error) error {
+	if err == nil {
+		return nil
+	}
+	const subscriptionMessage = "Cloud Browser Isolation subscription is required"
+	// Only a non-retryable 4xx means the licence is missing; a 5xx, 408 or
+	// 429 that happens to carry the text keeps its retryable classification.
+	if status := sdkStatusCode(err); status >= 400 && status < 500 &&
+		status != http.StatusTooManyRequests && status != http.StatusRequestTimeout &&
+		strings.Contains(err.Error(), subscriptionMessage) {
+		// Match the SDK wrapper's intentionally status-free operator message.
+		return fmt.Errorf("%w: %s", errNotSubscribed, subscriptionMessage)
+	}
+	return err
+}
+
+// getZIANetworkServices reads /zia/api/v1/networkServices in one request. The
+// endpoint is not paginated and some clouds reject a pageSize with HTTP 400
+// ("Invalid Page Size"), so it gets no page or pageSize; the SDK's
+// GetAllNetworkServices does exactly that since v3.8.57.
+func getZIANetworkServices(ctx context.Context, service *zsdk.Service) ([]networkservices.NetworkServices, error) {
+	return networkservices.GetAllNetworkServices(ctx, service, nil, nil)
+}
+
 // getZIAUsersAllPages reads /zia/api/v1/users with a bounded page walk. It
 // replaces ziausers.GetAllUsers, whose vendored ReadAllPages loop has no page
-// ceiling; the endpoint, 10000-record page size, and short-page termination are
-// preserved exactly (the reader sets no sort options, so none are sent).
+// ceiling; the endpoint, service-level sort options, 10000-record page size,
+// short-page termination, and post-aggregation JMESPath filtering are
+// preserved.
 func getZIAUsersAllPages(ctx context.Context, service *zsdk.Service) ([]ziausers.Users, error) {
 	const pageSize = 10000
-	return ziaPaginate(ctx, pageSize, func(ctx context.Context, page, size int) ([]ziausers.Users, error) {
-		var items []ziausers.Users
-		err := ziacommon.ReadPage(ctx, service.Client, "/zia/api/v1/users", page, &items, size)
-		return items, err
-	})
+	return getZIAAllPagesWithSize[ziausers.Users](
+		ctx,
+		service,
+		ziaSortedListEndpoint(service, "/zia/api/v1/users"),
+		pageSize,
+	)
 }
 
 // getZIALocationsAllPages reads /zia/api/v1/locations with a bounded page walk,
@@ -154,156 +508,206 @@ func getZIALocationsAllPages(ctx context.Context, service *zsdk.Service) ([]loca
 	})
 }
 
-// getZIAURLCategoriesAll reads /zia/api/v1/urlCategories. This endpoint does not
-// paginate (the SDK's GetAll issues a single Read), so it follows the
-// networkApplications pattern instead of ziaPaginate: read one large bounded
-// page and fail closed if it fills the ceiling, since a full single page is
-// indistinguishable from a truncated one. includeOnlyUrlKeywordCounts=true
-// preserves the prior GetAll(customOnly=false, includeOnlyUrlKeywordCounts=true,
-// type="") query semantics.
-func getZIAURLCategoriesAll(ctx context.Context, service *zsdk.Service) ([]urlcategories.URLCategory, error) {
-	const pageCeiling = 5000
-	var categories []urlcategories.URLCategory
-	err := ziacommon.ReadPage(ctx, service.Client, "/zia/api/v1/urlCategories?includeOnlyUrlKeywordCounts=true", 1, &categories, pageCeiling)
-	if err != nil {
+// getZIALocationGroupsAllPages reads /zia/api/v1/locations/groups with the
+// fetchLocations option enabled so list and dump records include associated
+// parent locations and sublocations. It preserves the SDK's documented
+// 1000-record page size while replacing its unbounded ReadAllPages loop with
+// ziaPaginate's fail-closed page ceiling.
+func getZIALocationGroupsAllPages(ctx context.Context, service *zsdk.Service) ([]locationgroups.LocationGroup, error) {
+	const pageSize = 1000
+	return getZIAAllPagesWithSize[locationgroups.LocationGroup](
+		ctx,
+		service,
+		"/zia/api/v1/locations/groups?fetchLocations=true",
+		pageSize,
+	)
+}
+
+// getZIAURLFilteringRulesAllPages reads /zia/api/v1/urlFilteringRules with an
+// explicit bounded page walk. The vendored SDK's GetAll performs one bare Read,
+// so tenants with more than the API's 100-record default page are silently
+// truncated. Keeping the explicit page size at 100 matches Zscaler's published
+// pagination example and the observed default boundary. It also avoids relying
+// on a larger, endpoint-specific maximum that the API reference does not state.
+func getZIAURLFilteringRulesAllPages(ctx context.Context, service *zsdk.Service) ([]urlfilteringpolicies.URLFilteringRule, error) {
+	const pageSize = 100
+	return ziaPaginate(ctx, pageSize, func(ctx context.Context, page, size int) ([]urlfilteringpolicies.URLFilteringRule, error) {
+		var items []urlfilteringpolicies.URLFilteringRule
+		err := ziacommon.ReadPage(ctx, service.Client, "/zia/api/v1/urlFilteringRules", page, &items, size)
+		return items, err
+	})
+}
+
+// getZIAURLFilteringRule reads one URL filtering rule directly and enriches
+// ISOLATE rules whose detail response has the known omitted cbiProfile object.
+// The SDK's Get helper performs this enrichment through its own GetAll call;
+// keeping the workaround here reuses the bounded list adapter instead.
+func getZIAURLFilteringRule(
+	ctx context.Context,
+	service *zsdk.Service,
+	id int,
+) (*urlfilteringpolicies.URLFilteringRule, error) {
+	var rule urlfilteringpolicies.URLFilteringRule
+	if err := service.Client.Read(ctx, fmt.Sprintf("/zia/api/v1/urlFilteringRules/%d", id), &rule); err != nil {
 		return nil, err
 	}
-	if len(categories) >= pageCeiling {
-		return nil, fmt.Errorf("zia url-categories returned the full single-page ceiling of %d records; this endpoint does not paginate, so completeness cannot be guaranteed", pageCeiling)
+
+	// The API omission is specific to ISOLATE rules that identify a profile.
+	// Leave all other detail responses on the direct-read path, including an
+	// ISOLATE response that legitimately has no profile ID to enrich.
+	if rule.Action != "ISOLATE" || rule.CBIProfile != nil || rule.CBIProfileID == 0 {
+		return &rule, nil
 	}
-	return categories, nil
+
+	rules, err := getZIAURLFilteringRulesAllPages(ctx, service)
+	if err != nil {
+		return nil, fmt.Errorf("enrich zia url-filtering rule %d cbiProfile: %w", id, err)
+	}
+	for index := range rules {
+		if rules[index].ID != id {
+			continue
+		}
+		if rules[index].CBIProfile == nil {
+			return nil, fmt.Errorf(
+				"enrich zia url-filtering rule %d cbiProfile: list response omitted profile ID %d",
+				id,
+				rule.CBIProfileID,
+			)
+		}
+		profileID, parseErr := strconv.Atoi(strings.TrimSpace(rules[index].CBIProfile.ID))
+		if parseErr != nil || profileID != rule.CBIProfileID {
+			return nil, fmt.Errorf(
+				"enrich zia url-filtering rule %d cbiProfile: list profile ID does not match detail cbiProfileId %d",
+				id,
+				rule.CBIProfileID,
+			)
+		}
+		rule.CBIProfile = rules[index].CBIProfile
+		return &rule, nil
+	}
+
+	return nil, fmt.Errorf(
+		"enrich zia url-filtering rule %d cbiProfile: list response omitted rule",
+		id,
+	)
+}
+
+// getZIAURLCategoriesAll reads every /zia/api/v1/urlCategories page. The SDK's
+// GetAll issues a single Read, and the API silently clamps a much larger
+// requested page size to 20 records (observed live), so a single read with a
+// ceiling check cannot detect truncation. The adaptive bounded paginator learns
+// the response width and continues. includeOnlyUrlKeywordCounts=true preserves
+// the prior GetAll(customOnly=false, includeOnlyUrlKeywordCounts=true) payload
+// shape. type=ALL is required to include TLD_CATEGORY records; omitting the
+// type returns only predefined and custom URL_CATEGORY records.
+func getZIAURLCategoriesAll(ctx context.Context, service *zsdk.Service) ([]urlcategories.URLCategory, error) {
+	const requestedPageSize = 5000
+	return ziaPaginate(ctx, requestedPageSize, func(ctx context.Context, page, size int) ([]urlcategories.URLCategory, error) {
+		var categories []urlcategories.URLCategory
+		err := ziacommon.ReadPage(
+			ctx,
+			service.Client,
+			"/zia/api/v1/urlCategories?includeOnlyUrlKeywordCounts=true&type=ALL",
+			page,
+			&categories,
+			size,
+		)
+		return categories, err
+	})
 }
 
 func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 	entries := map[resourceKey]resourceHandler{
 		{product: resources.ProductZIA, name: resourceLocations}: newListGetHandler(
 			resourceLocations,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]locationmanagement.Locations, error) {
-				return getZIALocationsAllPages(ctx, service)
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*locationmanagement.Locations, error) {
-				return locationmanagement.GetLocation(ctx, service, id)
-			}),
+			ziaSDKList(client, getZIALocationsAllPages),
+			ziaSDKGet(client, locationmanagement.GetLocation),
 			locationSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceLocationGroups}: newListGetHandler(
 			resourceLocationGroups,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]locationgroups.LocationGroup, error) {
-				fetchLocations := false
-				return locationgroups.GetAll(ctx, service, &locationgroups.GetAllFilterOptions{
-					FetchLocations: &fetchLocations,
-				})
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*locationgroups.LocationGroup, error) {
-				return locationgroups.GetLocationGroup(ctx, service, id)
-			}),
+			ziaSDKList(client, getZIALocationGroupsAllPages),
+			ziaSDKGet(client, locationgroups.GetLocationGroup),
 			locationGroupSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceRuleLabels}: newListGetHandler(
 			resourceRuleLabels,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]rulelabels.RuleLabels, error) {
-				return rulelabels.GetAll(ctx, service)
+				return getZIAAllPages[rulelabels.RuleLabels](ctx, service, "/zia/api/v1/ruleLabels")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*rulelabels.RuleLabels, error) {
-				return rulelabels.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, rulelabels.Get),
 			ruleLabelSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceAuthSettings}: newSingletonHandler(
 			resourceAuthSettings,
-			ziaSDKShow(client, func(ctx context.Context, service *zsdk.Service) (*authsettings.AuthenticationSettings, error) {
-				return authsettings.Get(ctx, service)
-			}),
+			ziaSDKShow(client, authsettings.Get),
 			authSettingsSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceStaticIPs}: newListGetHandler(
 			resourceStaticIPs,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]staticips.StaticIP, error) {
-				return staticips.GetAll(ctx, service)
+				return getZIAAllPages[staticips.StaticIP](ctx, service, "/zia/api/v1/staticIP")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*staticips.StaticIP, error) {
-				return staticips.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, staticips.Get),
 			staticIPSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceGRETunnels}: newListGetHandler(
 			resourceGRETunnels,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]gretunnels.GreTunnels, error) {
-				return gretunnels.GetAll(ctx, service)
+				return getZIAAllPages[gretunnels.GreTunnels](ctx, service, "/zia/api/v1/greTunnels")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*gretunnels.GreTunnels, error) {
-				return gretunnels.GetGreTunnels(ctx, service, id)
-			}),
+			ziaSDKGet(client, gretunnels.GetGreTunnels),
 			greTunnelSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceSublocations}: newListGetHandler(
 			resourceSublocations,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]locationmanagement.Locations, error) {
-				return locationmanagement.GetAllSublocations(ctx, service)
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*locationmanagement.Locations, error) {
-				return locationmanagement.GetSubLocationBySubID(ctx, service, id)
-			}),
+			ziaSDKList(client, getZIASublocationsAllPages),
+			ziaSDKGet(client, getZIASublocationByID),
 			sublocationSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceSSLRules}: newListGetHandler(
 			resourceSSLRules,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]sslinspection.SSLInspectionRules, error) {
-				return sslinspection.GetAll(ctx, service)
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*sslinspection.SSLInspectionRules, error) {
-				return sslinspection.Get(ctx, service, id)
-			}),
+			ziaSDKList(client, sslinspection.GetAll),
+			ziaSDKGet(client, sslinspection.Get),
 			sslInspectionRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceURLCategories}: newListGetHandler(
 			resourceURLCategories,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]urlcategories.URLCategory, error) {
-				return getZIAURLCategoriesAll(ctx, service)
-			}),
-			ziaSDKStringGet(client, func(ctx context.Context, service *zsdk.Service, id string) (*urlcategories.URLCategory, error) {
-				return urlcategories.Get(ctx, service, id)
-			}),
+			ziaSDKList(client, getZIAURLCategoriesAll),
+			ziaSDKStringGet(client, urlcategories.Get),
 			urlCategorySourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceURLRules}: newListGetHandler(
 			resourceURLRules,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]urlfilteringpolicies.URLFilteringRule, error) {
-				return urlfilteringpolicies.GetAll(ctx, service)
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*urlfilteringpolicies.URLFilteringRule, error) {
-				return urlfilteringpolicies.Get(ctx, service, id)
-			}),
+			ziaSDKList(client, getZIAURLFilteringRulesAllPages),
+			ziaSDKGet(client, getZIAURLFilteringRule),
 			urlFilteringRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceFirewallRules}: newListGetHandler(
 			resourceFirewallRules,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]filteringrules.FirewallFilteringRules, error) {
-				return filteringrules.GetAll(ctx, service, nil)
+				return getZIAAllPagesWithSize[filteringrules.FirewallFilteringRules](
+					ctx,
+					service,
+					"/zia/api/v1/firewallFilteringRules",
+					5000,
+				)
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*filteringrules.FirewallFilteringRules, error) {
-				return filteringrules.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, filteringrules.Get),
 			firewallFilteringRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceForwardingRules}: newListGetHandler(
 			resourceForwardingRules,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]forwardingrules.ForwardingRules, error) {
-				return forwardingrules.GetAll(ctx, service)
+				return getZIAAllPages[forwardingrules.ForwardingRules](ctx, service, "/zia/api/v1/forwardingRules")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*forwardingrules.ForwardingRules, error) {
-				return forwardingrules.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, forwardingrules.Get),
 			forwardingRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceIPSourceGroups}: newListGetHandler(
 			resourceIPSourceGroups,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ipsourcegroups.IPSourceGroups, error) {
-				return ipsourcegroups.GetAll(ctx, service)
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*ipsourcegroups.IPSourceGroups, error) {
-				return ipsourcegroups.Get(ctx, service, id)
-			}),
+			ziaSDKList(client, ipsourcegroups.GetAll),
+			ziaSDKGet(client, ipsourcegroups.Get),
 			ipSourceGroupSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceIPDestGroups}: newListGetHandler(
@@ -311,36 +715,26 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ipdestinationgroups.IPDestinationGroups, error) {
 				return ipdestinationgroups.GetAll(ctx, service, "")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*ipdestinationgroups.IPDestinationGroups, error) {
-				return ipdestinationgroups.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, ipdestinationgroups.Get),
 			ipDestinationGroupSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceNetworkServices}: newListGetHandler(
 			resourceNetworkServices,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]networkservices.NetworkServices, error) {
-				return networkservices.GetAllNetworkServices(ctx, service, nil, nil)
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*networkservices.NetworkServices, error) {
-				return networkservices.Get(ctx, service, id)
-			}),
+			ziaSDKList(client, getZIANetworkServices),
+			ziaSDKGet(client, networkservices.Get),
 			networkServiceSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceNetworkSvcGroups}: newListGetHandler(
 			resourceNetworkSvcGroups,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]networkservicegroups.NetworkServiceGroups, error) {
-				return networkservicegroups.GetAllNetworkServiceGroups(ctx, service)
+				return getZIAAllPages[networkservicegroups.NetworkServiceGroups](ctx, service, "/zia/api/v1/networkServiceGroups")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*networkservicegroups.NetworkServiceGroups, error) {
-				return networkservicegroups.GetNetworkServiceGroups(ctx, service, id)
-			}),
+			ziaSDKGet(client, networkservicegroups.GetNetworkServiceGroups),
 			networkServiceGroupSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceNetworkApps}: newListGetHandler(
 			resourceNetworkApps,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]networkapplications.NetworkApplications, error) {
-				return getNetworkApplicationsPage(ctx, service)
-			}),
+			ziaSDKList(client, getNetworkApplicationsPage),
 			ziaSDKStringGet(client, func(ctx context.Context, service *zsdk.Service, id string) (*networkapplications.NetworkApplications, error) {
 				return networkapplications.GetNetworkApplication(ctx, service, id, "")
 			}),
@@ -349,12 +743,12 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceAppServices}: newListGetHandler(
 			resourceAppServices,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]applicationservices.ApplicationServicesLite, error) {
-				return applicationservices.GetAll(ctx, service)
+				return getZIAAllPages[applicationservices.ApplicationServicesLite](ctx, service, "/zia/api/v1/appServices/lite")
 			}),
 			ziaSDKListGetByIntID(
 				client,
 				func(ctx context.Context, service *zsdk.Service) ([]applicationservices.ApplicationServicesLite, error) {
-					return applicationservices.GetAll(ctx, service)
+					return getZIAAllPages[applicationservices.ApplicationServicesLite](ctx, service, "/zia/api/v1/appServices/lite")
 				},
 				func(item applicationservices.ApplicationServicesLite) int { return item.ID },
 			),
@@ -363,12 +757,12 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceAppServiceGroups}: newListGetHandler(
 			resourceAppServiceGroups,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]appservicegroups.ApplicationServicesGroupLite, error) {
-				return appservicegroups.GetAll(ctx, service)
+				return getZIAAllPages[appservicegroups.ApplicationServicesGroupLite](ctx, service, "/zia/api/v1/appServiceGroups/lite")
 			}),
 			ziaSDKListGetByIntID(
 				client,
 				func(ctx context.Context, service *zsdk.Service) ([]appservicegroups.ApplicationServicesGroupLite, error) {
-					return appservicegroups.GetAll(ctx, service)
+					return getZIAAllPages[appservicegroups.ApplicationServicesGroupLite](ctx, service, "/zia/api/v1/appServiceGroups/lite")
 				},
 				func(item appservicegroups.ApplicationServicesGroupLite) int { return item.ID },
 			),
@@ -377,23 +771,17 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceNetworkAppGroups}: newListGetHandler(
 			resourceNetworkAppGroups,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]networkapplicationgroups.NetworkApplicationGroups, error) {
-				return networkapplicationgroups.GetAllNetworkApplicationGroups(ctx, service)
+				return getZIAAllPages[networkapplicationgroups.NetworkApplicationGroups](ctx, service, "/zia/api/v1/networkApplicationGroups")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*networkapplicationgroups.NetworkApplicationGroups, error) {
-				return networkapplicationgroups.GetNetworkApplicationGroups(ctx, service, id)
-			}),
+			ziaSDKGet(client, networkapplicationgroups.GetNetworkApplicationGroups),
 			networkApplicationGroupSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceTimeWindows}: newListGetHandler(
 			resourceTimeWindows,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]timewindow.TimeWindow, error) {
-				return timewindow.GetAll(ctx, service)
-			}),
+			ziaSDKList(client, timewindow.GetAll),
 			ziaSDKListGetByIntID(
 				client,
-				func(ctx context.Context, service *zsdk.Service) ([]timewindow.TimeWindow, error) {
-					return timewindow.GetAll(ctx, service)
-				},
+				timewindow.GetAll,
 				func(item timewindow.TimeWindow) int { return item.ID },
 			),
 			timeWindowSourceRecord,
@@ -401,22 +789,20 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceProxies}: newListGetHandler(
 			resourceProxies,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]proxies.Proxies, error) {
-				return proxies.GetAll(ctx, service)
+				return getZIAAllPages[proxies.Proxies](ctx, service, "/zia/api/v1/proxies")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*proxies.Proxies, error) {
-				return proxies.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, proxies.Get),
 			proxySourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceProxyGateways}: newListGetHandler(
 			resourceProxyGateways,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]proxygateways.ProxyGateways, error) {
-				return proxygateways.GetAll(ctx, service)
+				return getZIAAllPages[proxygateways.ProxyGateways](ctx, service, "/zia/api/v1/proxyGateways")
 			}),
 			ziaSDKListGetByIntID(
 				client,
 				func(ctx context.Context, service *zsdk.Service) ([]proxygateways.ProxyGateways, error) {
-					return proxygateways.GetAll(ctx, service)
+					return getZIAAllPages[proxygateways.ProxyGateways](ctx, service, "/zia/api/v1/proxyGateways")
 				},
 				func(item proxygateways.ProxyGateways) int { return item.ID },
 			),
@@ -425,12 +811,12 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceDedicatedIPGWs}: newListGetHandler(
 			resourceDedicatedIPGWs,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]proxies.DedicatedIPGateways, error) {
-				return proxies.GetDedicatedIPGWLite(ctx, service)
+				return getZIAAllPages[proxies.DedicatedIPGateways](ctx, service, "/zia/api/v1/dedicatedIPGateways/lite")
 			}),
 			ziaSDKListGetByIntID(
 				client,
 				func(ctx context.Context, service *zsdk.Service) ([]proxies.DedicatedIPGateways, error) {
-					return proxies.GetDedicatedIPGWLite(ctx, service)
+					return getZIAAllPages[proxies.DedicatedIPGateways](ctx, service, "/zia/api/v1/dedicatedIPGateways/lite")
 				},
 				func(item proxies.DedicatedIPGateways) int { return item.Id },
 			),
@@ -439,112 +825,98 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceTimeIntervals}: newListGetHandler(
 			resourceTimeIntervals,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]timeintervals.TimeInterval, error) {
-				return timeintervals.GetAll(ctx, service)
+				return getZIAAllPages[timeintervals.TimeInterval](ctx, service, "/zia/api/v1/timeIntervals")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*timeintervals.TimeInterval, error) {
-				return timeintervals.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, timeintervals.Get),
 			timeIntervalSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceBandwidthClasses}: newListGetHandler(
 			resourceBandwidthClasses,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]bandwidthclasses.BandwidthClasses, error) {
-				return bandwidthclasses.GetAll(ctx, service)
+				return getZIAAllPages[bandwidthclasses.BandwidthClasses](ctx, service, "/zia/api/v1/bandwidthClasses")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*bandwidthclasses.BandwidthClasses, error) {
-				return bandwidthclasses.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, bandwidthclasses.Get),
 			bandwidthClassSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceBandwidthRules}: newListGetHandler(
 			resourceBandwidthRules,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]bandwidthcontrolrules.BandwidthControlRules, error) {
-				return bandwidthcontrolrules.GetAll(ctx, service)
+				return getZIAAllPages[bandwidthcontrolrules.BandwidthControlRules](ctx, service, "/zia/api/v1/bandwidthControlRules")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*bandwidthcontrolrules.BandwidthControlRules, error) {
-				return bandwidthcontrolrules.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, bandwidthcontrolrules.Get),
 			bandwidthControlRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceIPSSignatureRules}: newListGetHandler(
 			resourceIPSSignatureRules,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ipssignaturerules.IPSSignatureRules, error) {
-				return ipssignaturerules.GetAll(ctx, service)
+				return getZIAAllPages[ipssignaturerules.IPSSignatureRules](ctx, service, "/zia/api/v1/ipsSignatureRules")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*ipssignaturerules.IPSSignatureRules, error) {
-				return ipssignaturerules.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, ipssignaturerules.Get),
 			ipsSignatureRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceIPSPolicies}: newListGetHandler(
 			resourceIPSPolicies,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ipspolicies.FirewallIPSRules, error) {
-				return ipspolicies.GetAll(ctx, service)
+				return getZIAAllPages[ipspolicies.FirewallIPSRules](ctx, service, "/zia/api/v1/firewallIpsRules")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*ipspolicies.FirewallIPSRules, error) {
-				return ipspolicies.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, ipspolicies.Get),
 			ipsPolicySourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDNSGateways}: newListGetHandler(
 			resourceDNSGateways,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dnsgateways.DNSGateways, error) {
-				return dnsgateways.GetAll(ctx, service)
+				return getZIAAllPages[dnsgateways.DNSGateways](ctx, service, "/zia/api/v1/dnsGateways")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*dnsgateways.DNSGateways, error) {
-				return dnsgateways.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, dnsgateways.Get),
 			dnsGatewaySourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceNATRules}: newListGetHandler(
 			resourceNATRules,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]natcontrol.NatControlPolicies, error) {
-				return natcontrol.GetAll(ctx, service)
+				return getZIAAllPages[natcontrol.NatControlPolicies](ctx, service, "/zia/api/v1/dnatRules")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*natcontrol.NatControlPolicies, error) {
-				return natcontrol.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, natcontrol.Get),
 			natControlRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceGroups}: newListGetHandler(
 			resourceGroups,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]usergroups.Groups, error) {
-				return usergroups.GetAllGroups(ctx, service, nil)
+				return getZIAAllPages[usergroups.Groups](
+					ctx,
+					service,
+					ziaSortedListEndpoint(service, "/zia/api/v1/groups"),
+				)
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*usergroups.Groups, error) {
-				return usergroups.GetGroups(ctx, service, id)
-			}),
+			ziaSDKGet(client, usergroups.GetGroups),
 			groupSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDepartments}: newListGetHandler(
 			resourceDepartments,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]userdepartments.Department, error) {
-				return userdepartments.GetAll(ctx, service, nil)
+				return getZIAAllPages[userdepartments.Department](
+					ctx,
+					service,
+					ziaSortedListEndpoint(service, "/zia/api/v1/departments"),
+				)
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*userdepartments.Department, error) {
-				return userdepartments.GetDepartments(ctx, service, id)
-			}),
+			ziaSDKGet(client, userdepartments.GetDepartments),
 			departmentSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceUsers}: newListGetHandler(
 			resourceUsers,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ziausers.Users, error) {
-				return getZIAUsersAllPages(ctx, service)
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*ziausers.Users, error) {
-				return ziausers.Get(ctx, service, id)
-			}),
+			ziaSDKList(client, getZIAUsersAllPages),
+			ziaSDKGet(client, ziausers.Get),
 			userSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDeviceGroups}: newListGetHandler(
 			resourceDeviceGroups,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]devicegroups.DeviceGroups, error) {
-				return devicegroups.GetAllDevicesGroups(ctx, service)
+				return getZIAAllPages[devicegroups.DeviceGroups](ctx, service, "/zia/api/v1/deviceGroups")
 			}),
 			ziaSDKListGetByIntID(
 				client,
 				func(ctx context.Context, service *zsdk.Service) ([]devicegroups.DeviceGroups, error) {
-					return devicegroups.GetAllDevicesGroups(ctx, service)
+					return getZIAAllPages[devicegroups.DeviceGroups](ctx, service, "/zia/api/v1/deviceGroups")
 				},
 				func(item devicegroups.DeviceGroups) int { return item.ID },
 			),
@@ -553,31 +925,31 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceDevices}: newListGetHandler(
 			resourceDevices,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]devicegroups.Devices, error) {
-				return devicegroups.GetAllDevices(ctx, service)
+				return getZIAAllPages[devicegroups.Devices](ctx, service, "/zia/api/v1/deviceGroups/devices")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*devicegroups.Devices, error) {
-				return devicegroups.GetDevicesByID(ctx, service, id)
-			}),
+			ziaSDKListGetByIntID(
+				client,
+				func(ctx context.Context, service *zsdk.Service) ([]devicegroups.Devices, error) {
+					return getZIAAllPages[devicegroups.Devices](ctx, service, "/zia/api/v1/deviceGroups/devices")
+				},
+				func(device devicegroups.Devices) int { return device.ID },
+			),
 			deviceSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceWorkloadGroups}: newListGetHandler(
 			resourceWorkloadGroups,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]workloadgroups.WorkloadGroup, error) {
-				return workloadgroups.GetAll(ctx, service)
+				return getZIAAllPages[workloadgroups.WorkloadGroup](ctx, service, "/zia/api/v1/workloadGroups")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*workloadgroups.WorkloadGroup, error) {
-				return workloadgroups.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, workloadgroups.Get),
 			workloadGroupSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceAlertSubs}: newListGetHandler(
 			resourceAlertSubs,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]alerts.AlertSubscriptions, error) {
-				return alerts.GetAll(ctx, service)
+				return getZIAAllPages[alerts.AlertSubscriptions](ctx, service, "/zia/api/v1/alertSubscriptions")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*alerts.AlertSubscriptions, error) {
-				return alerts.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, alerts.Get),
 			alertSubscriptionSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceActivationStatus}: newSingletonHandler(
@@ -598,175 +970,154 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceIntermediateCAs}: newListGetHandler(
 			resourceIntermediateCAs,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]intermediatecacertificates.IntermediateCACertificate, error) {
-				return intermediatecacertificates.GetAll(ctx, service)
+				return getZIAAllPages[intermediatecacertificates.IntermediateCACertificate](ctx, service, "/zia/api/v1/intermediateCaCertificate")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*intermediatecacertificates.IntermediateCACertificate, error) {
-				return intermediatecacertificates.GetCertificate(ctx, service, id)
-			}),
+			ziaSDKGet(client, intermediatecacertificates.GetCertificate),
 			intermediateCACertificateSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceCloudAppInsts}: newListGetHandler(
 			resourceCloudAppInsts,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]cloudappinstances.CloudApplicationInstances, error) {
-				return cloudappinstances.GetAll(ctx, service)
+				return getZIAAllPages[cloudappinstances.CloudApplicationInstances](ctx, service, "/zia/api/v1/cloudApplicationInstances")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*cloudappinstances.CloudApplicationInstances, error) {
-				return cloudappinstances.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, cloudappinstances.Get),
 			cloudAppInstanceSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceTenancyProfiles}: newListGetHandler(
 			resourceTenancyProfiles,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]tenancyrestriction.TenancyRestrictionProfile, error) {
-				return tenancyrestriction.GetAll(ctx, service)
+				return getZIAAllPages[tenancyrestriction.TenancyRestrictionProfile](ctx, service, "/zia/api/v1/tenancyRestrictionProfile")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*tenancyrestriction.TenancyRestrictionProfile, error) {
-				return tenancyrestriction.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, tenancyrestriction.Get),
 			tenancyRestrictionProfileSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceVZENClusters}: newListGetHandler(
 			resourceVZENClusters,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]vzenclusters.VZENClusters, error) {
-				return vzenclusters.GetAll(ctx, service)
+				return getZIAAllPages[vzenclusters.VZENClusters](ctx, service, "/zia/api/v1/virtualZenClusters")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*vzenclusters.VZENClusters, error) {
-				return vzenclusters.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, vzenclusters.Get),
 			vzenClusterSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceVZENNodes}: newListGetHandler(
 			resourceVZENNodes,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]vzennodes.VZENNodes, error) {
-				return vzennodes.GetAll(ctx, service)
+				return getZIAAllPages[vzennodes.VZENNodes](ctx, service, "/zia/api/v1/virtualZenNodes")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*vzennodes.VZENNodes, error) {
-				return vzennodes.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, vzennodes.Get),
 			vzenNodeSourceRecord,
+		),
+		{product: resources.ProductZIA, name: resourceLocationsLite}: newListOnlyHandler(
+			resourceLocationsLite,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ziaLiteLocation, error) {
+				return getZIAAllPages[ziaLiteLocation](ctx, service, "/zia/api/v1/locations/lite")
+			}),
+			liteLocationSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceBrowserIsolation}: newListOnlyHandler(
 			resourceBrowserIsolation,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]browserisolation.CBIProfile, error) {
-				return browserisolation.GetAll(ctx, service)
-			}),
+			ziaSDKList(client, getZIABrowserIsolationAllPages),
 			browserIsolationProfileSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDLPEngines}: newListGetHandler(
 			resourceDLPEngines,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpengines.DLPEngines, error) {
-				return dlpengines.GetAll(ctx, service)
+				return getZIAAllPages[dlpengines.DLPEngines](ctx, service, "/zia/api/v1/dlpEngines")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*dlpengines.DLPEngines, error) {
-				return dlpengines.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, dlpengines.Get),
 			dlpEngineSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDLPDictionaries}: newListGetHandler(
 			resourceDLPDictionaries,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpdictionaries.DlpDictionary, error) {
-				return dlpdictionaries.GetAll(ctx, service)
+				return getZIAAllPages[dlpdictionaries.DlpDictionary](ctx, service, "/zia/api/v1/dlpDictionaries")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*dlpdictionaries.DlpDictionary, error) {
-				return dlpdictionaries.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, dlpdictionaries.Get),
 			dlpDictionarySourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDLPEDMSchemas}: newListGetHandler(
 			resourceDLPEDMSchemas,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpexactdatamatch.DLPEDMSchema, error) {
-				return dlpexactdatamatch.GetAll(ctx, service)
+				return getZIAAllPages[dlpexactdatamatch.DLPEDMSchema](ctx, service, "/zia/api/v1/dlpExactDataMatchSchemas")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*dlpexactdatamatch.DLPEDMSchema, error) {
-				return dlpexactdatamatch.GetDLPEDMSchemaID(ctx, service, id)
-			}),
+			ziaSDKGet(client, dlpexactdatamatch.GetDLPEDMSchemaID),
 			dlpEDMSchemaSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDLPEDMLite}: newListOnlyHandler(
 			resourceDLPEDMLite,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpedmlite.DLPEDMLite, error) {
-				return dlpedmlite.GetAllEDMSchema(ctx, service, false, false)
+				return getZIAAllPages[dlpedmlite.DLPEDMLite](ctx, service, "/zia/api/v1/dlpExactDataMatchSchemas/lite")
 			}),
 			dlpEDMLiteSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDLPIDMLite}: newListGetHandler(
 			resourceDLPIDMLite,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpidmprofilelite.DLPIDMProfileLite, error) {
-				return dlpidmprofilelite.GetAll(ctx, service, false)
+				return getZIAAllPages[dlpidmprofilelite.DLPIDMProfileLite](ctx, service, "/zia/api/v1/idmprofile/lite")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*dlpidmprofilelite.DLPIDMProfileLite, error) {
-				return dlpidmprofilelite.GetDLPProfileLiteID(ctx, service, id, false)
-			}),
+			ziaSDKListGetByIntID(
+				client,
+				func(ctx context.Context, service *zsdk.Service) ([]dlpidmprofilelite.DLPIDMProfileLite, error) {
+					return getZIAAllPages[dlpidmprofilelite.DLPIDMProfileLite](ctx, service, "/zia/api/v1/idmprofile/lite")
+				},
+				func(profile dlpidmprofilelite.DLPIDMProfileLite) int { return profile.ProfileID },
+			),
 			dlpIDMProfileLiteSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDLPIDMProfiles}: newListGetHandler(
 			resourceDLPIDMProfiles,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpidmprofiles.DLPIDMProfile, error) {
-				return dlpidmprofiles.GetAll(ctx, service)
+				return getZIAAllPages[dlpidmprofiles.DLPIDMProfile](ctx, service, "/zia/api/v1/idmprofile")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*dlpidmprofiles.DLPIDMProfile, error) {
-				return dlpidmprofiles.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, dlpidmprofiles.Get),
 			dlpIDMProfileSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDLPWebRules}: newListGetHandler(
 			resourceDLPWebRules,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpwebrules.WebDLPRules, error) {
-				return dlpwebrules.GetAll(ctx, service)
+				return getZIAAllPages[dlpwebrules.WebDLPRules](ctx, service, "/zia/api/v1/webDlpRules")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*dlpwebrules.WebDLPRules, error) {
-				return dlpwebrules.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, dlpwebrules.Get),
 			dlpWebRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDLPICAPServers}: newListGetHandler(
 			resourceDLPICAPServers,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpicapservers.DLPICAPServers, error) {
-				return dlpicapservers.GetAll(ctx, service)
+				return getZIAAllPages[dlpicapservers.DLPICAPServers](ctx, service, "/zia/api/v1/icapServers")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*dlpicapservers.DLPICAPServers, error) {
-				return dlpicapservers.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, dlpicapservers.Get),
 			dlpICAPServerSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDLPIncidentRcvs}: newListGetHandler(
 			resourceDLPIncidentRcvs,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpincidentreceivers.IncidentReceiverServers, error) {
-				return dlpincidentreceivers.GetAll(ctx, service)
+				return getZIAAllPages[dlpincidentreceivers.IncidentReceiverServers](ctx, service, "/zia/api/v1/incidentReceiverServers")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*dlpincidentreceivers.IncidentReceiverServers, error) {
-				return dlpincidentreceivers.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, dlpincidentreceivers.Get),
 			dlpIncidentReceiverSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDLPNotifyTmpls}: newListGetHandler(
 			resourceDLPNotifyTmpls,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dlpnotificationtemplates.DlpNotificationTemplates, error) {
-				return dlpnotificationtemplates.GetAll(ctx, service)
+				return getZIAAllPages[dlpnotificationtemplates.DlpNotificationTemplates](ctx, service, "/zia/api/v1/dlpNotificationTemplates")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*dlpnotificationtemplates.DlpNotificationTemplates, error) {
-				return dlpnotificationtemplates.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, dlpnotificationtemplates.Get),
 			dlpNotificationTemplateSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceC2CIncidentRcvs}: newListGetHandler(
 			resourceC2CIncidentRcvs,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]c2cincidentreceiver.C2CIncidentReceiver, error) {
-				return c2cincidentreceiver.GetAll(ctx, service)
+				return getZIAAllPages[c2cincidentreceiver.C2CIncidentReceiver](ctx, service, "/zia/api/v1/cloudToCloudIR")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*c2cincidentreceiver.C2CIncidentReceiver, error) {
-				return c2cincidentreceiver.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, c2cincidentreceiver.Get),
 			c2cIncidentReceiverSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceRiskProfiles}: newListGetHandler(
 			resourceRiskProfiles,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]riskprofiles.RiskProfiles, error) {
-				return riskprofiles.GetAll(ctx, service)
+				return getZIAAllPages[riskprofiles.RiskProfiles](ctx, service, "/zia/api/v1/riskProfiles")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*riskprofiles.RiskProfiles, error) {
-				return riskprofiles.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, riskprofiles.Get),
 			riskProfileSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceNSSServers}: newListGetHandler(
@@ -774,82 +1125,64 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]nssservers.NSSServers, error) {
 				return nssservers.GetAll(ctx, service, nil)
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*nssservers.NSSServers, error) {
-				return nssservers.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, nssservers.Get),
 			nssServerSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceNSSFeeds}: newListGetHandler(
 			resourceNSSFeeds,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]cloudnss.NSSFeed, error) {
-				return cloudnss.GetAll(ctx, service)
+				return getZIAAllPages[cloudnss.NSSFeed](ctx, service, "/zia/api/v1/nssFeeds")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*cloudnss.NSSFeed, error) {
-				return cloudnss.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, cloudnss.Get),
 			nssFeedSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceFileTypeRules}: newListGetHandler(
 			resourceFileTypeRules,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]filetypecontrol.FileTypeRules, error) {
-				return filetypecontrol.GetAll(ctx, service)
+				return getZIAAllPages[filetypecontrol.FileTypeRules](ctx, service, "/zia/api/v1/fileTypeRules")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*filetypecontrol.FileTypeRules, error) {
-				return filetypecontrol.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, filetypecontrol.Get),
 			fileTypeRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceSandboxRules}: newListGetHandler(
 			resourceSandboxRules,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]sandboxrules.SandboxRules, error) {
-				return sandboxrules.GetAll(ctx, service)
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*sandboxrules.SandboxRules, error) {
-				return sandboxrules.Get(ctx, service, id)
-			}),
+			ziaSDKList(client, sandboxrules.GetAll),
+			ziaSDKGet(client, sandboxrules.Get),
 			sandboxRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceFirewallDNSRules}: newListGetHandler(
 			resourceFirewallDNSRules,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]firewalldnscontrolpolicies.FirewallDNSRules, error) {
-				return firewalldnscontrolpolicies.GetAll(ctx, service)
+				return getZIAAllPages[firewalldnscontrolpolicies.FirewallDNSRules](ctx, service, "/zia/api/v1/firewallDnsRules")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*firewalldnscontrolpolicies.FirewallDNSRules, error) {
-				return firewalldnscontrolpolicies.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, firewalldnscontrolpolicies.Get),
 			firewallDNSRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceCustomFileTypes}: newListGetHandler(
 			resourceCustomFileTypes,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]customfiletypes.CustomFileTypes, error) {
-				return customfiletypes.GetCustomFileTypes(ctx, service)
+				return getZIAAllPages[customfiletypes.CustomFileTypes](ctx, service, "/zia/api/v1/customFileTypes")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*customfiletypes.CustomFileTypes, error) {
-				return customfiletypes.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, customfiletypes.Get),
 			customFileTypeSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceZPAGateways}: newListGetHandler(
 			resourceZPAGateways,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]zpagateways.ZPAGateways, error) {
-				return zpagateways.GetAll(ctx, service)
+				return getZIAAllPages[zpagateways.ZPAGateways](ctx, service, "/zia/api/v1/zpaGateways")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*zpagateways.ZPAGateways, error) {
-				return zpagateways.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, zpagateways.Get),
 			zpaGatewaySourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDCExclusions}: newListOnlyHandler(
 			resourceDCExclusions,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]dcexclusions.DCExclusions, error) {
-				return dcexclusions.GetAll(ctx, service)
-			}),
+			ziaSDKList(client, dcexclusions.GetAll),
 			dcExclusionSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceSubClouds}: newListOnlyHandler(
 			resourceSubClouds,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]subclouds.SubClouds, error) {
-				return subclouds.GetAll(ctx, service)
+				return getZIAAllPages[subclouds.SubClouds](ctx, service, "/zia/api/v1/subclouds")
 			}),
 			subCloudSourceRecord,
 		),
@@ -861,21 +1194,21 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceIPv6DNS64Prefix}: newListOnlyHandler(
 			resourceIPv6DNS64Prefix,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ipv6config.IPv6ConfigPrefix, error) {
-				return ipv6config.GetDns64Prefix(ctx, service)
+				return getZIAAllPages[ipv6config.IPv6ConfigPrefix](ctx, service, "/zia/api/v1/ipv6config/dns64prefix")
 			}),
 			ipv6ConfigPrefixSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceIPv6NAT64Prefix}: newListOnlyHandler(
 			resourceIPv6NAT64Prefix,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ipv6config.IPv6ConfigPrefix, error) {
-				return ipv6config.GetNat64Prefix(ctx, service)
+				return getZIAAllPages[ipv6config.IPv6ConfigPrefix](ctx, service, "/zia/api/v1/ipv6config/nat64prefix")
 			}),
 			ipv6ConfigPrefixSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourcePACFiles}: newListOnlyHandler(
 			resourcePACFiles,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]pacfiles.PACFileConfig, error) {
-				return pacfiles.GetPacFiles(ctx, service, "")
+				return getZIAAllPages[pacfiles.PACFileConfig](ctx, service, "/zia/api/v1/pacFiles")
 			}),
 			pacFileSourceRecord,
 		),
@@ -926,56 +1259,56 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceCloudAppPolicy}: newListOnlyHandler(
 			resourceCloudAppPolicy,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]cloudapplications.CloudApplications, error) {
-				return cloudapplications.GetCloudApplicationPolicy(ctx, service, map[string]any{})
+				return getZIAAllPages[cloudapplications.CloudApplications](ctx, service, "/zia/api/v1/cloudApplications/policy")
 			}),
 			cloudApplicationPolicySourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceCloudAppSSLPol}: newListOnlyHandler(
 			resourceCloudAppSSLPol,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]cloudapplications.CloudApplications, error) {
-				return cloudapplications.GetCloudApplicationSSLPolicy(ctx, service, map[string]any{})
+				return getZIAAllPages[cloudapplications.CloudApplications](ctx, service, "/zia/api/v1/cloudApplications/sslPolicy")
 			}),
 			cloudApplicationPolicySourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceDomainProfiles}: newListOnlyHandler(
 			resourceDomainProfiles,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]saassecurityapi.DomainProfiles, error) {
-				return saassecurityapi.GetDomainProfiles(ctx, service)
+				return getZIAAllPages[saassecurityapi.DomainProfiles](ctx, service, "/zia/api/v1/domainProfiles")
 			}),
 			domainProfileSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceCASBTombstones}: newListOnlyHandler(
 			resourceCASBTombstones,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]saassecurityapi.QuarantineTombstoneLite, error) {
-				return saassecurityapi.GetQuarantineTombstoneLite(ctx, service)
+				return getZIAAllPages[saassecurityapi.QuarantineTombstoneLite](ctx, service, "/zia/api/v1/quarantineTombstoneTemplate/lite")
 			}),
 			casbTombstoneTemplateSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceCASBEmailLabels}: newListOnlyHandler(
 			resourceCASBEmailLabels,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]saassecurityapi.CasbEmailLabel, error) {
-				return saassecurityapi.GetCasbEmailLabelLite(ctx, service)
+				return getZIAAllPages[saassecurityapi.CasbEmailLabel](ctx, service, "/zia/api/v1/casbEmailLabel/lite")
 			}),
 			casbEmailLabelSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceCASBTenants}: newListOnlyHandler(
 			resourceCASBTenants,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]saassecurityapi.CasbTenants, error) {
-				return saassecurityapi.GetCasbTenantLite(ctx, service, map[string]any{})
+				return getZIAAllPages[saassecurityapi.CasbTenants](ctx, service, "/zia/api/v1/casbTenant/lite")
 			}),
 			casbTenantSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceCASBDLPRules}: newListOnlyHandler(
 			resourceCASBDLPRules,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]casbdlprules.CasbDLPRules, error) {
-				return casbdlprules.GetAll(ctx, service)
+				return getZIAAllPages[casbdlprules.CasbDLPRules](ctx, service, "/zia/api/v1/casbDlpRules/all")
 			}),
 			casbDLPRuleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceCASBMalwareRules}: newListOnlyHandler(
 			resourceCASBMalwareRules,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]casbmalwarerules.CasbMalwareRules, error) {
-				return casbmalwarerules.GetAll(ctx, service)
+				return getZIAAllPages[casbmalwarerules.CasbMalwareRules](ctx, service, "/zia/api/v1/casbMalwareRules/all")
 			}),
 			casbMalwareRuleSourceRecord,
 		),
@@ -986,9 +1319,7 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		),
 		{product: resources.ProductZIA, name: resourceSupportedBrowsers}: newListOnlyHandler(
 			resourceSupportedBrowsers,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]securebrowsing.SupportedBrowserVersion, error) {
-				return securebrowsing.GetSupportedBrowserVersions(ctx, service)
-			}),
+			ziaSDKList(client, securebrowsing.GetSupportedBrowserVersions),
 			structSourceRecord[securebrowsing.SupportedBrowserVersion],
 		),
 		{product: resources.ProductZIA, name: resourceFTPControl}: newSingletonHandler(
@@ -1004,31 +1335,27 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 		{product: resources.ProductZIA, name: resourceAdminUsers}: newListGetHandler(
 			resourceAdminUsers,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ziaadminusers.AdminUsers, error) {
-				return ziaadminusers.GetAllAdminUsers(ctx, service)
+				return getZIAAllPages[ziaadminusers.AdminUsers](
+					ctx,
+					service,
+					"/zia/api/v1/adminUsers?includeAuditorUsers=true&includeAdminUsers=true",
+				)
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*ziaadminusers.AdminUsers, error) {
-				return ziaadminusers.GetAdminUsers(ctx, service, id)
-			}),
+			ziaSDKGet(client, ziaadminusers.GetAdminUsers),
 			ziaAdminUserSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceAdminRoles}: newListGetHandler(
 			resourceAdminRoles,
-			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]ziaadminroles.AdminRoles, error) {
-				return ziaadminroles.GetAllAdminRoles(ctx, service)
-			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*ziaadminroles.AdminRoles, error) {
-				return ziaadminroles.Get(ctx, service, id)
-			}),
+			ziaSDKList(client, ziaadminroles.GetAllAdminRoles),
+			ziaSDKGet(client, ziaadminroles.Get),
 			ziaAdminRoleSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceEmailProfiles}: newListGetHandler(
 			resourceEmailProfiles,
 			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]emailprofiles.EmailProfiles, error) {
-				return emailprofiles.GetAll(ctx, service, nil)
+				return getZIAAllPages[emailprofiles.EmailProfiles](ctx, service, "/zia/api/v1/emailRecipientProfile")
 			}),
-			ziaSDKGet(client, func(ctx context.Context, service *zsdk.Service, id int) (*emailprofiles.EmailProfiles, error) {
-				return emailprofiles.Get(ctx, service, id)
-			}),
+			ziaSDKGet(client, emailprofiles.Get),
 			emailProfileSourceRecord,
 		),
 		{product: resources.ProductZIA, name: resourceAdvancedSettings}: newSingletonHandler(
@@ -1101,10 +1428,61 @@ func addZIAHandlers(m map[resourceKey]resourceHandler, client sdkClient) {
 			ziaSDKShow(client, securitypolicysettings.GetBlackListUrls),
 			structSourceRecord[securitypolicysettings.ListUrls],
 		),
+		{product: resources.ProductZIA, name: resourceDNSAppGroups}: newListGetHandler(
+			resourceDNSAppGroups,
+			ziaSDKList(client, dnsappgroups.GetAll),
+			ziaSDKGet(client, dnsappgroups.Get),
+			structSourceRecord[dnsappgroups.DnsApplicationGroup],
+		),
+		{product: resources.ProductZIA, name: resourceEndpointDLPRules}: newListGetHandler(
+			resourceEndpointDLPRules,
+			ziaSDKList(client, endpointdlprules.GetAll),
+			ziaSDKGet(client, endpointdlprules.Get),
+			structSourceRecord[endpointdlprules.EndpointDlpRules],
+		),
+		{product: resources.ProductZIA, name: resourceEmailDLPRules}: newListGetHandler(
+			resourceEmailDLPRules,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]emaildlprules.OutboundEmailDlp, error) {
+				return emaildlprules.GetAll(ctx, service, nil)
+			}),
+			ziaSDKGet(client, emaildlprules.Get),
+			structSourceRecord[emaildlprules.OutboundEmailDlp],
+		),
+		{product: resources.ProductZIA, name: resourceAlertDefinitions}: newListGetHandler(
+			resourceAlertDefinitions,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]alertdefinitions.AlertDefinitions, error) {
+				return getZIAAllPages[alertdefinitions.AlertDefinitions](ctx, service, "/zia/api/v1/alertDefinitions")
+			}),
+			ziaSDKGet(client, alertdefinitions.Get),
+			structSourceRecord[alertdefinitions.AlertDefinitions],
+		),
+		{product: resources.ProductZIA, name: resourceHTTPHeaderProfiles}: newListOnlyHandler(
+			resourceHTTPHeaderProfiles,
+			ziaSDKList(client, httpheaderprofile.GetAll),
+			structSourceRecord[httpheaderprofile.HttpHeaderProfile],
+		),
+		{product: resources.ProductZIA, name: resourceHTTPHeaderActions}: newListOnlyHandler(
+			resourceHTTPHeaderActions,
+			ziaSDKList(client, httpheaderactionprofile.GetAll),
+			structSourceRecord[httpheaderactionprofile.HttpHeaderActionProfile],
+		),
+		{product: resources.ProductZIA, name: resourceAdaptiveAccess}: newListOnlyHandler(
+			resourceAdaptiveAccess,
+			ziaSDKList(client, func(ctx context.Context, service *zsdk.Service) ([]adaptiveaccess.AdaptiveAccess, error) {
+				return getZIAAllPages[adaptiveaccess.AdaptiveAccess](ctx, service, "/zia/api/v1/adaptiveAccessProfiles")
+			}),
+			structSourceRecord[adaptiveaccess.AdaptiveAccess],
+		),
+		{product: resources.ProductZIA, name: resourceDLPGlobalOptions}: newSingletonHandler(
+			resourceDLPGlobalOptions,
+			ziaSDKShow(client, dlpglobaloptions.GetDLPGlobalOptions),
+			structSourceRecord[dlpglobaloptions.WebDlpGlobal],
+		),
 	}
 	for k, v := range entries {
 		addHandler(m, k, v)
 	}
+	addOtherScoutHandlers(m, client)
 }
 
 func ipsSignatureRuleSourceRecord(rule ipssignaturerules.IPSSignatureRules) resources.SourceRecord {
@@ -1123,7 +1501,7 @@ func ipsSignatureRuleSourceRecord(rule ipssignaturerules.IPSSignatureRules) reso
 		"dynamicValRejectCode":       rule.DynamicValRejectCode,
 	}
 	// ruleText is deliberately never mapped: the Suricata/Snort signature body
-	// is catalog-classified as a secret and must not reach the source record.
+	// embeds tenant network indicators, so it is not in the catalog either.
 	if rule.Category != nil {
 		fields["category"] = map[string]any{
 			"id":            rule.Category.ID,
@@ -1173,6 +1551,7 @@ func cloudAppControlSourceRecord(rule cloudappcontrol.WebApplicationRules) resou
 		"cascadingEnabled":     rule.CascadingEnabled,
 		"accessControl":        rule.AccessControl,
 		"numberOfApplications": rule.NumberOfApplications,
+		"promptCaptureEnabled": rule.PromptCaptureEnabled,
 		"eunEnabled":           rule.EunEnabled,
 		"eunTemplateId":        rule.EunTemplateID,
 		"browserEunTemplateId": rule.BrowserEunTemplateID,
@@ -1233,4 +1612,68 @@ func cloudAppControlInstancesSource(values []cloudappcontrol.CloudAppInstances) 
 		})
 	}
 	return out
+}
+
+// ziaLiteLocation is one /locations/lite object, modeled on the keys a live
+// read returned. The SDK's locationlite.LocationLite is not used: its plain
+// booleans would turn omitted keys into false, and it lacks keys the API
+// returns (ecLocation, digestAuthEnabled, kerberosAuth, iotDiscoveryEnabled).
+// Keys it has that no live read returned (ipv6Enabled, other6SubLocation,
+// subLocScope*, subLocAccIds) are not read. Booleans are pointers so a key
+// the API omits stays absent.
+type ziaLiteLocation struct {
+	ID                                  int64  `json:"id"`
+	Name                                string `json:"name,omitempty"`
+	ParentID                            *int64 `json:"parentId,omitempty"`
+	TZ                                  string `json:"tz,omitempty"`
+	ECLocation                          *bool  `json:"ecLocation,omitempty"`
+	OtherSubLocation                    *bool  `json:"otherSubLocation,omitempty"`
+	AUPBlockInternetUntilAccepted       *bool  `json:"aupBlockInternetUntilAccepted,omitempty"`
+	AUPEnabled                          *bool  `json:"aupEnabled,omitempty"`
+	AUPForceSSLInspection               *bool  `json:"aupForceSslInspection,omitempty"`
+	CautionEnabled                      *bool  `json:"cautionEnabled,omitempty"`
+	DigestAuthEnabled                   *bool  `json:"digestAuthEnabled,omitempty"`
+	IOTDiscoveryEnabled                 *bool  `json:"iotDiscoveryEnabled,omitempty"`
+	IPSControl                          *bool  `json:"ipsControl,omitempty"`
+	KerberosAuth                        *bool  `json:"kerberosAuth,omitempty"`
+	OFWEnabled                          *bool  `json:"ofwEnabled,omitempty"`
+	SurrogateIP                         *bool  `json:"surrogateIP,omitempty"`
+	SurrogateIPEnforcedForKnownBrowsers *bool  `json:"surrogateIPEnforcedForKnownBrowsers,omitempty"`
+	XFFForwardEnabled                   *bool  `json:"xffForwardEnabled,omitempty"`
+	ZappSSLScanEnabled                  *bool  `json:"zappSslScanEnabled,omitempty"`
+}
+
+func liteLocationSourceRecord(location ziaLiteLocation) resources.SourceRecord {
+	fields := map[string]any{"id": location.ID}
+	if location.Name != "" {
+		fields["name"] = location.Name
+	}
+	if location.TZ != "" {
+		fields["tz"] = location.TZ
+	}
+	if location.ParentID != nil {
+		fields["parentId"] = *location.ParentID
+	}
+	for key, value := range map[string]*bool{
+		"ecLocation":                          location.ECLocation,
+		"otherSubLocation":                    location.OtherSubLocation,
+		"aupBlockInternetUntilAccepted":       location.AUPBlockInternetUntilAccepted,
+		"aupEnabled":                          location.AUPEnabled,
+		"aupForceSslInspection":               location.AUPForceSSLInspection,
+		"cautionEnabled":                      location.CautionEnabled,
+		"digestAuthEnabled":                   location.DigestAuthEnabled,
+		"iotDiscoveryEnabled":                 location.IOTDiscoveryEnabled,
+		"ipsControl":                          location.IPSControl,
+		"kerberosAuth":                        location.KerberosAuth,
+		"ofwEnabled":                          location.OFWEnabled,
+		"surrogateIP":                         location.SurrogateIP,
+		"surrogateIPEnforcedForKnownBrowsers": location.SurrogateIPEnforcedForKnownBrowsers,
+		"xffForwardEnabled":                   location.XFFForwardEnabled,
+		"zappSslScanEnabled":                  location.ZappSSLScanEnabled,
+	} {
+		if value != nil {
+			fields[key] = *value
+		}
+	}
+	return resources.NewSourceRecord(fields)
 }

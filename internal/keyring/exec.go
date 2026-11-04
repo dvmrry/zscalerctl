@@ -53,8 +53,7 @@ func runKeyringCmd(ctx context.Context, timeout time.Duration, argv []string) (s
 		if cctx.Err() != nil {
 			return "", "", -1, cctx.Err()
 		}
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 			return out, errOut, exitErr.ExitCode(), nil
 		}
 		return "", "", -1, fmt.Errorf("keyring: %q could not run: %w (%w)", argv[0], runErr, ErrUnavailable)

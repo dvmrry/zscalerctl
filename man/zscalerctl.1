@@ -29,10 +29,30 @@ pipelines stay machine-parseable. \fBtable\fR is the tab-separated form;
 \fBpretty\fR is a bordered/aligned overlay of the same sanitized data.
 \fBndjson\fR is newline-delimited JSON \(em one compact record per line \(em for
 streaming/pipeline consumers; it applies to resource \fBlist\fR/\fBget\fR/\fBshow\fR
-output only and is rejected by other commands.
+output only and is rejected by other commands. Collection completes before
+records are emitted, including in ndjson mode.
+.TP
+.BI \-\-limit " count"
+Return at most this positive number of records from a resource list, using
+JSON output only. The result is an object with records and pagination members;
+without this flag the existing JSON array output is unchanged. Collection,
+projection, redaction, and filtering complete before this output page is cut.
+This flag bounds rendered output, not API requests or collection memory.
+.TP
+.BI \-\-offset " count"
+Skip this nonnegative number of matching records before applying the limit.
+Requires \fB\-\-limit\fR; defaults to zero. Each invocation recollects the
+resource, so offsets do not provide a stable snapshot across calls. Pagination
+metadata reports matched_count, returned_count, has_more, and next_offset;
+collection_complete is true only after successful collection.
 .TP
 .BI \-\-output " path"
-Write command output to a file instead of stdout (not valid with dump).
+Create or replace a restricted regular file with command output
+instead of writing to stdout; for dump, the directory to write. This is a local filesystem
+side effect; agents should use it only when that write is explicitly intended.
+Publication uses a same-directory rename and is atomic on Unix. Windows does
+not have an atomic replacement guarantee. On Windows, mode 0600 does not
+restrict ACLs; use a destination directory with an appropriately restricted ACL.
 .TP
 .BI \-\-timeout " duration"
 Per-request timeout (e.g. 30s). Must be positive. This bounds each HTTP request
@@ -40,8 +60,23 @@ Per-request timeout (e.g. 30s). Must be positive. This bounds each HTTP request
 making many requests is not capped end-to-end. Impose a whole-run limit
 externally (for example with \fBtimeout(1)\fR) if you need one.
 .TP
+.BI \-\-from-dump " dir"
+Read a complete saved dump with ordinary resource list/get/show commands and
+\fBrefs\fR.
+Bypasses configuration, credential providers, SDK construction, and network
+access. Cannot be combined with --profile or --config. Uses the stored redaction
+mode and rejects an explicitly different mode. Admission validates all saved
+resources and is capped at 256 MiB of serialized resource data, not decoded
+memory. Each invocation reloads the directory. Missing resources and IDs are
+errors; present empty lists succeed. Narrowing flags do not reduce admission.
+.TP
 .BI \-\-redaction " standard|share|paranoid"
-Redaction mode applied to rendered fields.
+Which fields render and how values are scrubbed. \fBstandard\fR (the default)
+renders every reviewed field, including names, emails and other identifying
+values; \fBshare\fR drops free text and sensitive identifiers, so rule
+references render as ids; \fBparanoid\fR also drops most tenant
+configuration, keeping ids, booleans, enums and states. Secret fields never
+render in any mode, and a read names the fields the mode omits on stderr.
 .TP
 .BI \-\-color " auto|always|never"
 Color policy for human output.
@@ -62,17 +97,41 @@ and a completion summary with the resource and error counts.
 .BI \-\-fields " a,b,c"
 Comma-separated list of output fields to keep, applied across all formats. It
 can only narrow the already-sanitized output; it cannot reveal a dropped or
-secret field. An unknown field name is a usage error.
+secret field. An unknown field name is a usage error before configuration or
+credentials are loaded.
 .TP
 .BI \-\-filter " key=value | key~value"
 Narrow list results to records whose rendered field value matches:
 \fBkey=value\fR is an exact match, \fBkey~value\fR a case-insensitive
-substring match. Repeatable; all filters must match (AND). Valid for
+substring match. A key may be a dotted path ending at a nested leaf field,
+such as \fBgroups.name\fR; it matches when any list element it reaches
+matches, and a path ending at an object is a usage error. A top-level key
+matches the whole rendered value, and a top-level list also matches when any
+one element does. Repeatable; all filters must match
+(AND), and each dotted filter may be satisfied by a different element. Valid for
 \fBlist\fR operations only; anywhere else it is a usage error. Filtering runs
 strictly after projection and redaction, so it can only narrow the sanitized
-record set: a filter naming a dropped or secret field matches nothing, and a
-record lacking the key does not match. No matches is success (exit 0) with an
-empty result.
+record set; a record lacking the key does not match. A filter naming a field
+the active redaction mode omits, or a secret field, is a usage error (exit 2)
+before any read, since it could never match. No matches is success (exit 0) with an
+empty result. An unknown catalog field name is a usage error (exit 2) before
+configuration or credentials are loaded; discover names with schema list.
+.TP
+.BI \-\-count\-by " a,b,c"
+Count list records instead of listing them. Records are grouped by the
+rendered values at each comma-separated path; a path such as
+\fBgroups.id\fR counts per list element, once per record, so counting users by
+\fBgroups.id\fR gives members per group. A record with no value at a path
+counts under null, so the counts cover every record. Paths through the same
+list pair values from the same element, so \fBgroups.id,groups.name\fR gives
+each group its own name; paths on different branches combine. JSON output is
+an object with \fBcount_by\fR, \fBrecords\fR (records counted),
+\fBdistinct\fR (value combinations), \fBtruncated\fR and \fBcounts\fR (largest first), each
+count \fB{"values": {...}, "count": N}\fR; NDJSON emits one count row per
+line. Filters and search apply first; \fB\-\-limit\fR \fIN\fR keeps the
+\fIN\fR largest counts and sets \fBtruncated\fR when it dropped any. Valid for \fBlist\fR operations only; combining it with
+\fB\-\-fields\fR or \fB\-\-offset\fR, an empty or repeated \fB\-\-count\-by\fR, repeating a path, naming an object rather than a leaf, or
+naming a field the active mode omits is a usage error (exit 2) before any read.
 .TP
 .BI \-\-search " term"
 Narrow list results to records where any rendered field value contains
@@ -83,7 +142,8 @@ post-projection guarantees as \fB\-\-filter\fR, and may be combined with it.
 .TP
 .B <product> <resource> list
 List a resource for a product (\fBzia\fR, \fBzpa\fR, \fBztw\fR, \fBzcc\fR,
-\fBzidentity\fR), e.g. \fBzscalerctl zia locations list\fR.
+\fBzidentity\fR; \fBzdx\fR has reports only), e.g.
+\fBzscalerctl zia locations list\fR.
 .TP
 .B <product> <resource> get <id>
 Get a single resource by id, where the resource supports it.
@@ -91,18 +151,48 @@ Get a single resource by id, where the resource supports it.
 .B <product> <resource> show
 Show a singleton/status resource that yields one record.
 .TP
+.B zdx <resource> report [id]
+Read a time-windowed ZDX report (\fBapps\fR, \fBalerts\fR,
+\fBalert-history\fR, \fBdepartments\fR, \fBlocations\fR). The window is
+\fB\-\-since\fR \fIduration\fR (default 2h; e.g. 90m, 7d) or
+\fB\-\-from\fR and \fB\-\-to\fR (RFC 3339), and is echoed in the output;
+\fB\-\-department\fR and \fB\-\-location\fR narrow apps and alerts by id.
+Reports are telemetry, not configuration: they are not part of \fBdump\fR or
+\fBdiff\fR.
+.TP
 .B zia url-lookup <url> [url...]
 Resolve the URL category classifications for one or more URLs or domains,
 including security-alert categories and the matched cloud application. A
 diagnostic query, not a catalog resource: the backing endpoint performs a pure
 lookup and never modifies tenant state. At least one URL is required.
 .TP
-.B dump \-\-out <dir> [\-\-products ...] [\-\-resources ...] [\-\-continue-on-error] [\-\-force]
+.B zia admin-audit-logs status
+Show the status of the tenant's admin audit log report: a normalized status,
+the progress count when supplied (including an explicit zero), the completion
+time when known, and an allow-listed error code. A read-only diagnostic: it
+performs one status operation, with HTTP retries following the shared SDK
+policy. It never creates, downloads or cancels a report. The API's free-form
+error message is never shown.
+.TP
+.B dump \-\-output <dir> [\-\-products ...] [\-\-resources ...] [\-\-continue-on-error] [\-\-force]
 Write a sanitized multi-resource dump (manifest.json, redaction_report.json,
 per-resource files, and errors.ndjson on failure) into a new directory.
 \fB\-\-force\fR replaces an existing destination, but only after verifying it is
 itself a zscalerctl dump directory; it refuses to follow symlinks and refuses
 the current working directory, the home directory, and the filesystem root.
+.TP
+.B refs to <product> <resource> <id>
+Read every resource with a field that points at <product> <resource> and list
+the records whose field holds <id>, with each record's id and name. Fields the
+redaction mode omits, resources without a list or show operation, and failed
+reads are listed as not checked. It reports what references what; it never says
+what a reference does. Works with \fB\-\-from-dump\fR.
+.TP
+.B refs check <product> <resource>
+Read <product> <resource> and every resource its reference fields point at, and
+list each referenced id that is not in its target lists as read. A field whose
+target could not be read is listed as not checked and contributes nothing.
+"Not found in what was read" is all it claims. Works with \fB\-\-from-dump\fR.
 .TP
 .B diff <old-dump-dir> <new-dump-dir> [\-\-products ...] [\-\-resources ...] [\-\-ignore-operational] [\-\-detail] [\-\-allow-partial] [\-\-fail-on-drift]
 Compare two existing dump directories and emit a local drift report. List and
@@ -134,6 +224,31 @@ drift is reported with exit 0.
 .B schema list
 Print the resource catalog (products, resources, operations, field model).
 .TP
+.B schema describe <product> <resource>
+Inspect config-free candidate field semantics for one resource. The pilot
+reviews selected fields of ZIA locations, URL filtering rules, and rule labels.
+Known resources outside the pilot report not_reviewed with empty fields.
+Unknown resources exit 4. The explicit redaction mode filters described fields;
+the default is standard, independent of configuration. JSON is recommended.
+.TP
+.B schema references <product> <resource>
+List the catalog fields that point at one resource: each entry names the
+resource and field, the \fB\-\-filter\fR path that holds the target's id
+(\fBmatch\fR), the redaction modes that render it, and every resource the
+field's ids may belong to (\fBtargets\fR). A reference no mode renders is
+listed without a match path. Fields whose target is not verified are not
+listed, so an empty list does not prove nothing refers to the resource.
+Config-free; unknown resources exit 4.
+.TP
+.B schema gaps [product]
+List the Zscaler surfaces zscalerctl does not read: each entry names the
+\fBsurface\fR, a \fBstatus\fR (\fBdeferred\fR may be added once its blocker
+clears; \fBout_of_scope\fR is not planned), a \fBreason\fR, a value-free
+\fBnote\fR, and, for an alternate view or an action whose status is read, the
+covered resources to read \fBinstead\fR. Asking to
+read a declared gap, or a common alias such as \fBzpa access-policies\fR,
+exits 4 with a message naming it. Config-free; an unknown product exits 2.
+.TP
 .B doctor
 Report configuration readiness and the resolved auth mode without exposing
 secrets. \fBdoctor\fR inspects \fBZSCALERCTL_*\fR configuration only and never
@@ -141,13 +256,30 @@ contacts Zscaler; its \fBlive_api\fR field is derived from whether credentials
 are configured, not from a live reachability probe.
 .TP
 .B auth status
-Report credential presence and live-API reachability.
+Report whether credentials are configured and what live reads still need,
+without exchanging credentials or contacting Zscaler.
+.TP
+.B config init
+Write a starter config file with owner-only permissions.
 .TP
 .B config show
 Render the active, secret-safe configuration.
 .TP
 .B completion bash|zsh|fish|powershell
 Print a shell completion script.
+.TP
+.B introspect
+Print a machine-readable JSON map of all commands, flags, resources, and exit
+codes. Version 3 describes each command's possible effects (local filesystem,
+network, and configuration-dependent provider process activity) as structured
+\fBeffects\fR; the tenant itself is never changed (\fBread_only\fR). Config-free and
+network-free; safe to run without credentials. Use
+\fB\-\-format pretty\fR for a human-readable indented tree.
+.TP
+.B machine manifest
+Print the \fBmachine.v1\fR capability manifest: every resource read an agent
+can run, with its operations, shape and get key. Config-free and network-free.
+ZDX reports are not listed.
 .TP
 .B version
 Print version, commit, and build date.
@@ -170,7 +302,10 @@ Legacy ZIA credentials (with \fB_FILE\fR variants for password and API key)
 when \fBZSCALERCTL_AUTH_MODE=zia-legacy\fR.
 .TP
 .B ZSCALERCTL_PROFILE
-Default for \fB\-\-profile\fR.
+Default for \fB\-\-profile\fR. With neither set, the config file's
+\fBdefault_profile\fR is used; when the file defines more than one profile,
+a command that reads a tenant and succeeds prints a one-line stderr notice
+naming it. A failing command's stderr is only its error envelope.
 .TP
 .B ZSCALERCTL_CONFIG
 Default config file path for profile loading. Environment variables override
@@ -179,13 +314,17 @@ profile values.
 .B ZSCALERCTL_REDACTION, ZSCALERCTL_NO_CACHE
 Optional defaults mirroring the matching flags.
 .TP
+.B ZSCALERCTL_DISALLOW_CMD
+When \fBtrue\fR, refuse \fBcmd:\fR secret providers in profiles.
+.TP
 .B ZSCALERCTL_AUTH_MODE
 Authentication mode: \fBoneapi\fR (the default) or \fBzia-legacy\fR. There is no
 flag equivalent.
 .TP
 .B ZSCALERCTL_CLOUD
-OneAPI cloud to target (for example \fBPRODUCTION\fR). Environment-only; there is
-no flag equivalent.
+OneAPI gateway: \fBPRODUCTION\fR (the default), \fBALPHA\fR, \fBBETA\fR,
+\fBGOV\fR or \fBGOVUS\fR. Tenants on product clouds such as zscalertwo, zscalerthree or
+ZPATWO use \fBPRODUCTION\fR. Environment-only; there is no flag equivalent.
 .TP
 .B ZSCALERCTL_PROXY_URL, ZSCALERCTL_PROXY_FROM_ENV
 Explicit proxy settings; ambient HTTP_PROXY/HTTPS_PROXY discovery is off by
@@ -200,21 +339,24 @@ never\fR). Honored in addition to the \fBZSCALERCTL_*\fR namespace.
 Success.
 .TP
 .B 1
-Internal error.
+Internal error, or canceled.
 .TP
 .B 2
 Usage error: an invalid CLI flag, an invalid resource id, an invalid
 \fBZSCALERCTL_*\fR configuration value, or invalid proxy configuration.
 .TP
 .B 3
-Missing or invalid credentials.
+Missing credentials: unset, incomplete, or a secret that could not be
+resolved. Credentials the API rejects exit 5.
 .TP
 .B 4
-Resource not found or unsupported, including a product or resource the tenant
-is not entitled to.
+Unknown or unsupported resource or operation, a declared coverage gap, or a
+\fBget\fR whose id does not exist.
 .TP
 .B 5
-Live API access failure.
+Live API failure, including a deadline exceeded, rejected credentials, and a
+resource the API role or licence does not allow; the error envelope's
+\fBreason\fR says which.
 .TP
 .B 6
 Partial dump (some resources failed; see errors.ndjson).
@@ -260,7 +402,7 @@ zscalerctl zia url-filtering-rules list \-\-filter name~social
 Write a sanitized, single-product dump to a scratch directory:
 .RS
 .EX
-zscalerctl dump \-\-products zia \-\-out ./scratch-live-dump
+zscalerctl dump \-\-products zia \-\-output ./scratch-live-dump
 .EE
 .RE
 .PP
@@ -278,5 +420,5 @@ zscalerctl zia url-lookup https://example.com
 .EE
 .RE
 .SH SEE ALSO
-Project documentation under \fBdocs/\fR, including ARCHITECTURE.md,
-THREAT_MODEL.md, and the published dump and diff schemas in docs/schema/.
+\fBdocs/INSTALL.md\fR, the command reference \fBdocs/cli/zscalerctl.md\fR, and
+\fBAGENTS.md\fR for automation.

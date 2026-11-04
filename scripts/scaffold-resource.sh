@@ -221,7 +221,7 @@ Commands:
 \`\`\`sh
 zscalerctl $product $resource list
 zscalerctl $product $resource get <id>
-zscalerctl dump --products $product --resources $product/$resource --out ./scratch-live-smoke
+zscalerctl dump --products $product --resources $product/$resource --output ./scratch-live-smoke
 \`\`\`
 
 Fields:
@@ -248,7 +248,7 @@ resource, run direct read commands and a focused dump with read-only credentials
 
 \`\`\`sh
 zscalerctl $product $resource list
-zscalerctl dump --products $product --resources $product/$resource --out ./scratch-live-smoke
+zscalerctl dump --products $product --resources $product/$resource --output ./scratch-live-smoke
 \`\`\`"
 fi
 

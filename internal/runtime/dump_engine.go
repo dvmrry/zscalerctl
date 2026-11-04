@@ -1,0 +1,462 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"strings"
+
+	"zscalerctl/internal/browser"
+	"zscalerctl/internal/config"
+	"zscalerctl/internal/dump"
+	"zscalerctl/internal/machine"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
+	"zscalerctl/internal/zscaler"
+)
+
+type preparedDumpRequest struct {
+	outputDir       string
+	specs           []resources.ResourceSpec
+	continueOnError bool
+	force           bool
+}
+
+// Dump validates a complete artifact request before loading config, then
+// collects and writes the dump while delivering one synchronous event stream.
+// A completed event means every artifact file has been finalized.
+func (e *Engine) Dump(
+	ctx context.Context,
+	req machine.DumpRequest,
+	sink machine.EventSink,
+) (machine.DumpResult, error) {
+	ctx = nonNilContext(ctx)
+	if e == nil {
+		stream, err := machine.StartEventStream(sink, machine.OperationDump, "", "", 0)
+		if err != nil {
+			return machine.DumpResult{}, err
+		}
+		return machine.DumpResult{}, failTypedDumpStream(stream, dumpInternalError())
+	}
+	prepared, prepareErr := prepareDumpRequest(ctx, req, e.opts.Catalog)
+	stream, err := machine.StartEventStream(
+		sink,
+		machine.OperationDump,
+		"",
+		"",
+		len(prepared.specs),
+	)
+	if err != nil {
+		return machine.DumpResult{}, err
+	}
+	if prepareErr != nil {
+		return machine.DumpResult{}, failTypedDumpStream(stream, prepareErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return machine.DumpResult{}, failTypedDumpStream(stream, dumpRuntimeBoundaryError(err))
+	}
+	collector, err := NewDumpCollector(ctx, e.options())
+	if err != nil {
+		return machine.DumpResult{}, failTypedDumpStream(stream, dumpRuntimeBoundaryError(err))
+	}
+	return collector.dumpPrepared(ctx, prepared, stream)
+}
+
+// Dump validates, collects, and writes one typed request using an already
+// trusted collector. It is the injected-reader seam used by adapters and tests.
+func (c *DumpCollector) Dump(
+	ctx context.Context,
+	req machine.DumpRequest,
+	sink machine.EventSink,
+) (machine.DumpResult, error) {
+	ctx = nonNilContext(ctx)
+	if c == nil {
+		stream, err := machine.StartEventStream(sink, machine.OperationDump, "", "", 0)
+		if err != nil {
+			return machine.DumpResult{}, err
+		}
+		return machine.DumpResult{}, failTypedDumpStream(stream, dumpInternalError())
+	}
+	prepared, prepareErr := prepareDumpRequest(ctx, req, c.catalog)
+	stream, err := machine.StartEventStream(
+		sink,
+		machine.OperationDump,
+		"",
+		"",
+		len(prepared.specs),
+	)
+	if err != nil {
+		return machine.DumpResult{}, err
+	}
+	if prepareErr != nil {
+		return machine.DumpResult{}, failTypedDumpStream(stream, prepareErr)
+	}
+	return c.dumpPrepared(ctx, prepared, stream)
+}
+
+func (c *DumpCollector) dumpPrepared(
+	ctx context.Context,
+	prepared preparedDumpRequest,
+	stream *machine.EventStream,
+) (machine.DumpResult, error) {
+	collected, counts, err := c.collectIntoStream(ctx, prepared.specs, DumpCollectOptions{
+		ContinueOnError: prepared.continueOnError,
+	}, stream)
+	if err != nil {
+		return machine.DumpResult{}, dumpCollectionBoundaryError(err)
+	}
+	if err := dump.PublishContextWithCatalog(
+		ctx,
+		prepared.outputDir,
+		c.redaction,
+		collected,
+		prepared.force,
+		c.catalog,
+	); err != nil {
+		safeErr := dumpOutputBoundaryError(err)
+		return machine.DumpResult{}, failTypedDumpStream(stream, safeErr)
+	}
+
+	resourceErrors := make([]machine.DumpResourceError, len(collected.Errors))
+	for i, resourceErr := range collected.Errors {
+		resourceErrors[i] = machine.DumpResourceError{
+			Product:   resourceErr.Product,
+			Resource:  resourceErr.Name,
+			Operation: machine.Operation(resourceErr.Operation),
+			Kind:      resourceErr.Kind,
+			Detail: machine.FailureDetail{
+				Reason:    resourceErr.Reason,
+				Status:    resourceErr.Status,
+				Retryable: resourceErr.Retryable,
+			},
+		}
+	}
+	result := machine.NewDumpResult(
+		counts.records,
+		counts.resources,
+		string(c.redaction),
+		resourceErrors,
+	)
+	if err := stream.Complete(machine.Event{
+		Records:   counts.records,
+		Resources: counts.resources,
+		Warnings:  counts.warnings,
+	}); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func prepareDumpRequest(
+	ctx context.Context,
+	req machine.DumpRequest,
+	catalog resources.ResourceCatalog,
+) (preparedDumpRequest, error) {
+	prepared := preparedDumpRequest{
+		outputDir:       req.OutputDir,
+		continueOnError: req.ContinueOnError,
+		force:           req.Force,
+	}
+	if err := ctx.Err(); err != nil {
+		return prepared, dumpRuntimeBoundaryError(err)
+	}
+	if strings.TrimSpace(req.OutputDir) == "" {
+		return prepared, dumpUsageError("dump output directory is required", "output_dir")
+	}
+	selectors := make([]resourceSelector, len(req.Resources))
+	for i, selector := range req.Resources {
+		selectors[i] = resourceSelector(selector)
+	}
+	selection, err := selectReadSpecs(ctx, catalog, req.Products, selectors, selectionErrors{
+		boundary: dumpRuntimeBoundaryError,
+		catalog:  dumpCatalogError,
+		invalid:  dumpUsageError("dump selection is invalid"),
+		empty:    dumpUsageError("dump selection is empty"),
+	})
+	if err != nil {
+		return prepared, err
+	}
+	prepared.specs = selection.specs
+	if err := ctx.Err(); err != nil {
+		return prepared, dumpRuntimeBoundaryError(err)
+	}
+	prepared.specs = copyResourceSpecs(prepared.specs)
+	return prepared, nil
+}
+
+func dumpUsageError(message string, missing ...string) error {
+	return &machine.MachineError{
+		Kind:      machine.ErrorKindUsage,
+		Message:   message,
+		Missing:   append([]string(nil), missing...),
+		Operation: machine.OperationDump,
+	}
+}
+
+func dumpCatalogError(sentinel error) error {
+	return newBoundaryError(&machine.MachineError{
+		Kind:      machine.ErrorKindInternal,
+		Message:   "dump catalog is invalid",
+		Operation: machine.OperationDump,
+	}, sentinel)
+}
+
+func dumpInternalError() error {
+	return &machine.MachineError{
+		Kind:      machine.ErrorKindInternal,
+		Message:   "dump runtime is not configured",
+		Operation: machine.OperationDump,
+	}
+}
+
+func failTypedDumpStream(stream *machine.EventStream, safeErr error) error {
+	machineErr := machine.MachineError{
+		Kind:      machine.ErrorKindInternal,
+		Message:   "dump operation failed",
+		Operation: machine.OperationDump,
+	}
+	if typedErr, ok := errors.AsType[*machine.MachineError](safeErr); ok {
+		machineErr = *typedErr
+		machineErr.Missing = append([]string(nil), typedErr.Missing...)
+	}
+	if err := stream.Fail(machineErr); err != nil {
+		return errors.Join(safeErr, err)
+	}
+	return safeErr
+}
+
+func dumpRuntimeBoundaryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	machineErr := &machine.MachineError{}
+	var sentinel error
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		machineErr.Kind = machine.ErrorKindDeadlineExceeded
+		machineErr.Message = "request deadline exceeded"
+		machineErr.Operation = machine.OperationDump
+		sentinel = context.DeadlineExceeded
+	case errors.Is(err, context.Canceled):
+		machineErr.Kind = machine.ErrorKindCanceled
+		machineErr.Message = "request canceled"
+		machineErr.Operation = machine.OperationDump
+		sentinel = context.Canceled
+	case errors.Is(err, config.ErrInvalidConfig):
+		machineErr.Kind = machine.ErrorKindInvalidConfig
+		machineErr.Message = "invalid configuration"
+		sentinel = config.ErrInvalidConfig
+	case errors.Is(err, zscaler.ErrInvalidProxyConfig):
+		machineErr.Kind = machine.ErrorKindInvalidProxyConfig
+		machineErr.Message = "invalid proxy configuration"
+		sentinel = zscaler.ErrInvalidProxyConfig
+	case errors.Is(err, zscaler.ErrInvalidSettings):
+		machineErr.Kind = machine.ErrorKindInvalidConfig
+		machineErr.Message, sentinel = sanitizedInvalidSettings(err)
+	case errors.Is(err, zscaler.ErrMissingCredentials):
+		machineErr.Kind = machine.ErrorKindMissingCredentials
+		machineErr.Message, sentinel = sanitizedMissingCredentials(err)
+		if missingErr, ok := errors.AsType[*zscaler.MissingCredentialsError](sentinel); ok {
+			machineErr.Missing = append([]string(nil), missingErr.Missing...)
+		}
+	case errors.Is(err, zscaler.ErrUnsupportedResource):
+		machineErr.Kind = machine.ErrorKindUnsupportedResource
+		machineErr.Message = "unsupported dump resource"
+		machineErr.Operation = machine.OperationDump
+		sentinel = zscaler.ErrUnsupportedResource
+	case errors.Is(err, zscaler.ErrLiveAccessFailed):
+		machineErr.Kind = machine.ErrorKindLiveAccessFailed
+		machineErr.Message = "dump resource read failed"
+		machineErr.Operation = machine.OperationDump
+		sentinel = zscaler.ErrLiveAccessFailed
+	case errors.Is(err, browser.ErrMissingReader):
+		machineErr.Kind = machine.ErrorKindInternal
+		machineErr.Message = "dump reader is not configured"
+		machineErr.Operation = machine.OperationDump
+		sentinel = browser.ErrMissingReader
+	default:
+		machineErr.Kind = machine.ErrorKindInternal
+		machineErr.Message = "dump runtime failed"
+		machineErr.Operation = machine.OperationDump
+	}
+	machineErr.AttachFailure(err)
+	return newBoundaryError(machineErr, sentinel)
+}
+
+func dumpCollectionBoundaryError(err error) error {
+	var producerErr *dumpStreamError
+	if !errors.As(err, &producerErr) {
+		if machineErr, ok := errors.AsType[*machine.MachineError](err); ok {
+			copyErr := *machineErr
+			copyErr.Missing = append([]string(nil), machineErr.Missing...)
+			return &copyErr
+		}
+		fallback := &machine.MachineError{
+			Kind:      machine.ErrorKindLiveAccessFailed,
+			Message:   "dump resource read failed",
+			Operation: machine.OperationDump,
+		}
+		fallback.AttachFailure(err)
+		return newBoundaryError(fallback, zscaler.ErrLiveAccessFailed)
+	}
+	machineErr := producerErr.machineErr
+	machineErr.Missing = append([]string(nil), producerErr.machineErr.Missing...)
+	return newBoundaryError(&machineErr, dumpSafeCollectionSentinel(producerErr.cause, machineErr.Kind))
+}
+
+func dumpSafeCollectionSentinel(err error, kind string) error {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	case errors.Is(err, context.Canceled):
+		return context.Canceled
+	case errors.Is(err, config.ErrInvalidConfig):
+		return config.ErrInvalidConfig
+	case errors.Is(err, zscaler.ErrInvalidProxyConfig):
+		return zscaler.ErrInvalidProxyConfig
+	case errors.Is(err, zscaler.ErrInvalidSettings):
+		_, safe := sanitizedInvalidSettings(err)
+		return safe
+	case errors.Is(err, zscaler.ErrMissingCredentials):
+		_, safe := sanitizedMissingCredentials(err)
+		return safe
+	case errors.Is(err, zscaler.ErrUnsupportedResource):
+		return zscaler.ErrUnsupportedResource
+	case errors.Is(err, browser.ErrMissingReader):
+		return browser.ErrMissingReader
+	case kind == machine.ErrorKindLiveAccessFailed:
+		return zscaler.ErrLiveAccessFailed
+	default:
+		return nil
+	}
+}
+
+func dumpOutputBoundaryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	machineErr := &machine.MachineError{
+		Kind:      machine.ErrorKindInternal,
+		Message:   "dump output failed",
+		Operation: machine.OperationDump,
+	}
+	var sentinel error
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		machineErr.Kind = machine.ErrorKindDeadlineExceeded
+		machineErr.Message = "request deadline exceeded"
+		sentinel = context.DeadlineExceeded
+	case errors.Is(err, context.Canceled):
+		machineErr.Kind = machine.ErrorKindCanceled
+		machineErr.Message = "request canceled"
+		sentinel = context.Canceled
+	case errors.Is(err, dump.ErrAtomicReplaceUnsupported):
+		machineErr.Kind = machine.ErrorKindUnsupportedOperation
+		machineErr.Message = "atomic dump directory replacement is unsupported"
+		sentinel = dump.ErrAtomicReplaceUnsupported
+	case errors.Is(err, dump.ErrUnsafePath):
+		sentinel = dump.ErrUnsafePath
+	case errors.Is(err, dump.ErrUnsafeOverwrite):
+		sentinel = dump.ErrUnsafeOverwrite
+	}
+	return &dumpOutputError{
+		safe:            newBoundaryError(machineErr, sentinel),
+		adapterMessage:  sanitizeEngineString(redact.New(redact.ModeStandard), err.Error()),
+		adapterSentinel: sentinel,
+	}
+}
+
+// dumpOutputError keeps the typed engine error surface static while retaining
+// one already-redacted compatibility message for the legacy Cobra adapter.
+// Error, Unwrap, errors.Is, and errors.As expose only the safe typed boundary.
+type dumpOutputError struct {
+	safe            error
+	adapterMessage  string
+	adapterSentinel error
+}
+
+func (e *dumpOutputError) Error() string { return e.safe.Error() }
+func (e *dumpOutputError) Unwrap() error { return e.safe }
+
+type legacyDumpAdapterError struct {
+	message  string
+	sentinel error
+}
+
+func (e *legacyDumpAdapterError) Error() string { return e.message }
+func (e *legacyDumpAdapterError) Unwrap() error { return e.sentinel }
+
+// LegacyDumpAdapterError returns the redacted pre-engine error text and safe
+// sentinel retained solely for Cobra compatibility. New engine consumers must
+// use the static MachineError exposed by the original error instead.
+func LegacyDumpAdapterError(err error) (error, bool) {
+	var outputErr *dumpOutputError
+	if !errors.As(err, &outputErr) {
+		return nil, false
+	}
+	if errors.Is(outputErr.safe, context.Canceled) || errors.Is(outputErr.safe, context.DeadlineExceeded) {
+		return nil, false
+	}
+	var machineErr *machine.MachineError
+	if errors.As(outputErr.safe, &machineErr) && machineErr.Kind == machine.ErrorKindUnsupportedOperation {
+		return nil, false
+	}
+	return &legacyDumpAdapterError{
+		message:  outputErr.adapterMessage,
+		sentinel: outputErr.adapterSentinel,
+	}, true
+}
+
+// sanitizedInvalidSettings returns the message and sentinel for a settings
+// error at a machine boundary. zscaler.InvalidSettingsError carries only fixed
+// reason text, so its message passes through; anything else collapses to the
+// bare sentinel.
+func sanitizedInvalidSettings(err error) (string, error) {
+	if settingsErr, ok := errors.AsType[*zscaler.InvalidSettingsError](err); ok {
+		return settingsErr.Error(), settingsErr
+	}
+	return zscaler.ErrInvalidSettings.Error(), zscaler.ErrInvalidSettings
+}
+
+func sanitizedMissingCredentials(err error) (string, error) {
+	var missingErr *zscaler.MissingCredentialsError
+	if !errors.As(err, &missingErr) {
+		return zscaler.ErrMissingCredentials.Error(), zscaler.ErrMissingCredentials
+	}
+	missing := make([]string, 0, len(missingErr.Missing))
+	seen := map[string]bool{}
+	for _, name := range missingErr.Missing {
+		if !isKnownCredentialName(name) || seen[name] {
+			continue
+		}
+		seen[name] = true
+		missing = append(missing, name)
+	}
+	if len(missing) == 0 {
+		return zscaler.ErrMissingCredentials.Error(), zscaler.ErrMissingCredentials
+	}
+	safeErr := &zscaler.MissingCredentialsError{Missing: missing}
+	return safeErr.Error(), safeErr
+}
+
+// isKnownCredentialName reports whether name is a credential setting a
+// missing-credentials message may name; anything else is dropped from it.
+func isKnownCredentialName(name string) bool {
+	switch name {
+	case config.EnvClientID,
+		config.EnvClientSecret,
+		config.EnvClientSecretFile,
+		config.EnvVanityDomain,
+		config.EnvCloud,
+		config.EnvZIAUsername,
+		config.EnvZIAPassword,
+		config.EnvZIAPasswordFile,
+		config.EnvZIAAPIKey,
+		config.EnvZIAAPIKeyFile,
+		config.EnvZIACloud,
+		config.EnvZPACustomerID,
+		config.EnvZPAMicrotenantID:
+		return true
+	default:
+		return false
+	}
+}

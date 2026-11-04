@@ -15,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/redact"
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
 
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	ziausers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/users"
@@ -112,7 +112,6 @@ func TestUsersNestedCommentsModeBoundaries(t *testing.T) {
 	records := []resources.SourceRecord{userSourceRecord(user)}
 
 	for _, mode := range []redact.Mode{redact.ModeShare, redact.ModeParanoid} {
-		mode := mode
 		t.Run(string(mode), func(t *testing.T) {
 			t.Parallel()
 

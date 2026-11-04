@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/keyring"
+	"zscalerctl/internal/keyring"
 )
 
 type fakeKeyringGetter struct {

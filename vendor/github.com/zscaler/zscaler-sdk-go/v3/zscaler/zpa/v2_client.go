@@ -34,6 +34,9 @@ type Client struct {
 	sync.Mutex
 	cache  cache.Cache
 	Config *Configuration
+	// cacheWrites keeps a GET that overlaps a write from caching the data
+	// the write replaces (see cache.WriteTracker).
+	cacheWrites cache.WriteTracker
 }
 
 func NewClient(config *Configuration) (*Client, error) {
@@ -121,6 +124,30 @@ func getHTTPClient(l logger.Logger, rateLimiter *rl.RateLimiter, cfg *Configurat
 		return sleep
 	}
 	retryableClient.CheckRetry = checkRetry
+
+	// When the retry budget is exhausted, retryablehttp's default behaviour is to
+	// drain the body and return a bare "giving up after N attempt(s)" error with a
+	// nil response, which destroys the API's own error payload. Hand the final
+	// response back instead so the request layer can build a structured
+	// errorx.ErrorResponse carrying the API code and message. A nil response means
+	// the request never produced one (e.g. connection refused), in which case the
+	// transport error is the only signal left to report. See issue #449.
+	retryableClient.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
+		// err is nil only when the retry budget ran out while CheckRetry still
+		// wanted to retry. That is the case worth rescuing, and the body is
+		// intact because retryablehttp breaks out of its loop before draining it.
+		// Any non-nil err is a genuine failure (transport error, cancelled or
+		// timed-out context surfaced by CheckRetry) and must not be masked by
+		// handing back a response with a nil error.
+		if err == nil && resp != nil {
+			l.Printf("[WARN] giving up after %d attempt(s); surfacing API response status %d", numTries, resp.StatusCode)
+			return resp, nil
+		}
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return nil, err
+	}
 
 	retryableClient.Logger = l
 
@@ -248,6 +275,14 @@ func checkRetry(ctx context.Context, resp *http.Response, err error) (bool, erro
 			}
 		}
 	}
+
+	// Only retry a 5xx when the body does not carry a deterministic API verdict.
+	// The upstream policy retries every 5xx except 501, which burns the entire
+	// retry budget on permanent server-side rejections. See issue #449.
+	if err == nil && resp != nil && resp.StatusCode >= 500 {
+		return errorx.IsRetryableServerError(resp), nil
+	}
+
 	return retryablehttp.DefaultRetryPolicy(ctx, resp, err)
 }
 
@@ -334,15 +369,27 @@ func (client *Client) NewRequestDo(method, url string, options, body, v interfac
 		return nil, err
 	}
 	key := cache.CreateCacheKey(req)
+	var cacheRead *cache.TrackedRead
 
 	// Check if caching is enabled in the configuration
 	if client.Config.ZPA.Client.Cache.Enabled {
 		if req.Method != http.MethodGet {
+			// Clear all cache entries with the same URL prefix to handle query
+			// param differences, and the same object under its other API
+			// version (e.g. segment groups are written through
+			// /mgmtconfig/v2/ but read through /mgmtconfig/v1/).
+			baseKey := strings.Split(key, "?")[0]
+			prefixes := append([]string{baseKey}, cache.RelatedAPIVersionKeys(baseKey)...)
+
+			// Register the write before invalidating, so a GET of an
+			// invalidated key that overlaps the write is not cached.
+			defer client.cacheWrites.BeginWrite(prefixes...)()
+
 			// Remove resource from cache for non-GET requests
 			client.cache.Delete(key)
-
-			// Clear all cache entries with the same URL prefix to handle query param differences
-			client.cache.ClearAllKeysWithPrefix(strings.Split(key, "?")[0])
+			for _, prefix := range prefixes {
+				client.cache.ClearAllKeysWithPrefix(prefix)
+			}
 		}
 
 		// Check if response is in cache
@@ -371,6 +418,10 @@ func (client *Client) NewRequestDo(method, url string, options, body, v interfac
 			client.Config.Logger.Printf("[INFO] served from cache, key:%s\n", key)
 			return resp, nil
 		}
+		if req.Method == http.MethodGet {
+			cacheRead = client.cacheWrites.BeginRead(key)
+			defer cacheRead.Done()
+		}
 	}
 
 	// Make the actual request if not in cache
@@ -382,7 +433,9 @@ func (client *Client) NewRequestDo(method, url string, options, body, v interfac
 	// Save the response to cache if caching is enabled and the response is cacheable
 	if client.Config.ZPA.Client.Cache.Enabled && resp.StatusCode >= 200 && resp.StatusCode <= 299 && req.Method == http.MethodGet && v != nil && reflect.TypeOf(v).Kind() != reflect.Slice {
 		d, err := json.Marshal(v)
-		if err == nil {
+		if err == nil && !cacheRead.Done() {
+			client.Config.Logger.Printf("[INFO] not caching response that overlapped a write, key:%s\n", key)
+		} else if err == nil {
 			resp.Body = io.NopCloser(bytes.NewReader(d))
 			client.Config.Logger.Printf("[INFO] saving to cache, key:%s\n", key)
 			client.cache.Set(key, cache.CopyResponse(resp))

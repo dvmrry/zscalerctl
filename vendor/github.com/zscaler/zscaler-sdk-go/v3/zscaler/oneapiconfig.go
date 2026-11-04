@@ -77,6 +77,9 @@ type Client struct {
 	oauth2Credentials *Configuration
 	stopTicker        chan bool
 	inFlightRequests  sync.Map // Map[string]*inFlightRequest - tracks in-flight GET requests for deduplication
+	// cacheWrites keeps a GET that overlaps a write from caching the data the
+	// write replaces (see cache.WriteTracker).
+	cacheWrites cache.WriteTracker
 }
 
 // NewOneAPIClient creates a new client using OAuth2 authentication for any service.
@@ -162,7 +165,7 @@ func getHTTPClient(l logger.Logger, rateLimiter *rl.RateLimiter, cfg *Configurat
 	if cfg.Zscaler.Client.RateLimit.MaxRetries > 0 {
 		retryableClient.RetryMax = int(cfg.Zscaler.Client.RateLimit.MaxRetries)
 	} else {
-		retryableClient.RetryMax = MaxNumOfRetries // Default to 100
+		retryableClient.RetryMax = MaxNumOfRetries
 	}
 
 	// Configure backoff and retry policies for retryablehttp.
@@ -207,6 +210,31 @@ func getHTTPClient(l logger.Logger, rateLimiter *rl.RateLimiter, cfg *Configurat
 		return jitter(sleep, retryJitterFraction)
 	}
 	retryableClient.CheckRetry = checkRetry
+
+	// When the retry budget is exhausted, retryablehttp's default behaviour is to
+	// drain the body and return a bare "giving up after N attempt(s)" error with a
+	// nil response, which destroys the API's own error payload. Hand the final
+	// response back instead so ExecuteRequest can build a structured
+	// errorx.ErrorResponse carrying the API code and message. A nil response means
+	// the request never produced one (e.g. connection refused), in which case the
+	// transport error is the only signal left to report. See issue #449.
+	retryableClient.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
+		// err is nil only when the retry budget ran out while CheckRetry still
+		// wanted to retry. That is the case worth rescuing, and the body is
+		// intact because retryablehttp breaks out of its loop before draining it.
+		// Any non-nil err is a genuine failure (transport error, cancelled or
+		// timed-out context surfaced by CheckRetry) and must not be masked by
+		// handing back a response with a nil error.
+		if err == nil && resp != nil {
+			l.Printf("[WARN] giving up after %d attempt(s); surfacing API response status %d", numTries, resp.StatusCode)
+			return resp, nil
+		}
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return nil, err
+	}
+
 	retryableClient.Logger = l
 
 	// Set the request timeout, allowing user-defined override.
@@ -368,6 +396,15 @@ func checkRetry(ctx context.Context, resp *http.Response, err error) (bool, erro
 			return true, nil
 		}
 	}
+
+	// Only retry a 5xx when the body does not carry a deterministic API verdict.
+	// The upstream policy retries every 5xx except 501, which makes a permanent
+	// 500 UNEXPECTED_ERROR (e.g. an unknown URL category) burn the entire retry
+	// budget before failing anyway. See issue #449.
+	if err == nil && resp != nil && resp.StatusCode >= 500 {
+		return errorx.IsRetryableServerError(resp), nil
+	}
+
 	return retryablehttp.DefaultRetryPolicy(ctx, resp, err)
 }
 
@@ -385,9 +422,12 @@ func (c *Client) buildRequest(ctx context.Context, method, endpoint string, body
 	isSandboxRequest := strings.Contains(endpoint, "/zscsb")
 	isZPARequest := strings.Contains(endpoint, "/zpa")
 	isZCCRequest := strings.Contains(endpoint, "/zcc")
-	isZIdentityRequest := strings.Contains(endpoint, "/admin/api/v1")
 
-	// Build the full URL for Sandbox, ZPA, ZCC, ZIdentity, or OAuth2-based requests
+	// Build the full URL for Sandbox, ZPA, ZCC, or OAuth2-based requests.
+	//
+	// ZIAM (the ZIdentity admin API) deliberately has no branch of its own: the
+	// OneAPI gateway serves it under the /ziam prefix, exactly like /zia, /zpa,
+	// and /zdx, so it resolves against GetAPIBaseURL along with everything else.
 	fullURL := ""
 	baseUrl := ""
 
@@ -399,19 +439,6 @@ func (c *Client) buildRequest(ctx context.Context, method, endpoint string, body
 	if isSandboxRequest {
 		fullURL = fmt.Sprintf("%s%s", c.GetSandboxURL(), endpoint)
 		urlParams.Set("api_token", c.GetSandboxToken()) // Append Sandbox token
-	} else if isZIdentityRequest {
-		// For zidentity endpoints, construct URL using vanity domain directly
-		// Format: https://{vanity_domain}-admin.zslogin{cloud}.net/admin/api/v1/...
-		vanityDomain := c.oauth2Credentials.Zscaler.Client.VanityDomain
-		cloud := c.oauth2Credentials.Zscaler.Client.Cloud
-
-		var zidentityBaseURL string
-		if cloud == "" || strings.EqualFold(cloud, "PRODUCTION") {
-			zidentityBaseURL = fmt.Sprintf("https://%s-admin.zslogin.net", vanityDomain)
-		} else {
-			zidentityBaseURL = fmt.Sprintf("https://%s-admin.zslogin%s.net", vanityDomain, strings.ToLower(cloud))
-		}
-		fullURL = fmt.Sprintf("%s%s", zidentityBaseURL, endpoint)
 	} else if isZPARequest {
 		// Only append customerId to query parameters if it's not already in the URL path
 		if !strings.Contains(endpoint, fmt.Sprintf("/customers/%s", c.oauth2Credentials.Zscaler.Client.CustomerID)) && c.oauth2Credentials.Zscaler.Client.CustomerID != "" {
@@ -460,13 +487,13 @@ func (c *Client) buildRequest(ctx context.Context, method, endpoint string, body
 		if token, ok := ctx.Value(ContextAccessToken).(string); ok && token != "" {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 			if c.oauth2Credentials.Debug {
-				c.oauth2Credentials.Logger.Printf("[DEBUG] Using Authorization header from context: Bearer %s...", token[:min(len(token), 20)])
+				// Never log token content, not even a prefix.
+				c.oauth2Credentials.Logger.Printf("[DEBUG] Using Authorization header from context")
 			}
 		} else {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.oauth2Credentials.Zscaler.Client.AuthToken.AccessToken))
 			if c.oauth2Credentials.Debug {
-				token := c.oauth2Credentials.Zscaler.Client.AuthToken.AccessToken
-				c.oauth2Credentials.Logger.Printf("[DEBUG] Using Authorization header from AuthToken: Bearer %s...", token[:min(len(token), 20)])
+				c.oauth2Credentials.Logger.Printf("[DEBUG] Using Authorization header from AuthToken")
 			}
 		}
 	}
@@ -499,6 +526,7 @@ func (c *Client) ExecuteRequest(ctx context.Context, method, endpoint string, bo
 
 	// For GET requests, check cache first and handle request deduplication
 	var ifr *inFlightRequest
+	var cacheRead *cache.TrackedRead
 	if method == http.MethodGet && c.oauth2Credentials.Zscaler.Client.Cache.Enabled && !isSandboxRequest {
 		// Check cache first
 		cachedResp := c.oauth2Credentials.CacheManager.Get(key)
@@ -548,22 +576,22 @@ func (c *Client) ExecuteRequest(ctx context.Context, method, endpoint string, bo
 				})
 			}
 		}()
+
+		// A write that overlaps this read can make its response stale: it is
+		// then not cached (see the cache logic after the request).
+		cacheRead = c.cacheWrites.BeginRead(key)
+		defer cacheRead.Done()
 	} else if method != http.MethodGet && c.oauth2Credentials.Zscaler.Client.Cache.Enabled && !isSandboxRequest {
 		// For non-GET requests, invalidate cache
+		prefixes := oneAPIWriteInvalidationPrefixes(key)
+		// Register the write before invalidating: a GET of an invalidated key
+		// that is in flight now, or that starts before the write finishes, may
+		// return the data from before the write and must not be cached. Entries
+		// cached by GETs that finished earlier are cleared below.
+		defer c.cacheWrites.BeginWrite(prefixes...)()
 		c.oauth2Credentials.CacheManager.Delete(key)
-		baseKey := strings.Split(key, "?")[0]
-		c.oauth2Credentials.CacheManager.ClearAllKeysWithPrefix(baseKey)
-		// Also invalidate the parent collection endpoint so that list
-		// responses (e.g. /sslInspectionRules) are cleared when a child
-		// resource (e.g. /sslInspectionRules/123) is mutated. Without
-		// this, a GET on the collection is served stale from cache for
-		// up to the TTL after a child PUT/POST/DELETE, which breaks
-		// any client logic that mutates and immediately re-reads
-		// (e.g. terraform-provider-zia rule reordering — SUP-3988).
-		// Mirrors the legacy v2 ZIA client (zia/v2_client.go).
-		if idx := strings.LastIndex(baseKey, "/"); idx > 0 {
-			parentKey := baseKey[:idx]
-			c.oauth2Credentials.CacheManager.ClearAllKeysWithPrefix(parentKey)
+		for _, prefix := range prefixes {
+			c.oauth2Credentials.CacheManager.ClearAllKeysWithPrefix(prefix)
 		}
 	}
 
@@ -574,6 +602,11 @@ func (c *Client) ExecuteRequest(ctx context.Context, method, endpoint string, bo
 	for retry := 1; ; retry++ { // Infinite loop for retries if MaxRetries=0
 		// Check MaxRetries if non-zero
 		if c.oauth2Credentials.Zscaler.Client.RateLimit.MaxRetries > 0 && retry > int(c.oauth2Credentials.Zscaler.Client.RateLimit.MaxRetries) {
+			// Surface the API's own explanation for the last attempt rather than
+			// replacing it with a bare "max retries exceeded". See issue #449.
+			if resp != nil {
+				return nil, resp, nil, errorx.CheckErrorInResponse(resp, fmt.Errorf("max retries exceeded"))
+			}
 			return nil, resp, nil, fmt.Errorf("max retries exceeded")
 		}
 
@@ -597,8 +630,8 @@ func (c *Client) ExecuteRequest(ctx context.Context, method, endpoint string, bo
 			return nil, resp, nil, err
 		}
 
-		// ✅ Check for session invalidation errors in 401 responses
-		if resp.StatusCode == http.StatusUnauthorized {
+		// ✅ Check for session invalidation errors in 401 / 403 responses
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			bodyCopy, readErr := io.ReadAll(resp.Body)
 			if readErr == nil {
 				resp.Body = io.NopCloser(bytes.NewReader(bodyCopy)) // rewind
@@ -658,7 +691,7 @@ func (c *Client) ExecuteRequest(ctx context.Context, method, endpoint string, bo
 		}
 
 		// Reset session retry counter on successful requests or other errors
-		if resp.StatusCode != http.StatusUnauthorized {
+		if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
 			sessionNotValidRetryCount = 0
 		}
 
@@ -704,6 +737,14 @@ func (c *Client) ExecuteRequest(ctx context.Context, method, endpoint string, bo
 					beforeWait := time.Now()
 					time.Sleep(sleepFor)
 					totalWaitTime += time.Since(beforeWait)
+
+					// Rebuild the request with a fresh body reader, as the 401 and
+					// 409/412 paths do. The previous attempt consumed req.Body, so
+					// reusing it here would resend a POST/PUT with an empty body.
+					req, err = c.buildRequest(ctx, method, endpoint, bytes.NewReader(requestBodyBytes), urlParams, contentType)
+					if err != nil {
+						return nil, nil, nil, err
+					}
 					continue
 				}
 			}
@@ -747,8 +788,10 @@ func (c *Client) ExecuteRequest(ctx context.Context, method, endpoint string, bo
 			resp.Body = io.NopCloser(bytes.NewReader(bodyCopy)) // rewind even if not retrying
 		}
 
-		// Handle retryable errors with exponential backoff
-		if resp.StatusCode >= 500 {
+		// Handle retryable errors with exponential backoff. A 5xx whose body
+		// carries a deterministic API verdict is not retried, since the API reuses
+		// 500 UNEXPECTED_ERROR for permanent validation failures. See issue #449.
+		if resp.StatusCode >= 500 && errorx.IsRetryableServerError(resp) {
 			// 5xx server errors are retryable
 			backoffDelay := time.Duration(math.Pow(2, float64(retry-1))) * c.oauth2Credentials.Zscaler.Client.RateLimit.RetryWaitMin
 			maxBackoff := c.oauth2Credentials.Zscaler.Client.RateLimit.RetryWaitMax
@@ -760,6 +803,14 @@ func (c *Client) ExecuteRequest(ctx context.Context, method, endpoint string, bo
 			beforeWait := time.Now()
 			time.Sleep(backoffDelay)
 			totalWaitTime += time.Since(beforeWait)
+
+			// Rebuild the request with a fresh body reader, as the 401 and
+			// 409/412 paths do. The previous attempt consumed req.Body, so
+			// reusing it here would resend a POST/PUT with an empty body.
+			req, err = c.buildRequest(ctx, method, endpoint, bytes.NewReader(requestBodyBytes), urlParams, contentType)
+			if err != nil {
+				return nil, nil, nil, err
+			}
 			continue
 		}
 
@@ -810,11 +861,43 @@ func (c *Client) ExecuteRequest(ctx context.Context, method, endpoint string, bo
 	// Cache logic for successful GET requests
 	if !isSandboxRequest && c.oauth2Credentials.Zscaler.Client.Cache.Enabled && method == http.MethodGet {
 		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		c.oauth2Credentials.Logger.Printf("[INFO] saving to cache, key:%s\n", key)
-		c.oauth2Credentials.CacheManager.Set(key, cache.CopyResponse(resp))
+		if cacheRead.Done() {
+			c.oauth2Credentials.Logger.Printf("[INFO] saving to cache, key:%s\n", key)
+			c.oauth2Credentials.CacheManager.Set(key, cache.CopyResponse(resp))
+		} else {
+			c.oauth2Credentials.Logger.Printf("[INFO] not caching response that overlapped a write, key:%s\n", key)
+		}
 	}
 	_ = tryDrainBody(resp.Body)
 	return bodyBytes, resp, req, nil
+}
+
+// oneAPIWriteInvalidationPrefixes returns the cache key prefixes a write to key
+// invalidates:
+//   - the written path itself, with any query parameters;
+//   - its parent collection, so list responses (e.g. /sslInspectionRules) are
+//     cleared when a child resource (e.g. /sslInspectionRules/123) is
+//     mutated. Without this, a GET on the collection is served stale from
+//     cache for up to the TTL after a child PUT/POST/DELETE, which breaks any
+//     client logic that mutates and immediately re-reads (e.g.
+//     terraform-provider-zia rule reordering, SUP-3988). Mirrors the legacy
+//     v2 ZIA client (zia/v2_client.go);
+//   - the same ZPA object and its parent under the other API version, since
+//     some objects are written through one version and read through another
+//     (segment groups: PUT /mgmtconfig/v2/..., GET /mgmtconfig/v1/...).
+func oneAPIWriteInvalidationPrefixes(key string) []string {
+	baseKey := strings.Split(key, "?")[0]
+	prefixes := []string{baseKey}
+	if idx := strings.LastIndex(baseKey, "/"); idx > 0 {
+		prefixes = append(prefixes, baseKey[:idx])
+	}
+	for _, related := range cache.RelatedAPIVersionKeys(baseKey) {
+		prefixes = append(prefixes, related)
+		if idx := strings.LastIndex(related, "/"); idx > 0 {
+			prefixes = append(prefixes, related[:idx])
+		}
+	}
+	return prefixes
 }
 
 func tryDrainBody(body io.ReadCloser) error {

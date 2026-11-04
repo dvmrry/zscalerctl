@@ -3,7 +3,7 @@ package zscaler
 import (
 	"reflect"
 
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/resources"
 
 	zccadminroles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc/services/admin_roles"
 	zccappprofiles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc/services/application_profiles"
@@ -24,7 +24,7 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 			name:         "zccfailopen.WebFailOpenPolicy",
 			resource:     resources.ProductZCC,
 			resourceName: resourceZCCFailOpenPolicy,
-			typ:          reflect.TypeOf(zccfailopen.WebFailOpenPolicy{}),
+			typ:          reflect.TypeFor[zccfailopen.WebFailOpenPolicy](),
 			catalogFields: []string{
 				"active",
 				"captivePortalWebSecDisableMinutes",
@@ -46,7 +46,7 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 			name:         "zccfwdprofile.ForwardingProfile",
 			resource:     resources.ProductZCC,
 			resourceName: resourceZCCFwdProfiles,
-			typ:          reflect.TypeOf(zccfwdprofile.ForwardingProfile{}),
+			typ:          reflect.TypeFor[zccfwdprofile.ForwardingProfile](),
 			catalogFields: []string{
 				"id",
 				"active",
@@ -80,7 +80,7 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 			name:         "zcctrustednet.TrustedNetwork",
 			resource:     resources.ProductZCC,
 			resourceName: resourceZCCTrustedNets,
-			typ:          reflect.TypeOf(zcctrustednet.TrustedNetwork{}),
+			typ:          reflect.TypeFor[zcctrustednet.TrustedNetwork](),
 			catalogFields: []string{
 				"id",
 				"active",
@@ -105,7 +105,7 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 			name:         "zccwebappsvc.WebAppService",
 			resource:     resources.ProductZCC,
 			resourceName: resourceZCCWebAppServices,
-			typ:          reflect.TypeOf(zccwebappsvc.WebAppService{}),
+			typ:          reflect.TypeFor[zccwebappsvc.WebAppService](),
 			catalogFields: []string{
 				"id",
 				"appVersion",
@@ -127,7 +127,7 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 			name:         "zccappprofiles.ApplicationProfile",
 			resource:     resources.ProductZCC,
 			resourceName: resourceZCCAppProfiles,
-			typ:          reflect.TypeOf(zccappprofiles.ApplicationProfile{}),
+			typ:          reflect.TypeFor[zccappprofiles.ApplicationProfile](),
 			catalogFields: []string{
 				"deviceType",
 				"id",
@@ -181,7 +181,7 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 			name:         "zcccustomip.CustomIPApp",
 			resource:     resources.ProductZCC,
 			resourceName: resourceZCCCustomIPApps,
-			typ:          reflect.TypeOf(zcccustomip.CustomIPApp{}),
+			typ:          reflect.TypeFor[zcccustomip.CustomIPApp](),
 			catalogFields: []string{
 				"id",
 				"appName",
@@ -200,7 +200,7 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 			name:         "zccpredefip.PredefinedIPApp",
 			resource:     resources.ProductZCC,
 			resourceName: resourceZCCPredefIPApps,
-			typ:          reflect.TypeOf(zccpredefip.PredefinedIPApp{}),
+			typ:          reflect.TypeFor[zccpredefip.PredefinedIPApp](),
 			catalogFields: []string{
 				"id",
 				"appVersion",
@@ -221,7 +221,7 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 			name:         "zccprocessapps.ProcessBasedApp",
 			resource:     resources.ProductZCC,
 			resourceName: resourceZCCProcessApps,
-			typ:          reflect.TypeOf(zccprocessapps.ProcessBasedApp{}),
+			typ:          reflect.TypeFor[zccprocessapps.ProcessBasedApp](),
 			catalogFields: []string{
 				"id",
 				"appName",
@@ -239,7 +239,7 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 			name:         "zccdevices.GetDevices",
 			resource:     resources.ProductZCC,
 			resourceName: resourceZCCDevices,
-			typ:          reflect.TypeOf(zccdevices.GetDevices{}),
+			typ:          reflect.TypeFor[zccdevices.GetDevices](),
 			catalogFields: []string{
 				"agentVersion",
 				"companyName",
@@ -272,7 +272,7 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 			name:         "zccadminroles.AdminRole",
 			resource:     resources.ProductZCC,
 			resourceName: resourceZCCAdminRoles,
-			typ:          reflect.TypeOf(zccadminroles.AdminRole{}),
+			typ:          reflect.TypeFor[zccadminroles.AdminRole](),
 			catalogFields: []string{
 				"adminManagement",
 				"administratorGroup",
@@ -318,7 +318,7 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 			name:         "zcccompany.CompanyInfo",
 			resource:     resources.ProductZCC,
 			resourceName: resourceZCCCompanyInfo,
-			typ:          reflect.TypeOf(zcccompany.CompanyInfo{}),
+			typ:          reflect.TypeFor[zcccompany.CompanyInfo](),
 			catalogFields: []string{
 				"orgId",
 				"masterCustomerId",
@@ -409,7 +409,6 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 				"enableZpaAuthUserName",
 				"enableGlobalZCCTelemetry",
 				"configureTunnel2fallbackForZia",
-				"webAppConfig",
 				"enableInstallWebView2",
 				"enableCustomProxyPorts",
 				"interceptZIATrafficAllAdapters",
@@ -431,6 +430,25 @@ func reviewedSDKShapesZCC() []sdkShapeReview {
 				"zdxManualRollout",
 				"winZdxLiteEnabled",
 				"telemetryDefault",
+			},
+			ignoredFields: map[string]string{
+				"webAppConfig": "deliberate: about 185 string flags behind the ZCC admin portal, mostly portal feature toggles plus some client settings (e.g. enableFipsMode); too broad to classify flag by flag, so excluded fail-closed",
+			},
+		},
+		{
+			name:         "zcccompany.DevicePostureFrequency",
+			resource:     resources.ProductZCC,
+			resourceName: resourceZCCCompanyInfo,
+			typ:          reflect.TypeFor[zcccompany.DevicePostureFrequency](),
+			catalogFields: []string{
+				"postureId",
+				"postureName",
+				"iosValue",
+				"androidValue",
+				"windowsValue",
+				"macValue",
+				"linuxValue",
+				"defaultValue",
 			},
 		},
 	}

@@ -3,7 +3,7 @@ package zscaler
 import (
 	"reflect"
 
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/resources"
 
 	ziacommon "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups"
@@ -27,6 +27,7 @@ import (
 	zpamachinegroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/machinegroup"
 	zpamicrotenants "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/microtenants"
 	zpaplatforms "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/platforms"
+	zpapolicyset "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller"
 	zpapostureprofile "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/postureprofile"
 	zpasegmentgroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/segmentgroup"
 	zpaservergroup "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup"
@@ -43,12 +44,12 @@ import (
 )
 
 func reviewedSDKShapesZPA() []sdkShapeReview {
-	return []sdkShapeReview{
+	return append(reviewedSDKShapesZPAPolicyRules(), []sdkShapeReview{
 		{
 			name:         "zpamicrotenants.MicroTenant",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAMicrotenants,
-			typ:          reflect.TypeOf(zpamicrotenants.MicroTenant{}),
+			typ:          reflect.TypeFor[zpamicrotenants.MicroTenant](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -70,7 +71,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpaversionprofile.CustomerVersionProfile",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAVersionProfiles,
-			typ:          reflect.TypeOf(zpaversionprofile.CustomerVersionProfile{}),
+			typ:          reflect.TypeFor[zpaversionprofile.CustomerVersionProfile](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -97,7 +98,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpaclienttypes.ClientTypes",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAClientTypes,
-			typ:          reflect.TypeOf(zpaclienttypes.ClientTypes{}),
+			typ:          reflect.TypeFor[zpaclienttypes.ClientTypes](),
 			catalogFields: []string{
 				"zpn_client_type_exporter",
 				"zpn_client_type_exporter_noauth",
@@ -117,7 +118,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpaplatforms.Platforms",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAPlatforms,
-			typ:          reflect.TypeOf(zpaplatforms.Platforms{}),
+			typ:          reflect.TypeFor[zpaplatforms.Platforms](),
 			catalogFields: []string{
 				"linux",
 				"android",
@@ -130,7 +131,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpaisolationprofile.IsolationProfile",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAIsolationProfiles,
-			typ:          reflect.TypeOf(zpaisolationprofile.IsolationProfile{}),
+			typ:          reflect.TypeFor[zpaisolationprofile.IsolationProfile](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -148,7 +149,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpabranchconnector.BranchConnector",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPABranchConnectors,
-			typ:          reflect.TypeOf(zpabranchconnector.BranchConnector{}),
+			typ:          reflect.TypeFor[zpabranchconnector.BranchConnector](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -171,7 +172,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpauserportal.UserPortalController",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAUserPortals,
-			typ:          reflect.TypeOf(zpauserportal.UserPortalController{}),
+			typ:          reflect.TypeFor[zpauserportal.UserPortalController](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -200,7 +201,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpauserportalaup.UserPortalAup",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAUserPortalAups,
-			typ:          reflect.TypeOf(zpauserportalaup.UserPortalAup{}),
+			typ:          reflect.TypeFor[zpauserportalaup.UserPortalAup](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -220,7 +221,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpauserportallink.UserPortalLink",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAUserPortalLinks,
-			typ:          reflect.TypeOf(zpauserportallink.UserPortalLink{}),
+			typ:          reflect.TypeFor[zpauserportallink.UserPortalLink](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -245,7 +246,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpaappsegmentba.BrowserAccess",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPABrowserAccess,
-			typ:          reflect.TypeOf(zpaappsegmentba.BrowserAccess{}),
+			typ:          reflect.TypeFor[zpaappsegmentba.BrowserAccess](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -285,6 +286,9 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 				"microtenantId",
 				"zscalerManaged",
 				"weightedLoadBalancing",
+				"hbrEnabled",
+				"stickyEntity",
+				"stickyGroup",
 				"tcpPortRange",
 				"udpPortRange",
 				"clientlessApps",
@@ -293,12 +297,16 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 				"policyStyle",
 				"zpnErId",
 			},
+			ignoredFields: ignoredBecause(
+				"deliberate: guest federation metadata contains partner and federation identifiers across tenant boundaries; no safe subset is currently projected, so it remains fail-closed",
+				"guestDetails",
+			),
 		},
 		{
 			name:         "zpaappsegmentinspection.AppSegmentInspection",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAInspectionAppSegments,
-			typ:          reflect.TypeOf(zpaappsegmentinspection.AppSegmentInspection{}),
+			typ:          reflect.TypeFor[zpaappsegmentinspection.AppSegmentInspection](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -341,6 +349,9 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 				"microtenantId",
 				"zscalerManaged",
 				"weightedLoadBalancing",
+				"hbrEnabled",
+				"stickyEntity",
+				"stickyGroup",
 				"tcpPortRange",
 				"udpPortRange",
 				"inspectionApps",
@@ -349,12 +360,16 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 				"sharedMicrotenantDetails",
 				"policyStyle",
 			},
+			ignoredFields: ignoredBecause(
+				"deliberate: guest federation metadata contains partner and federation identifiers across tenant boundaries; no safe subset is currently projected, so it remains fail-closed",
+				"guestDetails",
+			),
 		},
 		{
 			name:         "zpaappsegmentpra.AppSegmentPRA",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAPRAAppSegments,
-			typ:          reflect.TypeOf(zpaappsegmentpra.AppSegmentPRA{}),
+			typ:          reflect.TypeFor[zpaappsegmentpra.AppSegmentPRA](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -394,6 +409,9 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 				"microtenantId",
 				"zscalerManaged",
 				"weightedLoadBalancing",
+				"hbrEnabled",
+				"stickyEntity",
+				"stickyGroup",
 				"tcpPortRange",
 				"udpPortRange",
 				"defaultIdleTimeout",
@@ -405,12 +423,16 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 				"policyStyle",
 				"zpnErId",
 			},
+			ignoredFields: ignoredBecause(
+				"deliberate: guest federation metadata contains partner and federation identifiers across tenant boundaries; no safe subset is currently projected, so it remains fail-closed",
+				"guestDetails",
+			),
 		},
 		{
 			name:         "zpaservergroup.ServerGroup",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAServerGroups,
-			typ:          reflect.TypeOf(zpaservergroup.ServerGroup{}),
+			typ:          reflect.TypeFor[zpaservergroup.ServerGroup](),
 			catalogFields: []string{
 				"id",
 				"enabled",
@@ -438,7 +460,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpasegmentgroup.SegmentGroup",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPASegmentGroups,
-			typ:          reflect.TypeOf(zpasegmentgroup.SegmentGroup{}),
+			typ:          reflect.TypeFor[zpasegmentgroup.SegmentGroup](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -462,7 +484,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpaapplicationsegment.ApplicationSegmentResource",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAAppSegments,
-			typ:          reflect.TypeOf(zpaapplicationsegment.ApplicationSegmentResource{}),
+			typ:          reflect.TypeFor[zpaapplicationsegment.ApplicationSegmentResource](),
 			catalogFields: []string{
 				"adpEnabled",
 				"apiProtectionEnabled",
@@ -514,15 +536,22 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 				"udpPortRanges",
 				"useInDrMode",
 				"weightedLoadBalancing",
+				"hbrEnabled",
+				"stickyEntity",
+				"stickyGroup",
 				"zpnErId",
 				"zscalerManaged",
 			},
+			ignoredFields: ignoredBecause(
+				"deliberate: guest federation metadata contains partner and federation identifiers across tenant boundaries; no safe subset is currently projected, so it remains fail-closed",
+				"guestDetails",
+			),
 		},
 		{
 			name:         "zpaappconnectorcontroller.AppConnector",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAAppConnectors,
-			typ:          reflect.TypeOf(zpaappconnectorcontroller.AppConnector{}),
+			typ:          reflect.TypeFor[zpaappconnectorcontroller.AppConnector](),
 			catalogFields: []string{
 				"appConnectorGroupId",
 				"appConnectorGroupName",
@@ -573,7 +602,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "zpaappconnectorcontroller.AssistantVersion",
-			typ:  reflect.TypeOf(zpaappconnectorcontroller.AssistantVersion{}),
+			typ:  reflect.TypeFor[zpaappconnectorcontroller.AssistantVersion](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped assistantVersion parent",
 				"appConnectorGroupId",
@@ -610,7 +639,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "zpacommon.ZPNSubModuleUpgrade",
-			typ:  reflect.TypeOf(zpacommon.ZPNSubModuleUpgrade{}),
+			typ:  reflect.TypeFor[zpacommon.ZPNSubModuleUpgrade](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped zpnSubModuleUpgradeList parent",
 				"creationTime",
@@ -631,7 +660,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpaappconnectorgroup.AppConnectorGroup",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAConnectorGrps,
-			typ:          reflect.TypeOf(zpaappconnectorgroup.AppConnectorGroup{}),
+			typ:          reflect.TypeFor[zpaappconnectorgroup.AppConnectorGroup](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -680,7 +709,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpaappservercontroller.ApplicationServer",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAAppServers,
-			typ:          reflect.TypeOf(zpaappservercontroller.ApplicationServer{}),
+			typ:          reflect.TypeFor[zpaappservercontroller.ApplicationServer](),
 			catalogFields: []string{
 				"address",
 				"appServerGroupIds",
@@ -700,7 +729,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpamachinegroup.MachineGroup",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAMachineGroups,
-			typ:          reflect.TypeOf(zpamachinegroup.MachineGroup{}),
+			typ:          reflect.TypeFor[zpamachinegroup.MachineGroup](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -718,7 +747,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpatrustednetwork.TrustedNetwork",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPATrustedNets,
-			typ:          reflect.TypeOf(zpatrustednetwork.TrustedNetwork{}),
+			typ:          reflect.TypeFor[zpatrustednetwork.TrustedNetwork](),
 			catalogFields: []string{
 				"creationTime",
 				"domain",
@@ -735,7 +764,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpaserviceedgegroup.ServiceEdgeGroup",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAServiceGrps,
-			typ:          reflect.TypeOf(zpaserviceedgegroup.ServiceEdgeGroup{}),
+			typ:          reflect.TypeFor[zpaserviceedgegroup.ServiceEdgeGroup](),
 			catalogFields: []string{
 				"altCloud",
 				"city",
@@ -784,7 +813,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpaserviceedgecontroller.ServiceEdgeController",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAServiceEdges,
-			typ:          reflect.TypeOf(zpaserviceedgecontroller.ServiceEdgeController{}),
+			typ:          reflect.TypeFor[zpaserviceedgecontroller.ServiceEdgeController](),
 			catalogFields: []string{
 				"applicationStartTime",
 				"controlChannelStatus",
@@ -836,7 +865,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpacloudconnectorgroup.CloudConnectorGroup",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPACloudConnGrps,
-			typ:          reflect.TypeOf(zpacloudconnectorgroup.CloudConnectorGroup{}),
+			typ:          reflect.TypeFor[zpacloudconnectorgroup.CloudConnectorGroup](),
 			catalogFields: []string{
 				"cloudConnectors",
 				"creationTime",
@@ -856,7 +885,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpacloudconnector.CloudConnector",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPACloudConns,
-			typ:          reflect.TypeOf(zpacloudconnector.CloudConnector{}),
+			typ:          reflect.TypeFor[zpacloudconnector.CloudConnector](),
 			catalogFields: []string{
 				"creationTime",
 				"description",
@@ -877,7 +906,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpapostureprofile.PostureProfile",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAPostureProfs,
-			typ:          reflect.TypeOf(zpapostureprofile.PostureProfile{}),
+			typ:          reflect.TypeFor[zpapostureprofile.PostureProfile](),
 			catalogFields: []string{
 				"applyToMachineTunnelEnabled",
 				"creationTime",
@@ -901,7 +930,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpacbizpaprofile.ZPAProfiles",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPACBIZPAProfs,
-			typ:          reflect.TypeOf(zpacbizpaprofile.ZPAProfiles{}),
+			typ:          reflect.TypeFor[zpacbizpaprofile.ZPAProfiles](),
 			catalogFields: []string{
 				"cbiProfileId",
 				"cbiTenantId",
@@ -919,7 +948,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpac2cipranges.IPRanges",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAC2CIPRanges,
-			typ:          reflect.TypeOf(zpac2cipranges.IPRanges{}),
+			typ:          reflect.TypeFor[zpac2cipranges.IPRanges](),
 			catalogFields: []string{
 				"availableIps",
 				"countryCode",
@@ -948,7 +977,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 			name:         "zpaconfigoverride.ConfigOverrides",
 			resource:     resources.ProductZPA,
 			resourceName: resourceZPAConfigOvrds,
-			typ:          reflect.TypeOf(zpaconfigoverride.ConfigOverrides{}),
+			typ:          reflect.TypeFor[zpaconfigoverride.ConfigOverrides](),
 			catalogFields: []string{
 				"brokerName",
 				"configKey",
@@ -964,7 +993,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "zpacloudconnectorgroup.CloudConnectors",
-			typ:  reflect.TypeOf(zpacloudconnectorgroup.CloudConnectors{}),
+			typ:  reflect.TypeFor[zpacloudconnectorgroup.CloudConnectors](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped cloudConnectors parent",
 				"creationTime",
@@ -987,7 +1016,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "workloadgroups.WorkloadTagExpression",
-			typ:  reflect.TypeOf(workloadgroups.WorkloadTagExpression{}),
+			typ:  reflect.TypeFor[workloadgroups.WorkloadTagExpression](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped expressionJson parent",
 				"expressionContainers",
@@ -995,7 +1024,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "workloadgroups.ExpressionContainer",
-			typ:  reflect.TypeOf(workloadgroups.ExpressionContainer{}),
+			typ:  reflect.TypeFor[workloadgroups.ExpressionContainer](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped expressionJson parent",
 				"tagType",
@@ -1005,7 +1034,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "workloadgroups.TagContainer",
-			typ:  reflect.TypeOf(workloadgroups.TagContainer{}),
+			typ:  reflect.TypeFor[workloadgroups.TagContainer](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped expressionJson parent",
 				"tags",
@@ -1014,7 +1043,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "workloadgroups.Tags",
-			typ:  reflect.TypeOf(workloadgroups.Tags{}),
+			typ:  reflect.TypeFor[workloadgroups.Tags](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped expressionJson parent",
 				"key",
@@ -1023,7 +1052,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwworkloadgroups.WorkloadTagExpression",
-			typ:  reflect.TypeOf(ztwworkloadgroups.WorkloadTagExpression{}),
+			typ:  reflect.TypeFor[ztwworkloadgroups.WorkloadTagExpression](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped expressionJson parent",
 				"expressionContainers",
@@ -1031,7 +1060,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwworkloadgroups.ExpressionContainer",
-			typ:  reflect.TypeOf(ztwworkloadgroups.ExpressionContainer{}),
+			typ:  reflect.TypeFor[ztwworkloadgroups.ExpressionContainer](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped expressionJson parent",
 				"tagType",
@@ -1041,7 +1070,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwworkloadgroups.TagContainer",
-			typ:  reflect.TypeOf(ztwworkloadgroups.TagContainer{}),
+			typ:  reflect.TypeFor[ztwworkloadgroups.TagContainer](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped expressionJson parent",
 				"tags",
@@ -1050,7 +1079,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwworkloadgroups.Tags",
-			typ:  reflect.TypeOf(ztwworkloadgroups.Tags{}),
+			typ:  reflect.TypeFor[ztwworkloadgroups.Tags](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped expressionJson parent",
 				"key",
@@ -1059,7 +1088,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwcommon.CommonIDNameExternalID",
-			typ:  reflect.TypeOf(ztwcommon.CommonIDNameExternalID{}),
+			typ:  reflect.TypeFor[ztwcommon.CommonIDNameExternalID](),
 			ignoredFields: ignoredBecause(
 				"deliberate: used as id/name reference; additional metadata is dropped by nested catalog fields",
 				"id",
@@ -1073,7 +1102,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwcommon.CommonIDName",
-			typ:  reflect.TypeOf(ztwcommon.CommonIDName{}),
+			typ:  reflect.TypeFor[ztwcommon.CommonIDName](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by modeled ztw id/name references",
 				"id",
@@ -1082,7 +1111,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwcommon.RegionStatus",
-			typ:  reflect.TypeOf(ztwcommon.RegionStatus{}),
+			typ:  reflect.TypeFor[ztwcommon.RegionStatus](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by ztw/public-cloud-info regionStatus nested field",
 				"id",
@@ -1093,7 +1122,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwcommon.SupportedRegions",
-			typ:  reflect.TypeOf(ztwcommon.SupportedRegions{}),
+			typ:  reflect.TypeFor[ztwcommon.SupportedRegions](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by ztw/public-cloud-info supportedRegions nested field",
 				"id",
@@ -1103,7 +1132,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwcommon.ZPAApplicationSegments",
-			typ:  reflect.TypeOf(ztwcommon.ZPAApplicationSegments{}),
+			typ:  reflect.TypeFor[ztwcommon.ZPAApplicationSegments](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by ztw/forwarding-rules zpaApplicationSegments nested field",
 				"id",
@@ -1115,7 +1144,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwcommon.ZPAApplicationSegmentGroups",
-			typ:  reflect.TypeOf(ztwcommon.ZPAApplicationSegmentGroups{}),
+			typ:  reflect.TypeFor[ztwcommon.ZPAApplicationSegmentGroups](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by ztw/forwarding-rules zpaApplicationSegmentGroups nested field",
 				"id",
@@ -1127,7 +1156,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwnetworkservices.NetworkPorts",
-			typ:  reflect.TypeOf(ztwnetworkservices.NetworkPorts{}),
+			typ:  reflect.TypeFor[ztwnetworkservices.NetworkPorts](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by modeled network port range parent",
 				"start",
@@ -1136,7 +1165,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwnetworkservicegroups.Services",
-			typ:  reflect.TypeOf(ztwnetworkservicegroups.Services{}),
+			typ:  reflect.TypeFor[ztwnetworkservicegroups.Services](),
 			ignoredFields: ignoredBecause(
 				"deliberate: network service groups render child services as id/name references only; ztw/network-services owns service details",
 				"id",
@@ -1153,7 +1182,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ztwcommon.IDNameExtensions",
-			typ:  reflect.TypeOf(ztwcommon.IDNameExtensions{}),
+			typ:  reflect.TypeFor[ztwcommon.IDNameExtensions](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped lastModifiedBy parent",
 				"id",
@@ -1163,7 +1192,7 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 		},
 		{
 			name: "ziacommon.IDNameExternalID",
-			typ:  reflect.TypeOf(ziacommon.IDNameExternalID{}),
+			typ:  reflect.TypeFor[ziacommon.IDNameExternalID](),
 			ignoredFields: ignoredBecause(
 				"deliberate: currently used inside explicitly modeled nested references; this entry catches SDK additions",
 				"id",
@@ -1172,5 +1201,61 @@ func reviewedSDKShapesZPA() []sdkShapeReview {
 				"extensions",
 			),
 		},
+	}...)
+}
+
+// reviewedSDKShapesZPAPolicyRules reviews the rule shape once per policy
+// type, since every type is its own catalog resource.
+func reviewedSDKShapesZPAPolicyRules() []sdkShapeReview {
+	var shapes []sdkShapeReview
+	for name := range zpaPolicyRuleTypes {
+		shapes = append(shapes,
+			sdkShapeReview{
+				name:          "zpapolicyset.PolicyRule/" + name,
+				resource:      resources.ProductZPA,
+				resourceName:  name,
+				typ:           reflect.TypeFor[zpapolicyset.PolicyRule](),
+				catalogFields: catalogFieldsFor(resources.ProductZPA, name),
+				ignoredFields: map[string]string{
+					"desktopPolicyMappings": "deliberate: PRA desktop image mappings; they embed whole application segments, which zpa/application-segments reads",
+				},
+			},
+			sdkShapeReview{
+				name:          "zpapolicyset.Conditions/" + name,
+				resource:      resources.ProductZPA,
+				resourceName:  name,
+				typ:           reflect.TypeFor[zpapolicyset.Conditions](),
+				catalogFields: []string{"creationTime", "id", "modifiedBy", "modifiedTime", "negated", "operands", "operator", "microtenantId"},
+			},
+			sdkShapeReview{
+				name:          "zpapolicyset.Operands/" + name,
+				resource:      resources.ProductZPA,
+				resourceName:  name,
+				typ:           reflect.TypeFor[zpapolicyset.Operands](),
+				catalogFields: []string{"creationTime", "id", "idpId", "lhs", "modifiedBy", "modifiedTime", "name", "objectType", "rhs", "microtenantId"},
+			},
+			sdkShapeReview{
+				name:          "zpapolicyset.Credential/" + name,
+				resource:      resources.ProductZPA,
+				resourceName:  name,
+				typ:           reflect.TypeFor[zpapolicyset.Credential](),
+				catalogFields: []string{"id", "name"},
+			},
+			sdkShapeReview{
+				name:          "zpapolicyset.PrivilegedCapabilities/" + name,
+				resource:      resources.ProductZPA,
+				resourceName:  name,
+				typ:           reflect.TypeFor[zpapolicyset.PrivilegedCapabilities](),
+				catalogFields: []string{"capabilities", "creationTime", "id", "modifiedBy", "modifiedTime", "microtenantId"},
+			},
+			sdkShapeReview{
+				name:          "zpapolicyset.PrivilegedPortalCapabilities/" + name,
+				resource:      resources.ProductZPA,
+				resourceName:  name,
+				typ:           reflect.TypeFor[zpapolicyset.PrivilegedPortalCapabilities](),
+				catalogFields: []string{"capabilities", "microtenantId"},
+			},
+		)
 	}
+	return shapes
 }

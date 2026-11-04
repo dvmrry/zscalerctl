@@ -1,0 +1,151 @@
+read zia resources
+
+Resources (zscalerctl zia <resource> <operation>; add --help after a resource for its fields):
+  activation-status               show
+  adaptive-access-profiles        list
+  admin-roles                     list, get
+  admin-users                     list, get
+  advanced-settings               show
+  advanced-threat-settings        show
+  alert-definitions               list, get
+  alert-subscriptions             list, get
+  application-service-groups      list, get
+  application-services            list, get
+  atp-malware-inspection          show
+  atp-malware-policy              show
+  atp-malware-protocols           show
+  atp-malware-settings            show
+  auth-exempted-urls              show
+  auth-settings                   list
+  bandwidth-classes               list, get
+  bandwidth-control-rules         list, get
+  browser-control-settings        show
+  browser-isolation-profiles      list
+  c2c-incident-receivers          list, get
+  casb-dlp-rules                  list
+  casb-email-labels               list
+  casb-malware-rules              list
+  casb-tenants                    list
+  casb-tombstone-templates        list
+  cloud-app-control               list
+  cloud-app-instances             list, get
+  cloud-application-policy        list
+  cloud-application-ssl-policy    list
+  custom-file-types               list, get
+  dc-exclusions                   list
+  dedicated-ip-gateways           list, get
+  departments                     list, get
+  device-groups                   list, get
+  devices                         list, get
+  dlp-dictionaries                list, get
+  dlp-edm-schemas                 list, get
+  dlp-edm-schemas-lite            list
+  dlp-engines                     list, get
+  dlp-global-options              show
+  dlp-icap-servers                list, get
+  dlp-idm-profile-lite            list, get
+  dlp-idm-profiles                list, get
+  dlp-incident-receiver-servers   list, get
+  dlp-notification-templates      list, get
+  dlp-web-rules                   list, get
+  dns-application-groups          list, get
+  dns-gateways                    list, get
+  domain-profiles                 list
+  email-dlp-rules                 list, get
+  email-profiles                  list, get
+  end-user-notification-settings  show
+  endpoint-dlp-rules              list, get
+  eusa-status                     show
+  file-type-rules                 list, get
+  firewall-dns-rules              list, get
+  firewall-filtering-rules        list, get
+  forwarding-rules                list, get
+  ftp-control-policy              show
+  gre-tunnels                     list, get
+  groups                          list, get
+  http-header-action-profiles     list
+  http-header-profiles            list
+  integration-partners            list
+  intermediate-ca-certificates    list, get
+  ip-destination-groups           list, get
+  ip-source-groups                list, get
+  ips-policies                    list, get
+  ips-signature-rules             list, get
+  ipv6-config                     show
+  ipv6-dns64-prefixes             list
+  ipv6-nat64-prefixes             list
+  location-groups                 list, get
+  locations                       list, get
+  locations-lite                  list
+  malicious-urls                  show
+  mobile-threat-settings          show
+  nat-control-rules               list, get
+  network-application-groups      list, get
+  network-applications            list, get
+  network-service-groups          list, get
+  network-services                list, get
+  nss-feeds                       list, get
+  nss-servers                     list, get
+  org-information                 show
+  pac-files                       list
+  proxies                         list, get
+  proxy-gateways                  list, get
+  registered-devices              list, get
+  remote-assistance               show
+  risk-profiles                   list, get
+  rule-labels                     list, get
+  sandbox-rules                   list, get
+  sandbox-settings                show
+  security-exceptions             show
+  smpc-instances                  list
+  ssl-inspection-rules            list, get
+  static-ips                      list, get
+  sub-clouds                      list
+  sublocations                    list, get
+  supported-browser-versions      list
+  tenancy-restriction-profiles    list, get
+  time-intervals                  list, get
+  time-windows                    list, get
+  url-allow-list                  show
+  url-categories                  list, get
+  url-deny-list                   show
+  url-filtering-rules             list, get
+  users                           list, get
+  vzen-clusters                   list, get
+  vzen-nodes                      list, get
+  workload-groups                 list, get
+  zpa-gateways                    list, get
+
+Not read by zscalerctl: zscalerctl --format json schema gaps zia
+
+Usage:
+  zscalerctl zia [flags]
+  zscalerctl zia [command]
+
+Available Commands:
+  admin-audit-logs inspect administrator audit-log report status
+  url-lookup       look up URL categories for one or more URLs
+
+Flags:
+  -h, --help   help for zia
+
+Global Flags:
+      --color string         color output: auto, always, never (default "auto")
+      --config string        config file path
+      --count-by string      count list records by comma-separated fields instead of listing them; a path such as groups.id counts per list element
+      --fields string        comma-separated output fields to keep; a dotted path such as groups.id keeps only that key of each nested value (narrows the sanitized output)
+      --filter stringArray   narrow list results: key=value (exact) or key~value (substring); key may be a nested path such as groups.name; repeatable, all must match
+      --format string        output format: auto, table, json, ndjson, pretty (default "auto")
+      --from-dump string     read resource data from a saved sanitized dump directory
+      --limit int            bound a list result to a JSON page of this many records
+      --log-level string     diagnostic logging to stderr: off, error, warn, info, debug (default "off")
+      --no-cache             bypass API cache where supported
+      --no-color             disable color output
+      --offset int           skip this many records in a bounded JSON list page (requires --limit)
+      --output string        create or replace an output file; for dump, the directory to write
+      --profile string       profile name
+      --redaction string     redaction mode: standard, share, paranoid
+      --search string        narrow list results to records whose rendered values contain term (case-insensitive)
+      --timeout duration     request timeout (default 30s)
+
+Use "zscalerctl zia [command] --help" for more information about a command.

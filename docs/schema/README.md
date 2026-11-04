@@ -6,17 +6,24 @@ These are the stable, versioned JSON Schemas for the machine-readable output
 | Artifact | Where | Schema | `schema` id |
 | --- | --- | --- | --- |
 | Config file | `~/.config/zscalerctl/config.yaml` (or `--config PATH`) | [config.schema.json](config.schema.json) | — (YAML; no in-payload schema id) |
+| CLI introspection | stdout from `zscalerctl --format json introspect` | [introspect-v3.schema.json](introspect-v3.schema.json) | `introspect_version: 3` |
+| Machine manifest | stdout from `zscalerctl --format json machine manifest` | [machine-manifest.schema.json](machine-manifest.schema.json) | `machine.v1` |
 | Manifest | `manifest.json` in the dump | [manifest.schema.json](manifest.schema.json) | `zscalerctl.dump.manifest.v2` |
 | Redaction report | `redaction_report.json` in the dump | [redaction-report.schema.json](redaction-report.schema.json) | `zscalerctl.redaction_report.v1` |
-| Error record | each line of `errors.ndjson` in the dump | [dump-error.schema.json](dump-error.schema.json) | `zscalerctl.dump.error.v1` |
+| Error record | each line of `errors.ndjson` in the dump | [dump-error.schema.json](dump-error.schema.json) | `zscalerctl.dump.error.v2` (v1 still read) |
 | Diff report | stdout from `zscalerctl diff --format json` | [diff.schema.json](diff.schema.json) | `zscalerctl.diff.v1` |
-| Error envelope | stderr, on a failing command with JSON output | [error.schema.json](error.schema.json) | `zscalerctl.error.v1` |
+| Error envelope | stderr, on a failing command with JSON output | [error.schema.json](error.schema.json) | `zscalerctl.error.v2` |
+| Bounded list page | stdout from a resource `list --limit N --format json` | [list-page.schema.json](list-page.schema.json) | — (the resource-specific page has no embedded schema field) |
 
-The dump artifacts and diff report each carry their `schema` id as a field, so
-consumers can route on it. The stderr error envelope carries no in-payload
-`schema` field (its `$id` lives in the schema file); it is written when a command
-fails and the resolved output format is JSON — an explicit `--format json`, or
-the default `auto` on a non-terminal stdout.
+The machine manifest carries its contract id in the `version` field. The dump
+artifacts and diff report each carry their `schema` id as a field, so consumers
+can route on it. The stderr error envelope carries no in-payload `schema` field
+(its `$id` lives in the schema file); it is written when a command fails and the
+resolved output format is JSON — an explicit `--format json`, or the default
+`auto` on a non-terminal stdout.
+CLI introspection carries its contract version in `introspect_version` and its
+version-specific schema URL in `$schema`. A published introspection schema never
+changes; a new version adds a new versioned schema path.
 The schemas are JSON Schema draft 2020-12 and use `additionalProperties: false`,
 so a new field is a breaking change — bump the `schema` id (and these files) when
 the artifact shape changes, per [VERSIONING.md](../VERSIONING.md).
@@ -27,8 +34,10 @@ Per-resource files (`resources/<product>/<name>.json`) are **not** schematized
 here: their shape is the projected, redaction-filtered field set for that
 resource, which varies by resource and redaction mode and is governed by the
 resource catalog rather than a fixed envelope. Each file is a JSON array of
-objects (or, for singleton resources, a single object). Use `zscalerctl schema
-list` for the catalog-level field model.
+objects for `list` collection or a single object for `show` collection. The
+manifest's optional `shape: singleton` records the catalog's semantic resource
+shape; it is not a duplicate encoding of the file's top-level JSON container.
+Use `zscalerctl schema list` for the catalog-level field model.
 
 ## Drift guard
 
@@ -42,3 +51,8 @@ schema-id guard to the diff report. The stderr error envelope has the same guard
 `internal/config/published_schema_test.go` applies the same guard to the config
 file schema: every YAML-tagged field on `profileFile` and `profileData` must
 appear in `config.schema.json`, and vice versa.
+`scripts/verify-machine-contract.sh` validates the committed machine manifest
+fixture against `machine-manifest.schema.json`.
+`internal/cli/introspect_schema_test.go` freezes the legacy v1 schema hash and
+applies the struct/schema drift and identity guards to the v2 document and its
+structured effects.

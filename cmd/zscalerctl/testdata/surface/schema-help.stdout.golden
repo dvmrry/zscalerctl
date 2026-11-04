@@ -1,0 +1,35 @@
+inspect the resource catalog schema
+
+Usage:
+  zscalerctl schema [flags]
+  zscalerctl schema [command]
+
+Available Commands:
+  describe    describe reviewed field semantics for one resource (config-free pilot)
+  gaps        list the Zscaler surfaces zscalerctl does not read, and why (config-free)
+  list        list all catalog resources and their supported operations
+  references  list the fields that point at a resource, with the --filter path for its id (config-free)
+
+Flags:
+  -h, --help   help for schema
+
+Global Flags:
+      --color string         color output: auto, always, never (default "auto")
+      --config string        config file path
+      --count-by string      count list records by comma-separated fields instead of listing them; a path such as groups.id counts per list element
+      --fields string        comma-separated output fields to keep; a dotted path such as groups.id keeps only that key of each nested value (narrows the sanitized output)
+      --filter stringArray   narrow list results: key=value (exact) or key~value (substring); key may be a nested path such as groups.name; repeatable, all must match
+      --format string        output format: auto, table, json, ndjson, pretty (default "auto")
+      --from-dump string     read resource data from a saved sanitized dump directory
+      --limit int            bound a list result to a JSON page of this many records
+      --log-level string     diagnostic logging to stderr: off, error, warn, info, debug (default "off")
+      --no-cache             bypass API cache where supported
+      --no-color             disable color output
+      --offset int           skip this many records in a bounded JSON list page (requires --limit)
+      --output string        create or replace an output file; for dump, the directory to write
+      --profile string       profile name
+      --redaction string     redaction mode: standard, share, paranoid
+      --search string        narrow list results to records whose rendered values contain term (case-insensitive)
+      --timeout duration     request timeout (default 30s)
+
+Use "zscalerctl schema [command] --help" for more information about a command.

@@ -6,7 +6,7 @@ package zscaler
 // as sensitive identifiers (standard-only): orgName names the tenant
 // organization directly, and cloudName carries a Zscaler cloud-domain
 // placement value that narrows tenant identity the way the locations
-// country/state geo fields do (adversarial referee ruling: standard-only).
+// country/state geo fields do, so they are standard-only.
 // Both live inside the standard-only serviceScopes wrapper, so share and
 // paranoid modes drop them with the whole subtree. These tests pin the
 // promotion and the mode boundaries so the decision cannot regress silently.
@@ -14,10 +14,10 @@ package zscaler
 import (
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/redact"
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
 
-	zidresourceservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zid/services/resource_servers"
+	zidresourceservers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ziam/services/resource_servers"
 )
 
 func wave2ResourceServerFixture() (zidresourceservers.ResourceServers, map[string]string) {
@@ -111,7 +111,6 @@ func TestResourceServersServiceContextModeBoundaries(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(string(tc.mode), func(t *testing.T) {
 			t.Parallel()
 

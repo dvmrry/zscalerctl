@@ -2,13 +2,12 @@ package zscaler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	zsdk "github.com/zscaler/zscaler-sdk-go/v3/zscaler"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/urlcategories"
 
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/resources"
 )
 
 // urlLookupName is the value-free label used in normalized url-lookup errors.
@@ -29,8 +28,7 @@ type URLClassification struct {
 // URLLookup resolves the URL category classifications for the given URLs via
 // the ZIA urlLookup endpoint. The endpoint uses POST but performs a pure
 // query: the request body is the list of URLs to classify and no tenant state
-// is created, modified, or deleted (see "Diagnostic lookups" in
-// docs/ARCHITECTURE.md).
+// is created, modified, or deleted.
 func (r *SDKReader) URLLookup(ctx context.Context, urls []string) ([]URLClassification, error) {
 	if r == nil {
 		return nil, fmt.Errorf("%w: %s/%s", ErrUnsupportedResource, resources.ProductZIA, urlLookupName)
@@ -52,7 +50,7 @@ func lookupURLClassifications(
 ) ([]URLClassification, error) {
 	results, err := call(ctx)
 	if err != nil {
-		if errors.Is(err, ErrMissingCredentials) {
+		if isSetupError(err) {
 			return nil, err
 		}
 		return nil, normalizeLiveError(ctx, "lookup", resources.ProductZIA, urlLookupName, err)

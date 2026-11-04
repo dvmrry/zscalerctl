@@ -1,17 +1,84 @@
 package resources_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/redact"
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/output"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
 )
+
+type cyclicProjectedNode struct {
+	Next *cyclicProjectedNode `json:"next"`
+}
+
+type privateProjectedBytes struct {
+	raw []byte
+}
+
+type definedProjectedPointer *int
+
+type exportedProjectedStruct struct {
+	Secret string `json:"secret"`
+}
+
+type namedProjectedString string
+
+type namedProjectedStrings []namedProjectedString
+
+const methodProjectedCanary = "METHOD_PROJECTED_CANARY_MUST_NOT_RENDER"
+
+type methodProjectedInt int
+
+type methodProjectedBool bool
+
+type methodProjectedInts []methodProjectedInt
+
+func (methodProjectedInt) MarshalJSON() ([]byte, error) {
+	return []byte(`{"unmodeled":"` + methodProjectedCanary + `"}`), nil
+}
+
+func (methodProjectedInt) MarshalText() ([]byte, error) {
+	return []byte(methodProjectedCanary), nil
+}
+
+func (methodProjectedInt) String() string { return methodProjectedCanary }
+
+func (methodProjectedBool) MarshalJSON() ([]byte, error) {
+	return []byte(`{"unmodeled":"` + methodProjectedCanary + `"}`), nil
+}
+
+func (methodProjectedBool) String() string { return methodProjectedCanary }
+
+func (methodProjectedInts) MarshalJSON() ([]byte, error) {
+	return []byte(`{"unmodeled":"` + methodProjectedCanary + `"}`), nil
+}
+
+func (methodProjectedInts) String() string { return methodProjectedCanary }
+
+func (v privateProjectedBytes) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Raw []byte `json:"raw"`
+	}{Raw: v.raw})
+}
+
+// fakePrivateKeyBlock assembles a PEM-shaped redaction canary without placing
+// a complete private-key detector signature in the repository source.
+func fakePrivateKeyBlock(body string) string {
+	const begin = "-----BEGIN PRIVATE" + " KEY-----"
+	const end = "-----END PRIVATE" + " KEY-----"
+	return begin + "\n" + body + "\n" + end
+}
 
 func TestReadOperationsDoNotMutate(t *testing.T) {
 	t.Parallel()
@@ -164,6 +231,779 @@ func TestResourceSpecJSONIncludesGetKeyForGetResources(t *testing.T) {
 	}
 }
 
+func TestNewProjectedRecordsFromProjectedFieldsReconstructsAndCopies(t *testing.T) {
+	t.Parallel()
+
+	input := []map[string]any{{
+		"id":     "123",
+		"name":   "HQ",
+		"groups": []any{"admins"},
+		"ports":  []int{80, 443},
+	}}
+
+	projected := resources.NewProjectedRecordsFromProjectedFields(input)
+	input[0]["name"] = "mutated"
+	input[0]["groups"].([]any)[0] = "mutated"
+	input[0]["ports"].([]int)[0] = 8080
+
+	records := projected.Records()
+	if len(records) != 1 {
+		t.Fatalf("NewProjectedRecordsFromProjectedFields records = %d, want 1", len(records))
+	}
+	fields := records[0].Fields()
+	want := map[string]any{
+		"id":     "123",
+		"name":   "HQ",
+		"groups": []any{"admins"},
+		"ports":  []int{80, 443},
+	}
+	if !reflect.DeepEqual(fields, want) {
+		t.Fatalf("NewProjectedRecordsFromProjectedFields fields = %#v, want %#v", fields, want)
+	}
+
+	fields["name"] = "changed again"
+	fields["ports"].([]int)[0] = 8443
+	if got, _ := records[0].Value("name"); got != "HQ" {
+		t.Fatalf("ProjectedRecord.Value(name) after mutating Fields copy = %v, want HQ", got)
+	}
+	ports, ok := records[0].Value("ports")
+	if !ok || !reflect.DeepEqual(ports, []int{80, 443}) {
+		t.Fatalf("ProjectedRecord.Value(ports) after mutating Fields copy = %#v (present %t), want [80 443]", ports, ok)
+	}
+}
+
+func TestProjectedRecordsDefensivelyCopySupportedSlices(t *testing.T) {
+	t.Parallel()
+
+	bools := []bool{true, false}
+	floats := []float64{1.5, 2.5}
+	bytesValue := []byte{1, 2, 3}
+	projected := resources.NewProjectedRecordsFromProjectedFields([]map[string]any{{
+		"bools":  bools,
+		"floats": floats,
+		"bytes":  bytesValue,
+	}})
+
+	bools[0] = false
+	floats[0] = 9.5
+	bytesValue[0] = 9
+	want := map[string]any{
+		"bools":  []bool{true, false},
+		"floats": []float64{1.5, 2.5},
+		"bytes":  []byte{1, 2, 3},
+	}
+	fields := projected.Records()[0].Fields()
+	if !reflect.DeepEqual(fields, want) {
+		t.Fatalf("ProjectedRecord.Fields() after input mutation = %#v, want %#v", fields, want)
+	}
+
+	fields["bools"].([]bool)[0] = false
+	fields["floats"].([]float64)[0] = 9.5
+	fields["bytes"].([]byte)[0] = 9
+	if got := projected.Records()[0].Fields(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ProjectedRecord.Fields() after returned-value mutation = %#v, want %#v", got, want)
+	}
+}
+
+func TestProjectedRecordsMarshalJSONPreservesCollectionContract(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		records resources.ProjectedRecords
+		want    string
+	}{
+		{
+			name: "zero value",
+			want: "[]",
+		},
+		{
+			name:    "empty collection",
+			records: resources.NewProjectedRecords(nil),
+			want:    "[]",
+		},
+		{
+			name: "nested records",
+			records: resources.NewProjectedRecordsFromProjectedFields([]map[string]any{{
+				"name": "HQ",
+				"metadata": map[string]any{
+					"region": "us-east",
+					"labels": []string{"branch", "managed"},
+				},
+			}}),
+			want: `[{"metadata":{"labels":["branch","managed"],"region":"us-east"},"name":"HQ"}]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, err := json.Marshal(tt.records)
+			if err != nil {
+				t.Fatalf("json.Marshal(ProjectedRecords %s) error = %v, want nil", tt.name, err)
+			}
+			if got := string(body); got != tt.want {
+				t.Errorf("json.Marshal(ProjectedRecords %s) = %s, want %s", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProjectedRecordsLenDoesNotExposeBackingSlice(t *testing.T) {
+	t.Parallel()
+
+	projected := resources.NewProjectedRecordsFromProjectedFields([]map[string]any{
+		{"id": 1},
+		{"id": 2},
+	})
+	if got := projected.Len(); got != 2 {
+		t.Fatalf("ProjectedRecords.Len() = %d, want 2", got)
+	}
+
+	returned := projected.Records()
+	returned[0] = resources.ProjectedRecord{}
+	if got := projected.Len(); got != 2 {
+		t.Errorf("ProjectedRecords.Len() after returned slice mutation = %d, want 2", got)
+	}
+	if got, ok := projected.Records()[0].Value("id"); !ok || got != 1 {
+		t.Errorf("ProjectedRecords first id after returned slice mutation = %v (present %t), want 1 (present true)", got, ok)
+	}
+}
+
+func TestProjectedRecordsRejectUnsupportedCompositeValues(t *testing.T) {
+	t.Parallel()
+
+	cyclePointer := &cyclicProjectedNode{}
+	cyclePointer.Next = cyclePointer
+	cycleMap := map[string]any{}
+	cycleMap["self"] = cycleMap
+	cycleSlice := make([]any, 1)
+	cycleSlice[0] = cycleSlice
+	privateBytes := privateProjectedBytes{raw: []byte("private mutable bytes")}
+	pointerTarget := 42
+	definedPointer := definedProjectedPointer(&pointerTarget)
+	exportedStruct := exportedProjectedStruct{Secret: "STRUCT_SECRET_CANARY_MUST_NOT_RENDER"}
+	if _, err := json.Marshal(privateBytes); err != nil {
+		t.Fatalf("json.Marshal(privateProjectedBytes) error = %v, want valid custom JSON", err)
+	}
+
+	// sourceNormalized marks SDK-struct values: a source record normalizes
+	// them through their JSON encoding (to a map), and a map in a leaf field
+	// is dropped, so the source path drops them instead of failing. Projected
+	// output must still never hold a Go struct.
+	tests := []struct {
+		name             string
+		value            any
+		sourceNormalized bool
+	}{
+		{name: "cyclic pointer", value: cyclePointer},
+		{name: "cyclic map", value: cycleMap},
+		{name: "cyclic slice", value: cycleSlice},
+		{name: "mutable unexported field", value: privateBytes, sourceNormalized: true},
+		{name: "exported struct fields", value: exportedStruct, sourceNormalized: true},
+		{name: "ordinary pointer", value: &pointerTarget},
+		{name: "defined pointer", value: definedPointer},
+		{name: "typed map", value: map[string][]byte{"payload": {1, 2, 3}}},
+		{name: "nested typed slice", value: [][]bool{{true, false}}},
+		{name: "complex number", value: complex(1, 2)},
+		{name: "nan", value: math.NaN()},
+		{name: "positive infinity", value: math.Inf(1)},
+		{name: "negative infinity", value: math.Inf(-1)},
+		{name: "invalid json number", value: json.Number("not-a-number")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := resources.ResourceSpec{
+				Product:    resources.ProductZIA,
+				Name:       "composite-test",
+				Operations: resources.ListOperations(),
+				Fields: []resources.FieldSpec{{
+					Name:           "id",
+					Classification: resources.ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				}},
+			}
+			input := []map[string]any{{
+				"id": tt.value,
+			}}
+			projected := resources.NewProjectedRecordsFromProjectedFields(input)
+			if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, input[0]); !errors.Is(err, resources.ErrInvalidProjectedValue) {
+				t.Fatalf("AssertRenderedSubset(%s) error = %v, want ErrInvalidProjectedValue", tt.name, err)
+			}
+			if err := resources.VerifyProjectedRecords(spec, redact.ModeStandard, projected); !errors.Is(err, resources.ErrInvalidProjectedValue) {
+				t.Fatalf("VerifyProjectedRecords(%s) error = %v, want ErrInvalidProjectedValue", tt.name, err)
+			}
+			if _, err := resources.NewVerifiedProjectedRecordsFromProjectedFields(
+				spec,
+				redact.ModeStandard,
+				input,
+			); !errors.Is(err, resources.ErrInvalidProjectedValue) {
+				t.Fatalf("NewVerifiedProjectedRecordsFromProjectedFields(%s) error = %v, want ErrInvalidProjectedValue", tt.name, err)
+			}
+			sourceProjected, _, err := resources.ProjectRecordsAndVerify(
+				spec,
+				redact.ModeStandard,
+				[]resources.SourceRecord{resources.NewSourceRecord(input[0])},
+			)
+			switch {
+			case tt.sourceNormalized:
+				if err != nil {
+					t.Fatalf("ProjectRecordsAndVerify(%s) error = %v, want the normalized struct dropped from the leaf", tt.name, err)
+				}
+				if _, ok := sourceProjected.Records()[0].Value("id"); ok {
+					t.Fatalf("ProjectRecordsAndVerify(%s) rendered a struct in a leaf field", tt.name)
+				}
+			case !errors.Is(err, resources.ErrInvalidProjectedValue):
+				t.Fatalf("ProjectRecordsAndVerify(%s) error = %v, want ErrInvalidProjectedValue", tt.name, err)
+			}
+			body, err := json.Marshal(projected)
+			if !errors.Is(err, resources.ErrInvalidProjectedValue) {
+				t.Fatalf("json.Marshal(ProjectedRecords with %s) error = %v, want ErrInvalidProjectedValue", tt.name, err)
+			}
+			if strings.Contains(string(body), "private mutable bytes") ||
+				strings.Contains(string(body), "STRUCT_SECRET_CANARY_MUST_NOT_RENDER") {
+				t.Fatalf("json.Marshal(ProjectedRecords with %s) body = %q, want no unsupported value bytes", tt.name, body)
+			}
+		})
+	}
+}
+
+func TestNewVerifiedProjectedRecordsFromProjectedFieldsReconstructsAndCopies(t *testing.T) {
+	t.Parallel()
+
+	spec := verifiedProjectedFieldsSpec()
+	input := []map[string]any{{
+		"id":          "123",
+		"name":        "HQ",
+		"ipAddresses": []any{"192.0.2.10"},
+	}}
+
+	projected, err := resources.NewVerifiedProjectedRecordsFromProjectedFields(spec, redact.ModeStandard, input)
+	if err != nil {
+		t.Fatalf("NewVerifiedProjectedRecordsFromProjectedFields(valid) error = %v, want nil", err)
+	}
+	input[0]["name"] = "mutated"
+	input[0]["ipAddresses"].([]any)[0] = "mutated"
+
+	records := projected.Records()
+	if len(records) != 1 {
+		t.Fatalf("NewVerifiedProjectedRecordsFromProjectedFields(valid) records = %d, want 1", len(records))
+	}
+	fields := records[0].Fields()
+	want := map[string]any{
+		"id":          "123",
+		"name":        "HQ",
+		"ipAddresses": []any{"192.0.2.10"},
+	}
+	if !reflect.DeepEqual(fields, want) {
+		t.Fatalf("NewVerifiedProjectedRecordsFromProjectedFields(valid) fields = %#v, want %#v", fields, want)
+	}
+
+	fields["name"] = "changed again"
+	if got, _ := records[0].Value("name"); got != "HQ" {
+		t.Fatalf("ProjectedRecord.Value(name) after mutating Fields copy = %v, want HQ", got)
+	}
+}
+
+func TestNewVerifiedProjectedRecordsFromProjectedFieldsRejectsUnsafeFields(t *testing.T) {
+	t.Parallel()
+
+	spec := verifiedProjectedFieldsSpec()
+	tests := []struct {
+		name    string
+		mode    redact.Mode
+		records []map[string]any
+	}{
+		{
+			name:    "unknown field",
+			mode:    redact.ModeStandard,
+			records: []map[string]any{{"id": "123", "raw_secret": "must-not-render"}},
+		},
+		{
+			name:    "secret field",
+			mode:    redact.ModeStandard,
+			records: []map[string]any{{"id": "123", "token": "must-not-render"}},
+		},
+		{
+			name:    "field excluded by active redaction mode",
+			mode:    redact.ModeShare,
+			records: []map[string]any{{"id": "123", "standardOnly": "internal-only"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := resources.NewVerifiedProjectedRecordsFromProjectedFields(spec, tt.mode, tt.records)
+			if !errors.Is(err, resources.ErrUnexpectedField) {
+				t.Fatalf("NewVerifiedProjectedRecordsFromProjectedFields(%s) error = %v, want ErrUnexpectedField", tt.name, err)
+			}
+		})
+	}
+}
+
+func TestVerifyProjectedRecordsAcceptsSafeAndRejectsUnsafeCollections(t *testing.T) {
+	t.Parallel()
+
+	spec := verifiedProjectedFieldsSpec()
+	safe := resources.NewProjectedRecordsFromProjectedFields([]map[string]any{{
+		"id": "123", "name": "HQ",
+	}})
+	if err := resources.VerifyProjectedRecords(spec, redact.ModeStandard, safe); err != nil {
+		t.Fatalf("VerifyProjectedRecords(safe) error = %v, want nil", err)
+	}
+
+	unsafe := resources.NewProjectedRecordsFromProjectedFields([]map[string]any{{
+		"id": "123", "raw_secret": "must-not-render",
+	}})
+	if err := resources.VerifyProjectedRecords(spec, redact.ModeStandard, unsafe); !errors.Is(err, resources.ErrUnexpectedField) {
+		t.Fatalf("VerifyProjectedRecords(unsafe) error = %v, want ErrUnexpectedField", err)
+	}
+}
+
+func TestEffectiveFieldsNarrowsValidatesAndCannotWiden(t *testing.T) {
+	t.Parallel()
+
+	spec := narrowingSpec()
+	got, err := resources.EffectiveFields(spec, redact.ModeStandard, nil)
+	if err != nil {
+		t.Fatalf("EffectiveFields(default) error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(got, []string{"id", "name", "country", "ipAddresses", "authRequired"}) {
+		t.Fatalf("EffectiveFields(default) = %#v, want standard renderable fields", got)
+	}
+
+	got, err = resources.EffectiveFields(spec, redact.ModeStandard, []string{"name", "id"})
+	if err != nil {
+		t.Fatalf("EffectiveFields(narrowed) error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(got, []string{"name", "id"}) {
+		t.Fatalf("EffectiveFields(narrowed) = %#v, want requested order", got)
+	}
+
+	got, err = resources.EffectiveFields(spec, redact.ModeStandard, []string{"token"})
+	if err != nil {
+		t.Fatalf("EffectiveFields(secret) error = %v, want nil", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("EffectiveFields(secret) = %#v, want empty narrow result", got)
+	}
+
+	_, err = resources.EffectiveFields(spec, redact.ModeStandard, []string{"nope"})
+	if !errors.Is(err, resources.ErrUnknownField) {
+		t.Fatalf("EffectiveFields(unknown) error = %v, want ErrUnknownField", err)
+	}
+}
+
+func TestValidateNarrowOptionsRejectsUnknownFiltersBeforeProjection(t *testing.T) {
+	t.Parallel()
+
+	spec := narrowingSpec()
+	if err := resources.ValidateNarrowOptions(spec, resources.NarrowOptions{
+		Fields: []string{"token"},
+		Filters: []resources.ProjectedFilter{
+			{Field: "country", Value: "US"},
+		},
+	}); err != nil {
+		t.Fatalf("ValidateNarrowOptions(known fields/filter) error = %v, want nil", err)
+	}
+
+	err := resources.ValidateNarrowOptions(spec, resources.NarrowOptions{
+		Filters: []resources.ProjectedFilter{{Field: "notAField", Value: "HQ"}},
+	})
+	if _, ok := errors.AsType[resources.UnknownFilterError](err); !ok {
+		t.Fatalf("ValidateNarrowOptions(unknown filter) error = %T %v, want UnknownFilterError", err, err)
+	}
+	if !errors.Is(err, resources.ErrUnknownField) {
+		t.Fatalf("ValidateNarrowOptions(unknown filter) error = %v, want ErrUnknownField", err)
+	}
+	if got, want := err.Error(), `--filter: "notAField" is not a field of zia/locations`; got != want {
+		t.Fatalf("ValidateNarrowOptions(unknown filter) error = %q, want %q", got, want)
+	}
+}
+
+func TestNarrowProjectedRecordsFiltersBeforeFieldSelection(t *testing.T) {
+	t.Parallel()
+
+	spec := narrowingSpec()
+	records := projectedRecordsFromMaps(t, spec,
+		map[string]any{"id": 1, "name": "HQ", "country": "US", "ipAddresses": []any{"192.0.2.10"}, "authRequired": true},
+		map[string]any{"id": 2, "name": "Branch East", "country": "US", "ipAddresses": []any{"203.0.113.5"}, "authRequired": false},
+		map[string]any{"id": 3, "name": "Branch West", "country": "DE", "ipAddresses": []any{"192.0.2.99"}, "authRequired": true},
+	)
+
+	got, err := resources.NarrowProjectedRecords(spec, redact.ModeStandard, records, resources.NarrowOptions{
+		Fields: []string{"name"},
+		Filters: []resources.ProjectedFilter{
+			{Field: "country", Value: "DE"},
+			{Field: "name", Value: "branch", Substring: true},
+		},
+		Search: "192.0.2",
+	})
+	if err != nil {
+		t.Fatalf("NarrowProjectedRecords(filter/search/fields) error = %v, want nil", err)
+	}
+	projected := got.Records()
+	if len(projected) != 1 {
+		t.Fatalf("NarrowProjectedRecords(filter/search/fields) records = %d, want 1", len(projected))
+	}
+	want := map[string]any{"name": "Branch West"}
+	if fields := projected[0].Fields(); !reflect.DeepEqual(fields, want) {
+		t.Fatalf("NarrowProjectedRecords(filter/search/fields) fields = %#v, want %#v", fields, want)
+	}
+}
+
+func TestNarrowProjectedRecordsRejectsUnknownFilter(t *testing.T) {
+	t.Parallel()
+
+	spec := narrowingSpec()
+	records := projectedRecordsFromMaps(t, spec, map[string]any{"id": 1, "name": "HQ"})
+	_, err := resources.NarrowProjectedRecords(spec, redact.ModeStandard, records, resources.NarrowOptions{
+		Filters: []resources.ProjectedFilter{{Field: "notAField", Value: "HQ"}},
+	})
+	if !errors.Is(err, resources.ErrUnknownField) {
+		t.Fatalf("NarrowProjectedRecords(unknown filter) error = %v, want ErrUnknownField", err)
+	}
+}
+
+func TestNestedFilterPathsMatchListElements(t *testing.T) {
+	t.Parallel()
+
+	spec := nestedNarrowingSpec()
+	records := projectedRecordsFromMaps(t, spec,
+		map[string]any{"id": 1, "name": "alice", "groups": []any{
+			map[string]any{"id": 10, "name": "APP_DEV", "comments": "pasted note"},
+		}, "tags": []any{"dev"}},
+		map[string]any{"id": 2, "name": "bob", "groups": []any{
+			map[string]any{"id": 11, "name": "APP_INFOSEC_DEV"},
+			map[string]any{"id": 12, "name": "Ops"},
+		}, "tags": []any{"dev-ops", "ops"}},
+		map[string]any{"id": 3, "name": "carol", "owner": map[string]any{
+			"manager": map[string]any{"name": "dave"},
+		}},
+	)
+
+	for _, tc := range []struct {
+		name   string
+		filter resources.ProjectedFilter
+		want   []string
+	}{
+		{"exact element name", resources.ProjectedFilter{Field: "groups.name", Value: "APP_DEV"}, []string{"alice"}},
+		{"exact element id", resources.ProjectedFilter{Field: "groups.id", Value: "12"}, []string{"bob"}},
+		{"substring element name", resources.ProjectedFilter{Field: "groups.name", Value: "_dev", Substring: true}, []string{"alice", "bob"}},
+		{"exact never spans elements", resources.ProjectedFilter{Field: "groups.name", Value: "APP_INFOSEC_DEV,Ops"}, nil},
+		{"substring never matches key names", resources.ProjectedFilter{Field: "groups.name", Value: "name", Substring: true}, nil},
+		{"top-level list keeps whole-value matching", resources.ProjectedFilter{Field: "tags", Value: "dev-ops,ops"}, []string{"bob"}},
+		// A top-level list also matches any one element exactly, so a flat id
+		// list (urlCategories) supports membership filters.
+		{"top-level list matches one element", resources.ProjectedFilter{Field: "tags", Value: "ops"}, []string{"bob"}},
+		{"top-level element match is exact", resources.ProjectedFilter{Field: "tags", Value: "dev"}, []string{"alice"}},
+		{"two-level object path", resources.ProjectedFilter{Field: "owner.manager.name", Value: "dave"}, []string{"carol"}},
+	} {
+		got := resources.FilterProjectedRecords(records, []resources.ProjectedFilter{tc.filter}, "")
+		var names []string
+		for _, record := range got.Records() {
+			names = append(names, record.Fields()["name"].(string))
+		}
+		if !reflect.DeepEqual(names, tc.want) {
+			t.Errorf("%s: FilterProjectedRecords(%+v) = %v, want %v", tc.name, tc.filter, names, tc.want)
+		}
+	}
+}
+
+// TestRepeatedNestedFiltersMatchIndependently pins record-level AND: each
+// dotted filter may be satisfied by a different list element.
+func TestRepeatedNestedFiltersMatchIndependently(t *testing.T) {
+	t.Parallel()
+
+	spec := nestedNarrowingSpec()
+	records := projectedRecordsFromMaps(t, spec,
+		map[string]any{"id": 1, "name": "alice", "groups": []any{
+			map[string]any{"id": 10, "name": "APP_DEV"},
+			map[string]any{"id": 11, "name": "Ops"},
+		}},
+	)
+	got := resources.FilterProjectedRecords(records, []resources.ProjectedFilter{
+		{Field: "groups.name", Value: "APP_DEV"},
+		{Field: "groups.id", Value: "11"},
+	}, "")
+	if got.Len() != 1 {
+		t.Fatalf("FilterProjectedRecords(groups.name=APP_DEV, groups.id=11) records = %d, want 1", got.Len())
+	}
+}
+
+func TestNestedFilterPathsValidateAgainstNestedCatalog(t *testing.T) {
+	t.Parallel()
+
+	spec := nestedNarrowingSpec()
+	for _, name := range []string{"groups.name", "groups.id", "groups.comments", "owner.manager.name", "owner"} {
+		if err := resources.ValidateNarrowOptions(spec, resources.NarrowOptions{
+			Filters: []resources.ProjectedFilter{{Field: name, Value: "x"}},
+		}); err != nil {
+			t.Errorf("ValidateNarrowOptions(%q) error = %v, want nil", name, err)
+		}
+	}
+	for _, name := range []string{"groups.notAField", "name.id", "groups.", ".groups", "groups..name", "tags.name", "owner.manager", "owner.manager.name.x"} {
+		err := resources.ValidateNarrowOptions(spec, resources.NarrowOptions{
+			Filters: []resources.ProjectedFilter{{Field: name, Value: "x"}},
+		})
+		if _, ok := errors.AsType[resources.UnknownFilterError](err); !ok {
+			t.Errorf("ValidateNarrowOptions(%q) error = %T %v, want UnknownFilterError", name, err, err)
+		}
+	}
+	// --fields takes the same dotted paths, and may also stop at an object.
+	for _, name := range []string{"groups.name", "groups.id", "owner.manager", "owner.manager.name", "owner"} {
+		if err := resources.ValidateNarrowOptions(spec, resources.NarrowOptions{Fields: []string{name}}); err != nil {
+			t.Errorf("ValidateNarrowOptions(fields %q) error = %v, want nil", name, err)
+		}
+	}
+	for _, name := range []string{"groups.notAField", "name.id", "groups.", ".groups", "groups..name", "tags.name", "owner.manager.name.x"} {
+		if err := resources.ValidateNarrowOptions(spec, resources.NarrowOptions{Fields: []string{name}}); !errors.Is(err, resources.ErrUnknownField) {
+			t.Errorf("ValidateNarrowOptions(fields %q) error = %v, want ErrUnknownField", name, err)
+		}
+	}
+}
+
+// TestSelectDottedPaths pins --fields paths: a path keeps each object along it
+// with only the selected keys, narrows every list element (keeping elements
+// that lack the key as {} so positions survive), and a whole-field selection
+// wins over paths beneath it in either order.
+func TestSelectDottedPaths(t *testing.T) {
+	t.Parallel()
+
+	spec := nestedNarrowingSpec()
+	records := projectedRecordsFromMaps(t, spec,
+		map[string]any{"id": 1, "name": "alice", "tags": []string{"a"}, "groups": []any{
+			map[string]any{"id": 10, "name": "APP_DEV", "comments": "c"},
+			map[string]any{"name": "no-id"},
+		}, "owner": map[string]any{"manager": map[string]any{"name": "bob"}}},
+		map[string]any{"id": 2, "name": "carol"},
+	)
+	for _, tc := range []struct {
+		keys []string
+		want []string
+	}{
+		{
+			keys: []string{"name", "groups.id", "owner.manager.name"},
+			want: []string{
+				`{"groups":[{"id":10},{}],"name":"alice","owner":{"manager":{"name":"bob"}}}`,
+				`{"name":"carol"}`,
+			},
+		},
+		{
+			keys: []string{"groups.id", "groups.name"},
+			want: []string{`{"groups":[{"id":10,"name":"APP_DEV"},{"name":"no-id"}]}`, `{}`},
+		},
+		{
+			keys: []string{"groups", "groups.id"},
+			want: []string{`{"groups":[{"comments":"c","id":10,"name":"APP_DEV"},{"name":"no-id"}]}`, `{}`},
+		},
+		{
+			keys: []string{"groups.id", "groups"},
+			want: []string{`{"groups":[{"comments":"c","id":10,"name":"APP_DEV"},{"name":"no-id"}]}`, `{}`},
+		},
+		{
+			keys: []string{"owner.manager"},
+			want: []string{`{"owner":{"manager":{"name":"bob"}}}`, `{}`},
+		},
+	} {
+		got := records.Select(tc.keys)
+		var rendered []string
+		for _, record := range got.Records() {
+			data, err := json.Marshal(record)
+			if err != nil {
+				t.Fatalf("Marshal error = %v", err)
+			}
+			rendered = append(rendered, string(data))
+		}
+		if !slices.Equal(rendered, tc.want) {
+			t.Errorf("Select(%v) = %v, want %v", tc.keys, rendered, tc.want)
+		}
+	}
+}
+
+func TestProjectedPathValue(t *testing.T) {
+	t.Parallel()
+
+	fields := map[string]any{
+		"name": "alice",
+		"groups": []any{
+			map[string]any{"id": 10},
+			map[string]any{"name": "no-id"},
+			map[string]any{"id": 12},
+		},
+		"owner": map[string]any{"manager": map[string]any{"name": "bob"}},
+		"none":  []any{map[string]any{}},
+	}
+	for _, tc := range []struct {
+		path   string
+		want   any
+		wantOK bool
+	}{
+		{"name", "alice", true},
+		{"groups.id", []any{10, 12}, true},
+		{"owner.manager.name", "bob", true},
+		{"owner.manager", map[string]any{"name": "bob"}, true},
+		{"owner.peer", nil, false},
+		{"missing", nil, false},
+		{"none.id", nil, false},
+		{"name.x", nil, false},
+	} {
+		got, ok := resources.ProjectedPathValue(fields, tc.path)
+		if ok != tc.wantOK || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("ProjectedPathValue(%q) = %#v, %v; want %#v, %v", tc.path, got, ok, tc.want, tc.wantOK)
+		}
+	}
+}
+
+// TestEffectiveFieldsKeepsOnlyRenderedPaths pins that a dotted --fields path
+// cannot widen output: it is kept only where every field along it renders.
+func TestEffectiveFieldsKeepsOnlyRenderedPaths(t *testing.T) {
+	t.Parallel()
+
+	spec := nestedNarrowingSpec()
+	requested := []string{"name", "groups.id", "groups.name", "owner.manager.name"}
+	for _, tc := range []struct {
+		mode redact.Mode
+		want []string
+	}{
+		{redact.ModeStandard, []string{"name", "groups.id", "groups.name", "owner.manager.name"}},
+		{redact.ModeShare, []string{"name", "groups.id", "owner.manager.name"}},
+		{redact.ModeParanoid, []string{"name", "owner.manager.name"}},
+	} {
+		got, err := resources.EffectiveFields(spec, tc.mode, requested)
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Errorf("EffectiveFields(%s) = %v, %v; want %v, nil", tc.mode, got, err, tc.want)
+		}
+	}
+}
+
+func TestResourceSpecRejectsDottedFieldNames(t *testing.T) {
+	t.Parallel()
+
+	dotted := resources.FieldSpec{Name: "idp.name", Classification: resources.ClassOperational, AllowedModes: allTestModes()}
+	for _, tc := range []struct {
+		name string
+		add  func(*resources.ResourceSpec)
+	}{
+		{"top level", func(spec *resources.ResourceSpec) { spec.Fields = append(spec.Fields, dotted) }},
+		{"nested", func(spec *resources.ResourceSpec) {
+			spec.Fields[3].Fields = append(spec.Fields[3].Fields, dotted)
+		}},
+		{"two levels deep", func(spec *resources.ResourceSpec) {
+			spec.Fields[4].Fields[0].Fields = append(spec.Fields[4].Fields[0].Fields, dotted)
+		}},
+	} {
+		spec := nestedNarrowingSpec()
+		tc.add(&spec)
+		if err := spec.Validate(); !errors.Is(err, resources.ErrInvalidResourceSpec) {
+			t.Errorf("%s: Validate(field idp.name) error = %v, want ErrInvalidResourceSpec", tc.name, err)
+		}
+	}
+}
+
+func TestNestedFilterPathsCannotReachDroppedFields(t *testing.T) {
+	t.Parallel()
+
+	spec := nestedNarrowingSpec()
+	source := []resources.SourceRecord{resources.NewSourceRecord(map[string]any{
+		"id": 1, "name": "alice", "groups": []any{
+			map[string]any{"id": 10, "name": "APP_DEV", "comments": "pasted note"},
+		},
+	})}
+	// Share mode drops groups.comments and groups.name; paranoid drops groups.
+	for _, tc := range []struct {
+		mode   redact.Mode
+		filter resources.ProjectedFilter
+	}{
+		{redact.ModeShare, resources.ProjectedFilter{Field: "groups.comments", Value: "pasted", Substring: true}},
+		{redact.ModeShare, resources.ProjectedFilter{Field: "groups.name", Value: "APP_DEV"}},
+		{redact.ModeParanoid, resources.ProjectedFilter{Field: "groups.id", Value: "10"}},
+	} {
+		projected, _, err := resources.ProjectRecordsAndVerify(spec, tc.mode, source)
+		if err != nil {
+			t.Fatalf("ProjectRecordsAndVerify(%s) error = %v", tc.mode, err)
+		}
+		if got := resources.FilterProjectedRecords(projected, []resources.ProjectedFilter{tc.filter}, ""); got.Len() != 0 {
+			t.Errorf("%s: FilterProjectedRecords(%+v) = %#v, want no records", tc.mode, tc.filter, got.Records())
+		}
+	}
+}
+
+func TestFilterProjectedRecordsCannotReachDroppedFields(t *testing.T) {
+	t.Parallel()
+
+	spec := narrowingSpec()
+	records := projectedRecordsFromMaps(t, spec,
+		map[string]any{"id": 1, "name": "HQ", "token": "secret-token"},
+	)
+
+	got := resources.FilterProjectedRecords(records, []resources.ProjectedFilter{
+		{Field: "token", Value: "secret-token"},
+	}, "")
+	if len(got.Records()) != 0 {
+		t.Fatalf("FilterProjectedRecords(secret field) records = %#v, want empty", got.Records())
+	}
+
+	got = resources.FilterProjectedRecords(records, nil, "secret-token")
+	if len(got.Records()) != 0 {
+		t.Fatalf("FilterProjectedRecords(secret search) records = %#v, want empty", got.Records())
+	}
+}
+
+func TestFilterProjectedRecordsPreservesDefensiveBoundaries(t *testing.T) {
+	t.Parallel()
+
+	spec := narrowingSpec()
+	records := projectedRecordsFromMaps(t, spec,
+		map[string]any{
+			"id":          1,
+			"name":        "Branch East",
+			"country":     "US",
+			"ipAddresses": []any{"192.0.2.10"},
+		},
+	)
+	filtered := resources.FilterProjectedRecords(records, []resources.ProjectedFilter{{
+		Field:     "name",
+		Value:     "branch",
+		Substring: true,
+	}}, "")
+	if got := filtered.Len(); got != 1 {
+		t.Fatalf("FilterProjectedRecords(branch) records = %d, want 1", got)
+	}
+
+	fields := filtered.Records()[0].Fields()
+	fields["name"] = "mutated"
+	fields["ipAddresses"].([]any)[0] = "mutated"
+	want := map[string]any{
+		"id":          1,
+		"name":        "Branch East",
+		"country":     "US",
+		"ipAddresses": []any{"192.0.2.10"},
+	}
+	if got := filtered.Records()[0].Fields(); !reflect.DeepEqual(got, want) {
+		t.Errorf("filtered record after Fields mutation = %#v, want %#v", got, want)
+	}
+	if got := records.Records()[0].Fields(); !reflect.DeepEqual(got, want) {
+		t.Errorf("source record after filtered Fields mutation = %#v, want %#v", got, want)
+	}
+}
+
+func TestProjectedValueMatchingAndPresentationTextStaySeparate(t *testing.T) {
+	t.Parallel()
+
+	if got := resources.FormatProjectedValue("a\nb"); got != "a b" {
+		t.Fatalf("FormatProjectedValue(string newline) = %q, want %q", got, "a b")
+	}
+	if got := resources.FormatProjectedValue([]any{"x\ty", "z"}); got != "x y,z" {
+		t.Fatalf("FormatProjectedValue([]any) = %q, want %q", got, "x y,z")
+	}
+	const formatText = "a\u200bb\u202ec"
+	if got := resources.FormatProjectedValue(formatText); got != formatText {
+		t.Fatalf("FormatProjectedValue(format text) = %q, want matching text unchanged", got)
+	}
+	const rawText = "a\nb\u200bc"
+	if got := resources.ProjectedValueText(rawText); got != rawText {
+		t.Fatalf("ProjectedValueText(raw text) = %q, want lossless flattened text", got)
+	}
+}
+
 func TestResourceSpecEffectiveShapeDefaultsToList(t *testing.T) {
 	t.Parallel()
 
@@ -301,6 +1141,150 @@ func TestProjectRecordScansAllowedStringValues(t *testing.T) {
 	}
 }
 
+func TestProjectRecordScansNamedStringValues(t *testing.T) {
+	t.Parallel()
+
+	record := resources.NewSourceRecord(map[string]any{
+		"id": namedProjectedString("psk=named-scalar-secret-canary"),
+		"description": namedProjectedStrings{
+			"Authorization: Bearer named-slice-secret-canary",
+		},
+	})
+	got, report, err := resources.ProjectRecord(testSpec(), redact.ModeStandard, record)
+	if err != nil {
+		t.Fatalf("ProjectRecord(named string values) error = %v, want nil", err)
+	}
+	body, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("json.Marshal(ProjectRecord(named string values)) error = %v, want nil", err)
+	}
+	for _, forbidden := range []string{"named-scalar-secret-canary", "named-slice-secret-canary"} {
+		if strings.Contains(string(body), forbidden) {
+			t.Errorf("ProjectRecord(named string values) JSON = %s, want no %q", body, forbidden)
+		}
+	}
+	if value, ok := got.Value("id"); !ok {
+		t.Error("ProjectRecord(named string scalar) id missing, want redacted string")
+	} else if _, ok := value.(string); !ok {
+		t.Errorf("ProjectRecord(named string scalar) id = %T, want normalized string", value)
+	}
+	if value, ok := got.Value("description"); !ok {
+		t.Error("ProjectRecord(named string slice) description missing, want redacted []string")
+	} else if _, ok := value.([]string); !ok {
+		t.Errorf("ProjectRecord(named string slice) description = %T, want normalized []string", value)
+	}
+	for _, field := range []string{"description", "id"} {
+		if !containsString(report.RedactedFields, field) {
+			t.Errorf("ProjectRecord(named string values).RedactedFields = %#v, want %q", report.RedactedFields, field)
+		}
+	}
+}
+
+func TestMethodBearingSourceScalarsAreNormalizedBeforeProjection(t *testing.T) {
+	t.Parallel()
+
+	spec := resources.ResourceSpec{
+		Product:    resources.ProductZIA,
+		Name:       "method-bearing-scalars",
+		Operations: resources.ListOperations(),
+		Fields: []resources.FieldSpec{{
+			Name:           "id",
+			Classification: resources.ClassOperational,
+			AllowedModes:   []redact.Mode{redact.ModeStandard},
+		}},
+	}
+	tests := []struct {
+		name     string
+		value    any
+		want     any
+		wantText string
+	}{
+		{name: "defined integer", value: methodProjectedInt(7), want: int(7), wantText: "7"},
+		{name: "defined boolean", value: methodProjectedBool(true), want: true, wantText: "true"},
+		{
+			name:     "defined integer slice",
+			value:    methodProjectedInts{1, 2},
+			want:     []int{1, 2},
+			wantText: "[1 2]",
+		},
+		{
+			name:     "slice of defined integers",
+			value:    []methodProjectedInt{3, 4},
+			want:     []int{3, 4},
+			wantText: "[3 4]",
+		},
+	}
+	renderer := output.NewRenderer(redact.New(redact.ModeStandard))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := map[string]any{"id": tt.value}
+			if err := resources.AssertRenderedSubset(spec, redact.ModeStandard, raw); !errors.Is(err, resources.ErrInvalidProjectedValue) {
+				t.Fatalf("AssertRenderedSubset(%s) error = %v, want ErrInvalidProjectedValue", tt.name, err)
+			}
+			if _, err := resources.NewVerifiedProjectedRecordsFromProjectedFields(
+				spec,
+				redact.ModeStandard,
+				[]map[string]any{raw},
+			); !errors.Is(err, resources.ErrInvalidProjectedValue) {
+				t.Fatalf("NewVerifiedProjectedRecordsFromProjectedFields(%s) error = %v, want ErrInvalidProjectedValue", tt.name, err)
+			}
+
+			unchecked := resources.NewProjectedRecordsFromProjectedFields([]map[string]any{raw})
+			body, err := json.Marshal(unchecked)
+			if !errors.Is(err, resources.ErrInvalidProjectedValue) {
+				t.Fatalf("json.Marshal(unchecked %s) error = %v, want ErrInvalidProjectedValue", tt.name, err)
+			}
+			if strings.Contains(string(body), methodProjectedCanary) || strings.Contains(string(body), "unmodeled") {
+				t.Fatalf("json.Marshal(unchecked %s) body = %q, want no method output", tt.name, body)
+			}
+			var blockedNDJSON bytes.Buffer
+			err = renderer.WriteNDJSON(
+				&blockedNDJSON,
+				[]output.SafeJSON{unchecked.Records()[0]},
+			)
+			if !errors.Is(err, resources.ErrInvalidProjectedValue) {
+				t.Fatalf("WriteNDJSON(unchecked %s) error = %v, want ErrInvalidProjectedValue", tt.name, err)
+			}
+			if strings.Contains(blockedNDJSON.String(), methodProjectedCanary) ||
+				strings.Contains(blockedNDJSON.String(), "unmodeled") {
+				t.Fatalf("WriteNDJSON(unchecked %s) = %q, want no method output", tt.name, blockedNDJSON.String())
+			}
+
+			projected, _, err := resources.ProjectRecordAndVerify(
+				spec,
+				redact.ModeStandard,
+				resources.NewSourceRecord(raw),
+			)
+			if err != nil {
+				t.Fatalf("ProjectRecordAndVerify(%s) error = %v, want nil", tt.name, err)
+			}
+			got, ok := projected.Value("id")
+			if !ok || !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("ProjectRecordAndVerify(%s).Value(id) = %#v (present %t), want %#v", tt.name, got, ok, tt.want)
+			}
+			if gotText := fmt.Sprint(got); gotText != tt.wantText {
+				t.Fatalf("fmt.Sprint(ProjectRecordAndVerify(%s).Value(id)) = %q, want %q", tt.name, gotText, tt.wantText)
+			}
+
+			var jsonOut bytes.Buffer
+			if err := renderer.WriteJSON(&jsonOut, projected); err != nil {
+				t.Fatalf("WriteJSON(projected %s) error = %v, want nil", tt.name, err)
+			}
+			var ndjsonOut bytes.Buffer
+			if err := renderer.WriteNDJSON(&ndjsonOut, []output.SafeJSON{projected}); err != nil {
+				t.Fatalf("WriteNDJSON(projected %s) error = %v, want nil", tt.name, err)
+			}
+			for format, rendered := range map[string]string{
+				"json": jsonOut.String(), "ndjson": ndjsonOut.String(),
+			} {
+				if strings.Contains(rendered, methodProjectedCanary) || strings.Contains(rendered, "unmodeled") {
+					t.Fatalf("%s(projected %s) = %q, want no method output", format, tt.name, rendered)
+				}
+			}
+		})
+	}
+}
+
 func TestProjectRecordRedactsBareHighEntropyFreeText(t *testing.T) {
 	t.Parallel()
 
@@ -346,16 +1330,12 @@ func TestCatalogFreeTextFieldsRedactBareHighEntropyCanary(t *testing.T) {
 		{name: "bare_hex", value: "0123456789abcdef0123456789abcdef01234567"},
 	}
 	for _, spec := range resources.Catalog() {
-		spec := spec
 		for _, fieldPath := range freeTextFieldPaths(spec.Fields) {
-			fieldPath := fieldPath
 			for _, mode := range []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid} {
-				mode := mode
 				if !fieldPath.AllowedIn(mode) {
 					continue
 				}
 				for _, canary := range canaries {
-					canary := canary
 					t.Run(string(spec.Product)+"/"+spec.Name+"/"+fieldPath.Path+"/"+string(mode)+"/"+canary.name, func(t *testing.T) {
 						t.Parallel()
 
@@ -382,6 +1362,9 @@ func TestCatalogFreeTextFieldsRedactBareHighEntropyCanary(t *testing.T) {
 }
 
 func TestCatalogRenderedFieldsRedactSecretShapes(t *testing.T) {
+	if raceEnabled {
+		t.Skip("skipping under -race: the sweep's concurrency is covered by the catalog canary sweep, and its 116,000 cases dominate the race run")
+	}
 	t.Parallel()
 
 	secretShapes := []struct {
@@ -421,60 +1404,90 @@ func TestCatalogRenderedFieldsRedactSecretShapes(t *testing.T) {
 		},
 		{
 			name:      "private_key",
-			value:     "-----BEGIN PRIVATE KEY-----\nshape-test-private-key-canary\n-----END PRIVATE KEY-----",
+			value:     fakePrivateKeyBlock("shape-test-private-key-canary"),
 			forbidden: []string{"shape-test-private-key-canary"},
+		},
+		{
+			name:      "generic_label_short_key",
+			value:     "POC key: " + "Sh4peT3stK3yC4nary9",
+			forbidden: []string{"Sh4peT3stK3yC4nary9"},
+		},
+		{
+			name:      "bare_bearer",
+			value:     "Bearer Sh4peT3stB34rer7",
+			forbidden: []string{"Sh4peT3stB34rer7"},
+		},
+		{
+			name:      "labeled_uuid_key",
+			value:     "trial token: " + "3f1c9a2e-7b4d-4e8a-9c61-2d5f8e0b7a34",
+			forbidden: []string{"3f1c9a2e-7b4d-4e8a-9c61-2d5f8e0b7a34"},
 		},
 	}
 
-	// This net proves the scanner catches known self-describing secret shapes
-	// plus high-entropy rendered tokens. Low-entropy unlabeled secrets remain a
-	// naming/classification problem, not something a value scanner can infer.
+	// This net proves the scanner catches known self-describing secret shapes,
+	// generically labeled pasted keys, and high-entropy rendered tokens.
+	// Standard-mode display names keep main's ScanString, so unlabeled
+	// high-entropy tokens in names are not detected by design. Low-entropy
+	// unlabeled secrets remain a naming/classification problem, not something a
+	// value scanner can infer.
+	type shapeCase struct {
+		fieldPath freeTextFieldPath
+		mode      redact.Mode
+		shape     int
+	}
+	// The catalog yields over 100,000 cases. Each resource is one parallel
+	// subtest that runs its cases in turn: a parallel subtest per case keeps
+	// every one alive until all finish, which under -race ran a 7 GB CI runner
+	// out of memory.
 	cases := 0
 	for _, spec := range resources.Catalog() {
-		spec := spec
+		var specCases []shapeCase
 		for _, fieldPath := range catalogLeafFieldPaths(spec.Fields) {
-			fieldPath := fieldPath
 			for _, mode := range []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid} {
-				mode := mode
 				if !fieldPath.AllowedIn(mode) {
 					continue
 				}
-				for _, shape := range secretShapes {
-					shape := shape
+				for i, shape := range secretShapes {
 					if shape.name == "bare_high_entropy" &&
 						mode == redact.ModeStandard &&
 						resources.IsStructuredDisplayNameField(fieldPath.Field()) {
 						continue
 					}
-					cases++
-					t.Run(string(spec.Product)+"/"+spec.Name+"/"+fieldPath.Path+"/"+string(mode)+"/"+shape.name, func(t *testing.T) {
-						t.Parallel()
-
-						record := resources.NewSourceRecord(fieldPath.SourceRecord(shape.value))
-						got, report, err := resources.ProjectRecord(spec, mode, record)
-						if err != nil {
-							t.Fatalf("ProjectRecord(%s/%s %s %s) error = %v, want nil", spec.Product, spec.Name, mode, fieldPath.Path, err)
-						}
-						value := fieldPath.ProjectedString(t, got.Fields(), spec, mode)
-						if !containsString(report.RedactedFields, fieldPath.Path) {
-							t.Errorf("ProjectRecord(%s/%s %s).RedactedFields = %#v, want %q", spec.Product, spec.Name, mode, report.RedactedFields, fieldPath.Path)
-						}
-						body, err := json.Marshal(got.Fields())
-						if err != nil {
-							t.Fatalf("json.Marshal(ProjectRecord(%s/%s %s)) error = %v, want nil", spec.Product, spec.Name, mode, err)
-						}
-						if !strings.Contains(value, "<REDACTED:") {
-							t.Errorf("ProjectRecord(%s/%s %s %s) redaction marker absent for %s shape", spec.Product, spec.Name, mode, fieldPath.Path, shape.name)
-						}
-						for _, forbidden := range shape.forbidden {
-							if strings.Contains(string(body), forbidden) {
-								t.Errorf("ProjectRecord(%s/%s %s %s) JSON contains %s canary material, want redacted", spec.Product, spec.Name, mode, fieldPath.Path, shape.name)
-							}
-						}
-					})
+					specCases = append(specCases, shapeCase{fieldPath: fieldPath, mode: mode, shape: i})
 				}
 			}
 		}
+		cases += len(specCases)
+		t.Run(string(spec.Product)+"/"+spec.Name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, c := range specCases {
+				fieldPath, mode, shape := c.fieldPath, c.mode, secretShapes[c.shape]
+				t.Run(fieldPath.Path+"/"+string(mode)+"/"+shape.name, func(t *testing.T) {
+					record := resources.NewSourceRecord(fieldPath.SourceRecord(shape.value))
+					got, report, err := resources.ProjectRecord(spec, mode, record)
+					if err != nil {
+						t.Fatalf("ProjectRecord(%s/%s %s %s) error = %v, want nil", spec.Product, spec.Name, mode, fieldPath.Path, err)
+					}
+					value := fieldPath.ProjectedString(t, got.Fields(), spec, mode)
+					if !containsString(report.RedactedFields, fieldPath.Path) {
+						t.Errorf("ProjectRecord(%s/%s %s).RedactedFields = %#v, want %q", spec.Product, spec.Name, mode, report.RedactedFields, fieldPath.Path)
+					}
+					body, err := json.Marshal(got.Fields())
+					if err != nil {
+						t.Fatalf("json.Marshal(ProjectRecord(%s/%s %s)) error = %v, want nil", spec.Product, spec.Name, mode, err)
+					}
+					if !strings.Contains(value, "<REDACTED:") {
+						t.Errorf("ProjectRecord(%s/%s %s %s) redaction marker absent for %s shape", spec.Product, spec.Name, mode, fieldPath.Path, shape.name)
+					}
+					for _, forbidden := range shape.forbidden {
+						if strings.Contains(string(body), forbidden) {
+							t.Errorf("ProjectRecord(%s/%s %s %s) JSON contains %s canary material, want redacted", spec.Product, spec.Name, mode, fieldPath.Path, shape.name)
+						}
+					}
+				})
+			}
+		})
 	}
 	if cases == 0 {
 		t.Fatal("catalog rendered field secret-shape cases = 0, want at least one")
@@ -505,7 +1518,6 @@ func TestProjectRecordPreservesLongStructuredDisplayNames(t *testing.T) {
 	}
 
 	for _, mode := range []redact.Mode{redact.ModeStandard, redact.ModeShare} {
-		mode := mode
 		t.Run(string(mode), func(t *testing.T) {
 			t.Parallel()
 
@@ -606,7 +1618,7 @@ func TestProjectRecordDropsContextSensitiveValueWhenClassifiedSecret(t *testing.
 			},
 			{
 				Name:           "value",
-				Classification: resources.ClassSecret,
+				Classification: resources.ClassSecret, SecretReason: resources.SecretCredential,
 			},
 		},
 	}
@@ -647,7 +1659,6 @@ func TestProjectRecordPreservesStructuredHexFingerprintOnlyInStandard(t *testing
 	}
 
 	for _, mode := range []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid} {
-		mode := mode
 		t.Run(string(mode), func(t *testing.T) {
 			t.Parallel()
 
@@ -751,7 +1762,7 @@ func TestProjectRecordAllowsExplicitNestedSpecOnly(t *testing.T) {
 					},
 					{
 						Name:           "preSharedKey",
-						Classification: resources.ClassSecret,
+						Classification: resources.ClassSecret, SecretReason: resources.SecretCredential,
 					},
 				},
 			},
@@ -780,6 +1791,132 @@ func TestProjectRecordAllowsExplicitNestedSpecOnly(t *testing.T) {
 	wantDropped := []string{"vpnCredentials.preSharedKey", "vpnCredentials.surprise"}
 	if !reflect.DeepEqual(report.DroppedFields, wantDropped) {
 		t.Errorf("ProjectRecord(explicit nested spec).DroppedFields = %#v, want %#v", report.DroppedFields, wantDropped)
+	}
+}
+
+func TestProjectRecordQuarantinesUnsupportedNestedSourceValues(t *testing.T) {
+	t.Parallel()
+
+	const canary = "UNSUPPORTED_NESTED_SOURCE_CANARY_MUST_NOT_RENDER"
+	spec := resources.ResourceSpec{
+		Product:    resources.ProductZIA,
+		Name:       "nested-source-copy-boundary",
+		Operations: resources.ListOperations(),
+		Fields: []resources.FieldSpec{{
+			Name:                "vpnCredentials",
+			Classification:      resources.ClassTenantConfig,
+			AllowedModes:        []redact.Mode{redact.ModeStandard},
+			SensitiveNameReason: "test-only non-secret credential metadata wrapper",
+			Fields: []resources.FieldSpec{
+				{
+					Name:           "authType",
+					Classification: resources.ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+				},
+				{
+					Name:           "preSharedKey",
+					Classification: resources.ClassSecret, SecretReason: resources.SecretCredential,
+				},
+				{
+					Name:           "validationInfo",
+					Classification: resources.ClassOperational,
+					AllowedModes:   []redact.Mode{redact.ModeStandard},
+					Fields: []resources.FieldSpec{{
+						Name:           "status",
+						Classification: resources.ClassOperational,
+						AllowedModes:   []redact.Mode{redact.ModeStandard},
+					}},
+				},
+			},
+		}},
+	}
+
+	projected, _, err := resources.ProjectRecordAndVerify(
+		spec,
+		redact.ModeStandard,
+		resources.NewSourceRecord(map[string]any{
+			"vpnCredentials": map[string]any{
+				"authType": "psk",
+				"preSharedKey": exportedProjectedStruct{
+					Secret: canary,
+				},
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("ProjectRecordAndVerify(unsupported secret child) error = %v, want nil", err)
+	}
+	want := map[string]any{
+		"vpnCredentials": map[string]any{
+			"authType": "psk",
+		},
+	}
+	if !reflect.DeepEqual(projected.Fields(), want) {
+		t.Fatalf("ProjectRecordAndVerify(unsupported secret child) = %#v, want %#v", projected.Fields(), want)
+	}
+	body, err := json.Marshal(projected)
+	if err != nil {
+		t.Fatalf("json.Marshal(projected unsupported secret child) error = %v, want nil", err)
+	}
+	if strings.Contains(string(body), canary) {
+		t.Fatalf("json.Marshal(projected unsupported secret child) = %s, want no canary", body)
+	}
+
+	// An SDK struct under an allowed leaf child is normalized through JSON to a
+	// map, and a map in a leaf is dropped: no error, and nothing of it renders.
+	structChild, _, err := resources.ProjectRecordAndVerify(
+		spec,
+		redact.ModeStandard,
+		resources.NewSourceRecord(map[string]any{
+			"vpnCredentials": map[string]any{
+				"authType": exportedProjectedStruct{
+					Secret: canary,
+				},
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("ProjectRecordAndVerify(struct under allowed leaf child) error = %v, want nil", err)
+	}
+	if body, _ := json.Marshal(structChild); strings.Contains(string(body), canary) {
+		t.Fatalf("ProjectRecordAndVerify(struct under allowed leaf child) = %s, want no canary", body)
+	}
+
+	tests := []struct {
+		name   string
+		fields map[string]any
+	}{
+		{
+			name: "top-level allowed structured field",
+			fields: map[string]any{
+				"vpnCredentials": exportedProjectedStruct{Secret: canary},
+			},
+		},
+		{
+			name: "allowed structured child",
+			fields: map[string]any{
+				"vpnCredentials": map[string]any{
+					"validationInfo": exportedProjectedStruct{Secret: canary},
+				},
+			},
+		},
+	}
+	// SDK structs normalize through JSON; their keys match no declared child,
+	// so nothing of them renders.
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projected, _, err := resources.ProjectRecordAndVerify(
+				spec,
+				redact.ModeStandard,
+				resources.NewSourceRecord(tt.fields),
+			)
+			if err != nil {
+				t.Fatalf("ProjectRecordAndVerify(%s) error = %v, want nil", tt.name, err)
+			}
+			if body, _ := json.Marshal(projected); strings.Contains(string(body), canary) {
+				t.Fatalf("ProjectRecordAndVerify(%s) = %s, want no canary", tt.name, body)
+			}
+		})
 	}
 }
 
@@ -864,8 +2001,8 @@ func TestResourceSpecValidationRejectsSecretAllowedMode(t *testing.T) {
 		Operations: resources.ReadOperations(),
 		Fields: []resources.FieldSpec{{
 			Name:           "client_secret",
-			Classification: resources.ClassSecret,
-			AllowedModes:   []redact.Mode{redact.ModeStandard},
+			Classification: resources.ClassSecret, SecretReason: resources.SecretCredential,
+			AllowedModes: []redact.Mode{redact.ModeStandard},
 		}},
 	}
 	err := spec.Validate()
@@ -878,7 +2015,6 @@ func TestResourceSpecValidationRejectsSensitiveNameUnlessSecret(t *testing.T) {
 	t.Parallel()
 
 	for _, name := range []string{"token", "sessionToken", "appSecret", "customerSecret", "credentialName", "passwd"} {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -911,7 +2047,7 @@ func TestResourceSpecValidationAllowsSensitiveNameAsSecret(t *testing.T) {
 			testIDField(),
 			{
 				Name:           "token",
-				Classification: resources.ClassSecret,
+				Classification: resources.ClassSecret, SecretReason: resources.SecretCredential,
 			},
 		},
 	}
@@ -946,7 +2082,6 @@ func TestResourceSpecValidationRejectsGenericFieldNameWithoutReason(t *testing.T
 	t.Parallel()
 
 	for _, name := range []string{"value", "data", "content", "payload", "body"} {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -979,7 +2114,6 @@ func TestResourceSpecValidationRejectsBareIdentifierBeyondStandard(t *testing.T)
 	t.Parallel()
 
 	for _, name := range []string{"email", "username", "loginName", "userId", "userPrincipalName", "domain", "fqdn", "hostname"} {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1053,7 +2187,6 @@ func TestResourceSpecValidationRejectsFreeTextOutsideStandard(t *testing.T) {
 	t.Parallel()
 
 	for _, mode := range []redact.Mode{redact.ModeShare, redact.ModeParanoid} {
-		mode := mode
 		t.Run(string(mode), func(t *testing.T) {
 			t.Parallel()
 
@@ -1101,7 +2234,6 @@ func TestResourceSpecValidationRejectsUnsafeCatalogNames(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1228,6 +2360,98 @@ func hasCatalogField(fields []resources.FieldSpec, name string) bool {
 	return false
 }
 
+func narrowingSpec() resources.ResourceSpec {
+	return resources.ResourceSpec{
+		Product:    resources.ProductZIA,
+		Name:       "locations",
+		Operations: resources.ReadOperations(),
+		Fields: []resources.FieldSpec{
+			{Name: "id", Classification: resources.ClassOperational, AllowedModes: allTestModes()},
+			{Name: "name", Classification: resources.ClassTenantConfig, AllowedModes: []redact.Mode{redact.ModeStandard, redact.ModeShare}},
+			{Name: "country", Classification: resources.ClassOperational, AllowedModes: allTestModes()},
+			{Name: "ipAddresses", Classification: resources.ClassOperational, AllowedModes: allTestModes()},
+			{Name: "authRequired", Classification: resources.ClassOperational, AllowedModes: allTestModes()},
+			{Name: "token", Classification: resources.ClassSecret, SecretReason: resources.SecretCredential},
+		},
+	}
+}
+
+// nestedNarrowingSpec mirrors zia/users: groups is a list of objects whose
+// name is dropped in paranoid mode along with the whole list, and whose
+// comments are free text. owner.manager.name is a two-level nested object.
+func nestedNarrowingSpec() resources.ResourceSpec {
+	return resources.ResourceSpec{
+		Product:    resources.ProductZIA,
+		Name:       "users",
+		Operations: resources.ReadOperations(),
+		Fields: []resources.FieldSpec{
+			{Name: "id", Classification: resources.ClassOperational, AllowedModes: allTestModes()},
+			{Name: "name", Classification: resources.ClassTenantConfig, AllowedModes: allTestModes()},
+			{Name: "tags", Classification: resources.ClassOperational, AllowedModes: allTestModes()},
+			{
+				Name:           "groups",
+				Classification: resources.ClassTenantConfig,
+				AllowedModes:   []redact.Mode{redact.ModeStandard, redact.ModeShare},
+				Fields: []resources.FieldSpec{
+					{Name: "id", Classification: resources.ClassOperational, AllowedModes: allTestModes()},
+					{Name: "name", Classification: resources.ClassTenantConfig, AllowedModes: []redact.Mode{redact.ModeStandard}},
+					{Name: "comments", Classification: resources.ClassFreeText, AllowedModes: []redact.Mode{redact.ModeStandard}, StandardFreeTextReason: "test group comments"},
+				},
+			},
+			{
+				Name:           "owner",
+				Classification: resources.ClassTenantConfig,
+				AllowedModes:   allTestModes(),
+				Fields: []resources.FieldSpec{{
+					Name:           "manager",
+					Classification: resources.ClassTenantConfig,
+					AllowedModes:   allTestModes(),
+					Fields: []resources.FieldSpec{
+						{Name: "name", Classification: resources.ClassTenantConfig, AllowedModes: allTestModes()},
+					},
+				}},
+			},
+		},
+	}
+}
+
+func verifiedProjectedFieldsSpec() resources.ResourceSpec {
+	allModes := []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid}
+	return resources.ResourceSpec{
+		Product:    resources.ProductZIA,
+		Name:       "verified-response",
+		Operations: resources.ReadOperations(),
+		Fields: []resources.FieldSpec{
+			{Name: "id", Classification: resources.ClassOperational, AllowedModes: allModes},
+			{Name: "name", Classification: resources.ClassTenantConfig, AllowedModes: []redact.Mode{redact.ModeStandard, redact.ModeShare}},
+			{Name: "ipAddresses", Classification: resources.ClassOperational, AllowedModes: allModes},
+			{Name: "standardOnly", Classification: resources.ClassOperational, AllowedModes: []redact.Mode{redact.ModeStandard}},
+			{Name: "token", Classification: resources.ClassSecret, SecretReason: resources.SecretCredential},
+		},
+	}
+}
+
+func allTestModes() []redact.Mode {
+	return []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid}
+}
+
+func projectedRecordsFromMaps(
+	t *testing.T,
+	spec resources.ResourceSpec,
+	rows ...map[string]any,
+) resources.ProjectedRecords {
+	t.Helper()
+	source := make([]resources.SourceRecord, 0, len(rows))
+	for _, row := range rows {
+		source = append(source, resources.NewSourceRecord(row))
+	}
+	projected, _, err := resources.ProjectRecordsAndVerify(spec, redact.ModeStandard, source)
+	if err != nil {
+		t.Fatalf("ProjectRecordsAndVerify(%s/%s) error = %v, want nil", spec.Product, spec.Name, err)
+	}
+	return projected
+}
+
 func TestCatalogIsValidAndReadOnly(t *testing.T) {
 	t.Parallel()
 
@@ -1263,7 +2487,7 @@ func TestCatalogIncludesRuleLabelsGeneralizationProbe(t *testing.T) {
 	if err := resources.AssertReadOnly(spec); err != nil {
 		t.Fatalf("AssertReadOnly(zia rule-labels) error = %v, want nil", err)
 	}
-	wantFields := []string{"id", "name", "description", "lastModifiedTime", "referencedRuleCount"}
+	wantFields := []string{"id", "name", "description", "lastModifiedTime", "referencedRuleCount", "createdBy", "lastModifiedBy"}
 	if got := spec.FieldOrder(redact.ModeStandard); !reflect.DeepEqual(got, wantFields) {
 		t.Errorf("ResourceSpec.FieldOrder(zia rule-labels, standard) = %#v, want %#v", got, wantFields)
 	}
@@ -1331,7 +2555,7 @@ func testSpec() resources.ResourceSpec {
 			},
 			{
 				Name:           "client_secret",
-				Classification: resources.ClassSecret,
+				Classification: resources.ClassSecret, SecretReason: resources.SecretCredential,
 			},
 		},
 	}
@@ -1363,8 +2587,8 @@ func resourceSpecWithName(product resources.Product, name string, operation stri
 
 func documentedResourceKeys(doc string) map[string]struct{} {
 	keys := map[string]struct{}{}
-	for _, line := range strings.Split(doc, "\n") {
-		if !strings.HasPrefix(line, "## ZIA ") && !strings.HasPrefix(line, "## ZPA ") && !strings.HasPrefix(line, "## ZTW ") && !strings.HasPrefix(line, "## ZCC ") && !strings.HasPrefix(line, "## ZIDENTITY ") {
+	for line := range strings.SplitSeq(doc, "\n") {
+		if !strings.HasPrefix(line, "## ZIA ") && !strings.HasPrefix(line, "## ZPA ") && !strings.HasPrefix(line, "## ZTW ") && !strings.HasPrefix(line, "## ZCC ") && !strings.HasPrefix(line, "## ZIDENTITY ") && !strings.HasPrefix(line, "## ZDX ") {
 			continue
 		}
 		parts := strings.Fields(line)
@@ -1391,6 +2615,8 @@ func titleResourceName(name string) string {
 			parts[i] = "IP"
 		case "ips":
 			parts[i] = "IPs"
+		case "siem":
+			parts[i] = "SIEM"
 		default:
 			parts[i] = strings.ToUpper(part[:1]) + part[1:]
 		}
@@ -1418,9 +2644,9 @@ func (p freeTextFieldPath) AllowedIn(mode redact.Mode) bool {
 
 func (p freeTextFieldPath) SourceRecord(value string) map[string]any {
 	var current any = value
-	for i := len(p.Fields) - 1; i >= 0; i-- {
+	for _, v := range slices.Backward(p.Fields) {
 		current = map[string]any{
-			p.Fields[i].JSONField(): current,
+			v.JSONField(): current,
 		}
 	}
 	return current.(map[string]any)
@@ -1512,10 +2738,168 @@ func contains(value, substr string) bool {
 }
 
 func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
+	return slices.Contains(values, want)
+}
+
+func TestFieldPathAvailabilityIntersectsAlongThePath(t *testing.T) {
+	t.Parallel()
+
+	spec := nestedNarrowingSpec()
+	for _, tc := range []struct {
+		path   string
+		want   []redact.Mode
+		secret bool
+	}{
+		{"id", []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid}, false},
+		// groups.id lists every mode, but its parent excludes paranoid.
+		{"groups.id", []redact.Mode{redact.ModeStandard, redact.ModeShare}, false},
+		{"groups.name", []redact.Mode{redact.ModeStandard}, false},
+		{"owner.manager.name", []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid}, false},
+	} {
+		got, ok := resources.FieldPathAvailability(spec, tc.path)
+		if !ok {
+			t.Fatalf("FieldPathAvailability(%q) ok = false, want true", tc.path)
+		}
+		if !slices.Equal(got.RenderableIn, tc.want) || got.Secret != tc.secret {
+			t.Errorf("FieldPathAvailability(%q) = %+v, want RenderableIn %v secret %v", tc.path, got, tc.want, tc.secret)
 		}
 	}
-	return false
+	if _, ok := resources.FieldPathAvailability(spec, "groups.missing"); ok {
+		t.Error("FieldPathAvailability(groups.missing) ok = true, want false")
+	}
+}
+
+func TestValidateNarrowOptionsInModeRejectsFiltersTheModeOmits(t *testing.T) {
+	t.Parallel()
+
+	spec := nestedNarrowingSpec()
+	spec.Fields = append(spec.Fields, resources.FieldSpec{Name: "token", Classification: resources.ClassSecret, SecretReason: resources.SecretCredential})
+	for _, tc := range []struct {
+		mode   redact.Mode
+		field  string
+		reject bool
+		secret bool
+	}{
+		{redact.ModeStandard, "groups.name", false, false},
+		{redact.ModeShare, "groups.id", false, false},
+		{redact.ModeShare, "groups.name", true, false},
+		{redact.ModeParanoid, "groups.id", true, false},
+		{redact.ModeStandard, "token", true, true},
+	} {
+		err := resources.ValidateNarrowOptionsInMode(spec, tc.mode, resources.NarrowOptions{
+			Filters: []resources.ProjectedFilter{{Field: tc.field, Value: "v"}},
+		})
+		if !tc.reject {
+			if err != nil {
+				t.Errorf("%s %s: error = %v, want nil", tc.mode, tc.field, err)
+			}
+			continue
+		}
+		var suppressed resources.SuppressedFieldError
+		if !errors.As(err, &suppressed) || !errors.Is(err, resources.ErrSuppressedField) {
+			t.Fatalf("%s %s: error = %v, want SuppressedFieldError", tc.mode, tc.field, err)
+		}
+		if suppressed.Secret != tc.secret || suppressed.Field != tc.field {
+			t.Errorf("%s %s: error = %+v, want field %q secret %v", tc.mode, tc.field, suppressed, tc.field, tc.secret)
+		}
+	}
+	// Requested --fields the mode omits stay valid; unknown names still fail first.
+	if err := resources.ValidateNarrowOptionsInMode(spec, redact.ModeParanoid, resources.NarrowOptions{Fields: []string{"groups", "token"}}); err != nil {
+		t.Errorf("omitted --fields error = %v, want nil", err)
+	}
+	if err := resources.ValidateNarrowOptionsInMode(spec, redact.ModeShare, resources.NarrowOptions{
+		Filters: []resources.ProjectedFilter{{Field: "nope", Value: "v"}},
+	}); !errors.Is(err, resources.ErrUnknownField) {
+		t.Errorf("unknown filter error = %v, want ErrUnknownField", err)
+	}
+}
+
+func TestOmittedFields(t *testing.T) {
+	t.Parallel()
+
+	spec := nestedNarrowingSpec()
+	spec.Fields = append(spec.Fields, resources.FieldSpec{Name: "token", Classification: resources.ClassSecret, SecretReason: resources.SecretCredential})
+	omitted, secret := resources.OmittedFields(spec, redact.ModeParanoid, nil)
+	if !slices.Equal(omitted, []string{"groups"}) || secret != nil {
+		t.Errorf("OmittedFields(paranoid) = %v, %v; want [groups], nil (secret fields never listed unrequested)", omitted, secret)
+	}
+	if omitted, _ := resources.OmittedFields(spec, redact.ModeStandard, nil); omitted != nil {
+		t.Errorf("OmittedFields(standard) = %v, want nil", omitted)
+	}
+	omitted, secret = resources.OmittedFields(spec, redact.ModeParanoid, []string{"id", "groups", "token"})
+	if !slices.Equal(omitted, []string{"groups"}) || !slices.Equal(secret, []string{"token"}) {
+		t.Errorf("OmittedFields(paranoid, requested) = %v, %v; want [groups], [token]", omitted, secret)
+	}
+	// Share keeps groups but drops two of its nested fields; they are named by
+	// path so an absent nested key is never mistaken for an empty one.
+	omitted, _ = resources.OmittedFields(spec, redact.ModeShare, nil)
+	if !slices.Equal(omitted, []string{"groups.name", "groups.comments"}) {
+		t.Errorf("OmittedFields(share) = %v, want [groups.name groups.comments]", omitted)
+	}
+	omitted, _ = resources.OmittedFields(spec, redact.ModeShare, []string{"id", "groups"})
+	if !slices.Equal(omitted, []string{"groups.name", "groups.comments"}) {
+		t.Errorf("OmittedFields(share, requested groups) = %v, want [groups.name groups.comments]", omitted)
+	}
+	// Requested paths are reported as requested, or by what lies beneath them.
+	omitted, secret = resources.OmittedFields(spec, redact.ModeShare, []string{"groups.id", "groups.name", "owner.manager", "token"})
+	if !slices.Equal(omitted, []string{"groups.name"}) || !slices.Equal(secret, []string{"token"}) {
+		t.Errorf("OmittedFields(share, requested paths) = %v, %v; want [groups.name], [token]", omitted, secret)
+	}
+	omitted, _ = resources.OmittedFields(spec, redact.ModeShare, []string{"groups", "groups.name", "groups.comments"})
+	if !slices.Equal(omitted, []string{"groups.name", "groups.comments"}) {
+		t.Errorf("OmittedFields(share, overlapping) = %v, want each path once", omitted)
+	}
+	omitted, _ = resources.OmittedFields(spec, redact.ModeParanoid, []string{"groups.id"})
+	if !slices.Equal(omitted, []string{"groups.id"}) {
+		t.Errorf("OmittedFields(paranoid, groups.id) = %v, want [groups.id] (its parent does not render)", omitted)
+	}
+}
+
+// TestShippedCatalogRendersEveryNonSecretFieldInStandardMode pins the invariant
+// behind the omitted-field notice: standard mode omits nothing but secrets, so
+// a standard-mode read never prints the notice. A catalog entry that hides a
+// non-secret field from standard mode must change this test and the docs.
+func TestShippedCatalogRendersEveryNonSecretFieldInStandardMode(t *testing.T) {
+	t.Parallel()
+
+	for _, spec := range resources.Catalog() {
+		if omitted, _ := resources.OmittedFields(spec, redact.ModeStandard, nil); len(omitted) > 0 {
+			t.Errorf("%s/%s: standard mode omits %v", spec.Product, spec.Name, omitted)
+		}
+	}
+}
+
+func TestSuppressedFieldErrorDistinguishesSecretFromNeverRendered(t *testing.T) {
+	t.Parallel()
+
+	secret := resources.SuppressedFieldError{Product: resources.ProductZIA, Resource: "users", Field: "token", Secret: true}
+	if !strings.Contains(secret.Error(), "is secret") {
+		t.Errorf("secret error = %q, want it to say secret", secret.Error())
+	}
+	never := resources.SuppressedFieldError{Product: resources.ProductZIA, Resource: "users", Field: "odd"}
+	if strings.Contains(never.Error(), "secret") || !strings.Contains(never.Error(), "renders in no redaction mode") {
+		t.Errorf("never-rendered error = %q, want no secret claim", never.Error())
+	}
+}
+
+// TestFieldSpecJSONAlwaysStatesAllowedModes pins that a secret field shows
+// "allowed_modes": [] rather than omitting the key, so a reader of
+// `schema list` never mistakes "renders in no mode" for "not stated".
+func TestFieldSpecJSONAlwaysStatesAllowedModes(t *testing.T) {
+	t.Parallel()
+
+	secret, err := json.Marshal(resources.FieldSpec{Name: "preSharedKey", Classification: resources.ClassSecret, SecretReason: resources.SecretCredential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"name":"preSharedKey","classification":"secret","allowed_modes":[],"secret_reason":"credential"}`; string(secret) != want {
+		t.Errorf("secret FieldSpec JSON = %s, want %s", secret, want)
+	}
+	shown, err := json.Marshal(resources.FieldSpec{Name: "name", Classification: resources.ClassTenantConfig, AllowedModes: []redact.Mode{redact.ModeStandard}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(shown), `"allowed_modes":["standard"]`) {
+		t.Errorf("FieldSpec JSON = %s, want allowed_modes [standard]", shown)
+	}
 }

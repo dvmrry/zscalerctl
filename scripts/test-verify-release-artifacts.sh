@@ -44,7 +44,9 @@ jobs:
           cyclonedx-gomod app -json -licenses -main cmd/zscalerctl -output "dist/$name.sbom.cdx.json" .
           mkdir -p "dist/$name/docs" "dist/$name/man" "dist/$name/skills"
           cp LICENSE README.md AGENTS.md "dist/$name/"
-          cp docs/INSTALL.md "dist/$name/docs/"
+          cp docs/INSTALL.md docs/VERSIONING.md "dist/$name/docs/"
+          cp -R docs/schema "dist/$name/docs/schema"
+          cp -R docs/cli "dist/$name/docs/cli"
           cp man/zscalerctl.1 "dist/$name/man/"
           cp -R skills/zscalerctl "dist/$name/skills/"
           (cd dist && shasum -a 256 *.tar.gz *.sbom.cdx.json > SHA256SUMS)
@@ -94,7 +96,7 @@ cp "$good" "$missing_checkout_hardening"
 perl -0pi -e 's/\n          persist-credentials: false//' "$missing_checkout_hardening"
 
 cp "$good" "$missing_install_doc"
-perl -0pi -e 's/\n          cp docs\/INSTALL\.md "dist\/\$name\/docs\/"//' "$missing_install_doc"
+perl -0pi -e 's/\n          cp docs\/INSTALL\.md docs\/VERSIONING\.md "dist\/\$name\/docs\/"//' "$missing_install_doc"
 
 cp "$good" "$missing_agents_doc"
 perl -0pi -e 's/ AGENTS\.md//' "$missing_agents_doc"

@@ -48,7 +48,6 @@ func TestSecretRefRejectsInvalidStringForms(t *testing.T) {
 		"keyring:service/",
 		"keyring:service/key/extra",
 	} {
-		raw := raw
 		t.Run(raw, func(t *testing.T) {
 			t.Parallel()
 			var ref SecretRef
@@ -110,7 +109,6 @@ func TestSecretRefStructuredCmdRejectsUnknownKeys(t *testing.T) {
 		{name: "top-level stray key", yaml: "cmd:\n  argv: [\"/bin/x\"]\nbogus: 1\n"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var ref SecretRef
@@ -165,7 +163,6 @@ func TestSecretRefStructuredCmdAcceptsKnownKeys(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var got SecretRef

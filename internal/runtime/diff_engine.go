@@ -1,0 +1,283 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"maps"
+	"sort"
+	"strings"
+
+	"zscalerctl/internal/diff"
+	"zscalerctl/internal/machine"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
+)
+
+type preparedDiffRequest struct {
+	oldDir            string
+	newDir            string
+	specs             []resources.ResourceSpec
+	products          map[resources.Product]bool
+	resources         map[diff.ResourceKey]bool
+	ignoreOperational bool
+	allowPartial      bool
+}
+
+// Diff validates a complete local comparison request before filesystem access,
+// then compares two admitted dump artifacts through one synchronous event
+// stream. It never loads config, resolves providers, constructs an SDK reader,
+// executes a process, or contacts Zscaler.
+func (e *Engine) Diff(
+	ctx context.Context,
+	req machine.DiffRequest,
+	sink machine.EventSink,
+) (machine.DiffResult, error) {
+	ctx = nonNilContext(ctx)
+	if e == nil {
+		stream, err := machine.StartEventStream(sink, machine.OperationDiff, "", "", 0)
+		if err != nil {
+			return machine.DiffResult{}, err
+		}
+		return machine.DiffResult{}, failTypedDiffStream(stream, diffInternalError())
+	}
+
+	prepared, prepareErr := prepareDiffRequest(ctx, req, e.opts.Catalog)
+	stream, err := machine.StartEventStream(
+		sink,
+		machine.OperationDiff,
+		"",
+		"",
+		len(prepared.specs),
+	)
+	if err != nil {
+		return machine.DiffResult{}, err
+	}
+	if prepareErr != nil {
+		return machine.DiffResult{}, failTypedDiffStream(stream, prepareErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return machine.DiffResult{}, failTypedDiffStream(stream, diffBoundaryError(err))
+	}
+
+	var deliveryErr error
+	report, err := diff.CompareContext(ctx, prepared.oldDir, prepared.newDir, diff.Options{
+		Catalog:           copyCatalog(e.opts.Catalog),
+		Products:          copyProductSelection(prepared.products),
+		Resources:         copyDiffResourceSelection(prepared.resources),
+		IgnoreOperational: prepared.ignoreOperational,
+		AllowPartial:      prepared.allowPartial,
+	}, func(progress diff.Progress) error {
+		emitErr := stream.Emit(machine.Event{
+			Kind:     machine.EventProgress,
+			Product:  string(progress.Product),
+			Resource: progress.Resource,
+			Done:     progress.Done,
+			Total:    progress.Total,
+		})
+		if emitErr != nil {
+			deliveryErr = emitErr
+		}
+		return emitErr
+	})
+	if deliveryErr != nil {
+		return machine.DiffResult{}, deliveryErr
+	}
+	if err != nil {
+		safeErr := diffBoundaryError(err)
+		return machine.DiffResult{}, failTypedDiffStream(stream, safeErr)
+	}
+
+	result := machine.NewDiffResult(report)
+	if err := stream.Complete(machine.Event{
+		Resources: len(prepared.specs),
+	}); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func prepareDiffRequest(
+	ctx context.Context,
+	req machine.DiffRequest,
+	catalog resources.ResourceCatalog,
+) (preparedDiffRequest, error) {
+	prepared := preparedDiffRequest{
+		oldDir:            req.OldDir,
+		newDir:            req.NewDir,
+		ignoreOperational: req.IgnoreOperational,
+		allowPartial:      req.AllowPartial,
+	}
+	if err := ctx.Err(); err != nil {
+		return prepared, diffBoundaryError(err)
+	}
+	if strings.TrimSpace(req.OldDir) == "" || strings.TrimSpace(req.NewDir) == "" {
+		return prepared, diffUsageError("two dump directories are required")
+	}
+	selectors := make([]resourceSelector, len(req.Resources))
+	for i, selector := range req.Resources {
+		selectors[i] = resourceSelector(selector)
+	}
+	selection, err := selectReadSpecs(ctx, catalog, req.Products, selectors, selectionErrors{
+		boundary: diffBoundaryError,
+		catalog:  diffCatalogError,
+		invalid:  diffUsageError("diff selection is invalid"),
+		empty:    diffUsageError("diff selection is empty"),
+	})
+	if err != nil {
+		return prepared, err
+	}
+	prepared.specs = selection.specs
+	sort.Slice(prepared.specs, func(i, j int) bool {
+		if prepared.specs[i].Product != prepared.specs[j].Product {
+			return prepared.specs[i].Product < prepared.specs[j].Product
+		}
+		return prepared.specs[i].Name < prepared.specs[j].Name
+	})
+	prepared.products = selection.products
+	prepared.resources = selection.resources
+	prepared.specs = copyResourceSpecs(prepared.specs)
+	if err := ctx.Err(); err != nil {
+		return prepared, diffBoundaryError(err)
+	}
+	return prepared, nil
+}
+
+func copyProductSelection(source map[resources.Product]bool) map[resources.Product]bool {
+	if source == nil {
+		return nil
+	}
+	out := make(map[resources.Product]bool, len(source))
+	maps.Copy(out, source)
+	return out
+}
+
+func copyDiffResourceSelection(source map[diff.ResourceKey]bool) map[diff.ResourceKey]bool {
+	if source == nil {
+		return nil
+	}
+	out := make(map[diff.ResourceKey]bool, len(source))
+	maps.Copy(out, source)
+	return out
+}
+
+func diffUsageError(message string) error {
+	return &machine.MachineError{
+		Kind:      machine.ErrorKindUsage,
+		Message:   message,
+		Operation: machine.OperationDiff,
+	}
+}
+
+func diffCatalogError(sentinel error) error {
+	return newBoundaryError(&machine.MachineError{
+		Kind:      machine.ErrorKindInternal,
+		Message:   "diff catalog is invalid",
+		Operation: machine.OperationDiff,
+	}, sentinel)
+}
+
+func diffInternalError() error {
+	return &machine.MachineError{
+		Kind:      machine.ErrorKindInternal,
+		Message:   "diff runtime is not configured",
+		Operation: machine.OperationDiff,
+	}
+}
+
+func failTypedDiffStream(stream *machine.EventStream, safeErr error) error {
+	machineErr := machine.MachineError{
+		Kind:      machine.ErrorKindInternal,
+		Message:   "diff operation failed",
+		Operation: machine.OperationDiff,
+	}
+	if typedErr, ok := errors.AsType[*machine.MachineError](safeErr); ok {
+		machineErr = *typedErr
+		machineErr.Missing = append([]string(nil), typedErr.Missing...)
+	}
+	if err := stream.Fail(machineErr); err != nil {
+		return errors.Join(safeErr, err)
+	}
+	return safeErr
+}
+
+func diffBoundaryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	machineErr := &machine.MachineError{
+		Kind:      machine.ErrorKindInternal,
+		Message:   "diff operation failed",
+		Operation: machine.OperationDiff,
+	}
+	var sentinel error
+	var adapterMessage string
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		machineErr.Kind = machine.ErrorKindDeadlineExceeded
+		machineErr.Message = "request deadline exceeded"
+		sentinel = context.DeadlineExceeded
+	case errors.Is(err, context.Canceled):
+		machineErr.Kind = machine.ErrorKindCanceled
+		machineErr.Message = "request canceled"
+		sentinel = context.Canceled
+	case errors.Is(err, diff.ErrInvalidDump):
+		machineErr.Kind = machine.ErrorKindUsage
+		machineErr.Message = "invalid dump"
+		sentinel = diff.ErrInvalidDump
+		adapterMessage = sanitizeEngineString(redact.New(redact.ModeStandard), err.Error())
+	case errors.Is(err, diff.ErrPartialDumpInput):
+		machineErr.Kind = machine.ErrorKindUsage
+		machineErr.Message = "partial dump input"
+		sentinel = diff.ErrPartialDumpInput
+		adapterMessage = sanitizeEngineString(redact.New(redact.ModeStandard), err.Error())
+	case errors.Is(err, diff.ErrRedactionMismatch):
+		machineErr.Kind = machine.ErrorKindUsage
+		machineErr.Message = "redaction mode mismatch"
+		sentinel = diff.ErrRedactionMismatch
+		adapterMessage = sanitizeEngineString(redact.New(redact.ModeStandard), err.Error())
+	case errors.Is(err, diff.ErrCollectionScopeMismatch):
+		machineErr.Kind = machine.ErrorKindUsage
+		machineErr.Message = "dump collection scope mismatch"
+		sentinel = diff.ErrCollectionScopeMismatch
+		adapterMessage = sanitizeEngineString(redact.New(redact.ModeStandard), err.Error())
+	}
+	safe := newBoundaryError(machineErr, sentinel)
+	if adapterMessage == "" {
+		return safe
+	}
+	return &diffAdapterBoundaryError{
+		safe:            safe,
+		adapterMessage:  adapterMessage,
+		adapterSentinel: sentinel,
+	}
+}
+
+type diffAdapterBoundaryError struct {
+	safe            error
+	adapterMessage  string
+	adapterSentinel error
+}
+
+func (e *diffAdapterBoundaryError) Error() string { return e.safe.Error() }
+func (e *diffAdapterBoundaryError) Unwrap() error { return e.safe }
+
+type legacyDiffAdapterError struct {
+	message  string
+	sentinel error
+}
+
+func (e *legacyDiffAdapterError) Error() string { return e.message }
+func (e *legacyDiffAdapterError) Unwrap() error { return e.sentinel }
+
+// LegacyDiffAdapterError returns the redacted pre-engine local-input message
+// and safe sentinel retained solely for Cobra compatibility.
+func LegacyDiffAdapterError(err error) (error, bool) {
+	var adapterErr *diffAdapterBoundaryError
+	if !errors.As(err, &adapterErr) {
+		return nil, false
+	}
+	return &legacyDiffAdapterError{
+		message:  adapterErr.adapterMessage,
+		sentinel: adapterErr.adapterSentinel,
+	}, true
+}

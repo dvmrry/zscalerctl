@@ -2,9 +2,8 @@
 
 ## Supported Versions
 
-Before the first public release, security fixes apply to the current default
-branch. After release, only the latest released minor version is supported unless
-a release note says otherwise.
+Security fixes go into the latest release. Only the latest minor version of
+the current major line is supported; the v0.x releases are not.
 
 ## Reporting a Vulnerability
 
@@ -35,7 +34,7 @@ Advisories and identified in the release notes of the fixing release.
 
 This is a single-maintainer project: the repository owner is the only person
 with privileged repository access and holds all roles — development, review
-(enforced through the required CI gate rather than a second reviewer), release
+(enforced through the required CI checks rather than a second reviewer), release
 approval, and security response through the private reporting channel above.
 
 ## Authorized Use

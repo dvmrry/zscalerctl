@@ -7,6 +7,7 @@ dist/
 coverage.out
 *.test
 /zscalerctl
+/zscalerctl-pty-check
 
 # Live smoke artifacts contain sanitized but confidential tenant data.
 /dump/
@@ -17,4 +18,3 @@ coverage.out
 /scratch-live-dump-*/
 # /scratch is transient scratch space (run output, sandboxes, throwaways); never tracked.
 /scratch/
-.playwright-mcp/

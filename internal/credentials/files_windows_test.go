@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/credentials"
 	"golang.org/x/sys/windows"
+	"zscalerctl/internal/credentials"
 )
 
 func TestReadOwnerOnlySecretFileWindowsDACL(t *testing.T) {
