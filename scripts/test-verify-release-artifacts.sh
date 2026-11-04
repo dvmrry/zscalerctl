@@ -16,6 +16,9 @@ missing_manpage="$tmp_dir/release-missing-manpage.yml"
 missing_skill="$tmp_dir/release-missing-skill.yml"
 missing_cosign="$tmp_dir/release-missing-cosign.yml"
 bad_cosign_order="$tmp_dir/release-bad-cosign-order.yml"
+missing_clean_tree="$tmp_dir/release-missing-clean-tree.yml"
+bad_clean_tree_order="$tmp_dir/release-bad-clean-tree-order.yml"
+old_bundle_name="$tmp_dir/release-old-bundle-name.yml"
 
 cat >"$good" <<'YAML'
 name: release
@@ -32,7 +35,7 @@ jobs:
           persist-credentials: false
       - name: Install SBOM tool
         run: |
-          cd tools && GOBIN="$GITHUB_WORKSPACE/.release-tools" go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod
+          cd tools && GOBIN="$RUNNER_TEMP/release-tools" go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod
       - name: Build release artifacts
         run: |
           local_semver_tags="$(git tag --list 'v[0-9]*')"
@@ -41,6 +44,10 @@ jobs:
           done <<<"$local_semver_tags"
           git tag "$VERSION"
           git tag -d "$VERSION"
+          if [[ -n "$(git status --porcelain)" ]]; then
+            exit 1
+          fi
+          go build -mod=vendor -trimpath -o "dist/$name/zscalerctl" ./cmd/zscalerctl
           cyclonedx-gomod app -json -licenses -main cmd/zscalerctl -output "dist/$name.sbom.cdx.json" .
           mkdir -p "dist/$name/docs" "dist/$name/man" "dist/$name/skills"
           cp LICENSE README.md AGENTS.md "dist/$name/"
@@ -59,7 +66,7 @@ jobs:
       - name: Sign checksums with cosign
         run: |
           cd dist
-          cosign sign-blob --yes --bundle SHA256SUMS.bundle SHA256SUMS
+          cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
       - name: Publish release
         run: |
           gh release create "$VERSION" dist/*
@@ -113,6 +120,17 @@ perl -0pi -e 's/\n      - name: Install cosign.*?SHA256SUMS\n//s' "$missing_cosi
 # Swap the cosign install/sign block to AFTER the publish step -> wrong order.
 cp "$good" "$bad_cosign_order"
 perl -0pi -e 's/(      - name: Install cosign\n.*?cosign sign-blob.*?SHA256SUMS\n)(      - name: Publish release\n        run: \|\n          gh release create[^\n]*\n)/$2$1/s' "$bad_cosign_order"
+
+cp "$good" "$missing_clean_tree"
+perl -0pi -e 's/          if \[\[ -n "\$\(git status --porcelain\)" \]\]; then\n            exit 1\n          fi\n//' "$missing_clean_tree"
+
+# Move the clean-tree check to after the build -> too late to matter.
+cp "$good" "$bad_clean_tree_order"
+perl -0pi -e 's/(          if \[\[ -n "\$\(git status --porcelain\)" \]\]; then\n            exit 1\n          fi\n)(          go build [^\n]*\n)/$2$1/' "$bad_clean_tree_order"
+
+# The pre-v1.0.2 bundle name, which Scorecard does not count as a signature.
+cp "$good" "$old_bundle_name"
+perl -0pi -e 's/--bundle SHA256SUMS\.sigstore\.json/--bundle SHA256SUMS.bundle/' "$old_bundle_name"
 
 ZSCALERCTL_RELEASE_WORKFLOW="$good" ZSCALERCTL_RELEASE_TOOLS_MOD="$tools_dir/go.mod" \
 	"$repo_root/scripts/verify-release-artifacts.sh"
@@ -267,6 +285,48 @@ fi
 
 if ! grep -q "pin the CycloneDX SBOM tool version" "$tmp_dir/err"; then
 	echo "verify-release-artifacts failed without the expected tools pin message" >&2
+	cat "$tmp_dir/err" >&2
+	exit 1
+fi
+
+if ZSCALERCTL_RELEASE_WORKFLOW="$missing_clean_tree" ZSCALERCTL_RELEASE_TOOLS_MOD="$tools_dir/go.mod" \
+	"$repo_root/scripts/verify-release-artifacts.sh" >"$tmp_dir/out" 2>"$tmp_dir/err"; then
+	echo "verify-release-artifacts accepted a release workflow without a clean-tree check" >&2
+	cat "$tmp_dir/out" >&2
+	cat "$tmp_dir/err" >&2
+	exit 1
+fi
+
+if ! grep -q "+dirty" "$tmp_dir/err"; then
+	echo "verify-release-artifacts failed without the expected clean-tree message" >&2
+	cat "$tmp_dir/err" >&2
+	exit 1
+fi
+
+if ZSCALERCTL_RELEASE_WORKFLOW="$bad_clean_tree_order" ZSCALERCTL_RELEASE_TOOLS_MOD="$tools_dir/go.mod" \
+	"$repo_root/scripts/verify-release-artifacts.sh" >"$tmp_dir/out" 2>"$tmp_dir/err"; then
+	echo "verify-release-artifacts accepted a clean-tree check after 'go build'" >&2
+	cat "$tmp_dir/out" >&2
+	cat "$tmp_dir/err" >&2
+	exit 1
+fi
+
+if ! grep -q "must run before 'go build'" "$tmp_dir/err"; then
+	echo "verify-release-artifacts failed without the expected clean-tree ordering message" >&2
+	cat "$tmp_dir/err" >&2
+	exit 1
+fi
+
+if ZSCALERCTL_RELEASE_WORKFLOW="$old_bundle_name" ZSCALERCTL_RELEASE_TOOLS_MOD="$tools_dir/go.mod" \
+	"$repo_root/scripts/verify-release-artifacts.sh" >"$tmp_dir/out" 2>"$tmp_dir/err"; then
+	echo "verify-release-artifacts accepted the old SHA256SUMS.bundle name" >&2
+	cat "$tmp_dir/out" >&2
+	cat "$tmp_dir/err" >&2
+	exit 1
+fi
+
+if ! grep -q "SHA256SUMS.sigstore.json" "$tmp_dir/err"; then
+	echo "verify-release-artifacts failed without the expected bundle name message" >&2
 	cat "$tmp_dir/err" >&2
 	exit 1
 fi

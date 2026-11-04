@@ -6,6 +6,8 @@ bin/
 dist/
 coverage.out
 *.test
+# gitleaks-action always writes its report here.
+/results.sarif
 /zscalerctl
 /zscalerctl-pty-check
 

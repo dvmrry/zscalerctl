@@ -1,0 +1,8 @@
+# OSV-Scanner reads this next to tools/go.mod; so do the osv workflow and
+# OpenSSF Scorecard's Vulnerabilities check. Ignore only advisories with no
+# fixed release, and give each an expiry so it comes back for review.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2027-02-01
+reason = "golang.org/x/crypto/openpgp has no tagged fix past v0.58.0. x/crypto is an indirect dependency of the release tools here (cyclonedx-gomod, go-licenses) and is not vendored into zscalerctl; make vuln-tools (govulncheck) finds no reachable use. Drop this entry once x/crypto tags a fixed release."

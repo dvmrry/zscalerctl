@@ -74,6 +74,19 @@
       ]
     },
     {
+      "description": "Renovate skips indirect Go dependencies by default. Update them in tools/ so fixes in the release tools' dependencies, which Scorecard's Vulnerabilities check reports, arrive with the go dependencies group. The root module's indirect dependencies stay off: they are vendored into the shipped binary and move with its direct dependencies.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchFileNames": [
+        "tools/go.mod"
+      ],
+      "matchDepTypes": [
+        "indirect"
+      ],
+      "enabled": true
+    },
+    {
       "description": "One PR for routine action bumps; major versions still arrive one at a time.",
       "matchManagers": [
         "github-actions"
