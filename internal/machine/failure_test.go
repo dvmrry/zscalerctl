@@ -99,10 +99,13 @@ func TestExecutorLiveFailureCarriesDetail(t *testing.T) {
 func TestFailureDetailOfReadsMachineErrorDetail(t *testing.T) {
 	t.Parallel()
 
-	err := fmt.Errorf("boundary: %w", &machine.MachineError{
+	// Production code returns *MachineError; typed as error so vet accepts
+	// wrapping a pointer to a value-receiver error.
+	var cause error = &machine.MachineError{
 		Kind:   machine.ErrorKindLiveAccessFailed,
 		Detail: machine.FailureDetail{Reason: "server_error", Status: 502, Retryable: true},
-	})
+	}
+	err := fmt.Errorf("boundary: %w", cause)
 	if got := machine.FailureDetailOf(err); got != (machine.FailureDetail{Reason: "server_error", Status: 502, Retryable: true}) {
 		t.Errorf("FailureDetailOf(MachineError) = %+v", got)
 	}

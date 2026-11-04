@@ -240,7 +240,7 @@ func publishContextWithCatalogAndHooks(
 	if err != nil {
 		return fmt.Errorf("inspect dump staging directory: %w", err)
 	}
-	if err := os.Chmod(stagingDir, dirPerm); err != nil {
+	if err := os.Chmod(stagingDir, dirPerm); err != nil { // #nosec G302 -- dirPerm is 0700: owner-only, with the search bit a directory needs
 		cleanupStagingPath(stagingDir, stagingInfo, nil)
 		return fmt.Errorf("chmod dump staging directory: %w", err)
 	}
@@ -468,7 +468,7 @@ func cleanupStagingPath(path string, original os.FileInfo, beforeRelocate func(s
 	if err != nil {
 		return
 	}
-	if err := os.Chmod(quarantine, dirPerm); err != nil {
+	if err := os.Chmod(quarantine, dirPerm); err != nil { // #nosec G302 -- dirPerm is 0700: owner-only, with the search bit a directory needs
 		return
 	}
 	quarantinedRoot := filepath.Join(quarantine, "root")
@@ -828,7 +828,7 @@ func ensureDirContext(ctx context.Context, dir string) error {
 	if err := checkContext(ctx); err != nil {
 		return err
 	}
-	if err := os.Chmod(dir, dirPerm); err != nil {
+	if err := os.Chmod(dir, dirPerm); err != nil { // #nosec G302 -- dirPerm is 0700: owner-only, with the search bit a directory needs
 		return fmt.Errorf("chmod dump directory: %w", err)
 	}
 	if err := checkContext(ctx); err != nil {

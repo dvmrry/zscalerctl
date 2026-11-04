@@ -381,7 +381,7 @@ func removeReplacedDumpRoot(
 	if err != nil {
 		return true, fmt.Errorf("create dump cleanup quarantine: %w", err)
 	}
-	if err := os.Chmod(quarantine, dirPerm); err != nil {
+	if err := os.Chmod(quarantine, dirPerm); err != nil { // #nosec G302 -- dirPerm is 0700: owner-only, with the search bit a directory needs
 		return true, fmt.Errorf("chmod dump cleanup quarantine: %w", err)
 	}
 	quarantineInfo, err := os.Lstat(quarantine)
