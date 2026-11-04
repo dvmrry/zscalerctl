@@ -72,7 +72,7 @@ jobs:
             echo "::notice::gosec exited with status ${status}; findings are advisory and recorded in gosec.sarif"
           fi
 
-      - uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+      - uses: github/codeql-action/upload-sarif@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4.39.2
         if: always() && steps.code-scanning.outputs.available == 'true'
         continue-on-error: true
         with:
