@@ -55,7 +55,17 @@ require_pattern 'actions/attest-build-provenance@[0-9a-f]{40}' "release workflow
 require_pattern 'subject-checksums:[[:space:]]*dist/SHA256SUMS' "release workflow must attest the SHA256SUMS subject list"
 require_pattern 'sigstore/cosign-installer@[0-9a-f]{40}' "release workflow must use SHA-pinned cosign-installer"
 require_pattern 'cosign sign-blob --yes' "release workflow must keyless-sign the checksums with cosign"
-require_pattern '--bundle SHA256SUMS\.bundle' "release workflow must emit the cosign bundle asset SHA256SUMS.bundle"
+require_pattern '--bundle SHA256SUMS\.sigstore\.json' "release workflow must emit the cosign bundle asset SHA256SUMS.sigstore.json, the Sigstore bundle name Scorecard's Signed-Releases check recognizes"
+require_pattern 'git status --porcelain' "release workflow must refuse to build from a tree git reports as changed, or the binaries' build info says +dirty"
+
+# Ordering: Go stamps vcs.modified at build time, so the clean-tree check must
+# come before the first 'go build'.
+clean_line="$(grep -n 'git status --porcelain' "$workflow" | head -1 | cut -d: -f1)"
+build_line="$(grep -n 'go build -' "$workflow" | head -1 | cut -d: -f1)"
+if [ -n "$clean_line" ] && [ -n "$build_line" ] && [ "$clean_line" -ge "$build_line" ]; then
+	echo "$workflow: the clean-tree check must run before 'go build'" >&2
+	exit 1
+fi
 
 # Ordering: the cosign signature bundle must be produced BEFORE the release is
 # created, or `gh release create dist/*` would publish the release without them.
@@ -63,6 +73,6 @@ require_pattern '--bundle SHA256SUMS\.bundle' "release workflow must emit the co
 sign_line="$(grep -n 'cosign sign-blob' "$workflow" | head -1 | cut -d: -f1)"
 publish_line="$(grep -n 'gh release create' "$workflow" | head -1 | cut -d: -f1)"
 if [ -n "$sign_line" ] && [ -n "$publish_line" ] && [ "$sign_line" -ge "$publish_line" ]; then
-	echo "$workflow: cosign signing must run before 'gh release create' so SHA256SUMS.bundle is uploaded" >&2
+	echo "$workflow: cosign signing must run before 'gh release create' so SHA256SUMS.sigstore.json is uploaded" >&2
 	exit 1
 fi
