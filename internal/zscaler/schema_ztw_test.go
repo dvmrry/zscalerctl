@@ -3,7 +3,7 @@ package zscaler
 import (
 	"reflect"
 
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/resources"
 
 	ztwactivation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/activation"
 	ztwadminroles "github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/adminuserrolemgmt/adminroles"
@@ -34,7 +34,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwactivation.ECAdminActivation",
 			resource:     resources.ProductZTW,
 			resourceName: resourceZTWActivationStat,
-			typ:          reflect.TypeOf(ztwactivation.ECAdminActivation{}),
+			typ:          reflect.TypeFor[ztwactivation.ECAdminActivation](),
 			catalogFields: []string{
 				"orgEditStatus",
 				"orgLastActivateStatus",
@@ -46,7 +46,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwworkloadgroups.WorkloadGroup",
 			resource:     resources.ProductZTW,
 			resourceName: resourceWorkloadGroups,
-			typ:          reflect.TypeOf(ztwworkloadgroups.WorkloadGroup{}),
+			typ:          reflect.TypeFor[ztwworkloadgroups.WorkloadGroup](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -61,7 +61,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwpubliccloudaccount.PublicCloudAccountDetails",
 			resource:     resources.ProductZTW,
 			resourceName: resourcePublicCloudAccts,
-			typ:          reflect.TypeOf(ztwpubliccloudaccount.PublicCloudAccountDetails{}),
+			typ:          reflect.TypeFor[ztwpubliccloudaccount.PublicCloudAccountDetails](),
 			catalogFields: []string{
 				"id",
 				"accountId",
@@ -72,7 +72,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwdnsgateway.DNSGateway",
 			resource:     resources.ProductZTW,
 			resourceName: resourceDNSGateways,
-			typ:          reflect.TypeOf(ztwdnsgateway.DNSGateway{}),
+			typ:          reflect.TypeFor[ztwdnsgateway.DNSGateway](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -90,7 +90,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwziaforwardinggateway.ECGateway",
 			resource:     resources.ProductZTW,
 			resourceName: resourceForwardingGWs,
-			typ:          reflect.TypeOf(ztwziaforwardinggateway.ECGateway{}),
+			typ:          reflect.TypeFor[ztwziaforwardinggateway.ECGateway](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -117,7 +117,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwecgroup.EcGroup",
 			resource:     resources.ProductZTW,
 			resourceName: resourceECGroups,
-			typ:          reflect.TypeOf(ztwecgroup.EcGroup{}),
+			typ:          reflect.TypeFor[ztwecgroup.EcGroup](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -138,7 +138,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwipsourcegroups.IPSourceGroups",
 			resource:     resources.ProductZTW,
 			resourceName: resourceIPSourceGroups,
-			typ:          reflect.TypeOf(ztwipsourcegroups.IPSourceGroups{}),
+			typ:          reflect.TypeFor[ztwipsourcegroups.IPSourceGroups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -152,7 +152,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwipdestinationgroups.IPDestinationGroups",
 			resource:     resources.ProductZTW,
 			resourceName: resourceIPDestGroups,
-			typ:          reflect.TypeOf(ztwipdestinationgroups.IPDestinationGroups{}),
+			typ:          reflect.TypeFor[ztwipdestinationgroups.IPDestinationGroups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -168,7 +168,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwipgroups.IPGroups",
 			resource:     resources.ProductZTW,
 			resourceName: resourceIPGroups,
-			typ:          reflect.TypeOf(ztwipgroups.IPGroups{}),
+			typ:          reflect.TypeFor[ztwipgroups.IPGroups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -184,7 +184,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwnetworkservices.NetworkServices",
 			resource:     resources.ProductZTW,
 			resourceName: resourceNetworkServices,
-			typ:          reflect.TypeOf(ztwnetworkservices.NetworkServices{}),
+			typ:          reflect.TypeFor[ztwnetworkservices.NetworkServices](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -203,7 +203,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwnetworkservicegroups.NetworkServiceGroups",
 			resource:     resources.ProductZTW,
 			resourceName: resourceNetworkSvcGroups,
-			typ:          reflect.TypeOf(ztwnetworkservicegroups.NetworkServiceGroups{}),
+			typ:          reflect.TypeFor[ztwnetworkservicegroups.NetworkServiceGroups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -216,7 +216,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwadminusers.AdminUsers",
 			resource:     resources.ProductZTW,
 			resourceName: resourceAdminUsers,
-			typ:          reflect.TypeOf(ztwadminusers.AdminUsers{}),
+			typ:          reflect.TypeFor[ztwadminusers.AdminUsers](),
 			catalogFields: []string{
 				"id",
 				"loginName",
@@ -243,7 +243,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwadminusers.Role",
-			typ:  reflect.TypeOf(ztwadminusers.Role{}),
+			typ:  reflect.TypeFor[ztwadminusers.Role](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by the ztw/admin-users role nested field",
 				"id",
@@ -254,7 +254,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwadminusers.ExecMobileAppTokens",
-			typ:  reflect.TypeOf(ztwadminusers.ExecMobileAppTokens{}),
+			typ:  reflect.TypeFor[ztwadminusers.ExecMobileAppTokens](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped execMobileAppTokens parent",
 				"cloud",
@@ -272,7 +272,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwadminroles.AdminRoles",
 			resource:     resources.ProductZTW,
 			resourceName: resourceAdminRoles,
-			typ:          reflect.TypeOf(ztwadminroles.AdminRoles{}),
+			typ:          reflect.TypeFor[ztwadminroles.AdminRoles](),
 			catalogFields: []string{
 				"id",
 				"rank",
@@ -297,7 +297,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwlocation.Locations",
 			resource:     resources.ProductZTW,
 			resourceName: resourceLocations,
-			typ:          reflect.TypeOf(ztwlocation.Locations{}),
+			typ:          reflect.TypeFor[ztwlocation.Locations](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -357,7 +357,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwlocation.VPNCredentials",
-			typ:  reflect.TypeOf(ztwlocation.VPNCredentials{}),
+			typ:  reflect.TypeFor[ztwlocation.VPNCredentials](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped ztw/locations vpnCredentials parent",
 				"id",
@@ -371,7 +371,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwlocation.ManagedBy",
-			typ:  reflect.TypeOf(ztwlocation.ManagedBy{}),
+			typ:  reflect.TypeFor[ztwlocation.ManagedBy](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped ztw/locations vpnCredentials parent",
 				"id",
@@ -381,7 +381,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwlocation.VPCInfo",
-			typ:  reflect.TypeOf(ztwlocation.VPCInfo{}),
+			typ:  reflect.TypeFor[ztwlocation.VPCInfo](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped ztw/locations vpcInfo parent",
 				"cloudProvider",
@@ -390,7 +390,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwlocation.CloudMeta",
-			typ:  reflect.TypeOf(ztwlocation.CloudMeta{}),
+			typ:  reflect.TypeFor[ztwlocation.CloudMeta](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped ztw/locations vpcInfo parent",
 				"id",
@@ -401,7 +401,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwlocationtemplate.LocationTemplate",
 			resource:     resources.ProductZTW,
 			resourceName: resourceLocationTmpls,
-			typ:          reflect.TypeOf(ztwlocationtemplate.LocationTemplate{}),
+			typ:          reflect.TypeFor[ztwlocationtemplate.LocationTemplate](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -414,7 +414,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwlocationtemplate.LocationTemplateDetails",
-			typ:  reflect.TypeOf(ztwlocationtemplate.LocationTemplateDetails{}),
+			typ:  reflect.TypeFor[ztwlocationtemplate.LocationTemplateDetails](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by ztw/location-templates template nested field",
 				"templatePrefix",
@@ -442,7 +442,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwaccountgroups.AccountGroups",
 			resource:     resources.ProductZTW,
 			resourceName: resourceAccountGroups,
-			typ:          reflect.TypeOf(ztwaccountgroups.AccountGroups{}),
+			typ:          reflect.TypeFor[ztwaccountgroups.AccountGroups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -456,7 +456,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwpubliccloudinfo.PublicCloudInfo",
 			resource:     resources.ProductZTW,
 			resourceName: resourcePublicCloudInfo,
-			typ:          reflect.TypeOf(ztwpubliccloudinfo.PublicCloudInfo{}),
+			typ:          reflect.TypeFor[ztwpubliccloudinfo.PublicCloudInfo](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -473,7 +473,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwpubliccloudinfo.AccountDetails",
-			typ:  reflect.TypeOf(ztwpubliccloudinfo.AccountDetails{}),
+			typ:  reflect.TypeFor[ztwpubliccloudinfo.AccountDetails](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped ztw/public-cloud-info accountDetails parent",
 				"name",
@@ -490,7 +490,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwpubliccloudinfo.PublicCloudInfoLite",
-			typ:  reflect.TypeOf(ztwpubliccloudinfo.PublicCloudInfoLite{}),
+			typ:  reflect.TypeFor[ztwpubliccloudinfo.PublicCloudInfoLite](),
 			ignoredFields: ignoredBecause(
 				"deliberate: lite shape is not used by the ztw/public-cloud-info resource",
 				"id",
@@ -503,7 +503,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwzparesources.ZPAApplicationSegment",
 			resource:     resources.ProductZTW,
 			resourceName: resourceZTWZPAAppSegs,
-			typ:          reflect.TypeOf(ztwzparesources.ZPAApplicationSegment{}),
+			typ:          reflect.TypeFor[ztwzparesources.ZPAApplicationSegment](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -516,7 +516,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwforwardingrules.ForwardingRules",
 			resource:     resources.ProductZTW,
 			resourceName: resourceForwardingRules,
-			typ:          reflect.TypeOf(ztwforwardingrules.ForwardingRules{}),
+			typ:          reflect.TypeFor[ztwforwardingrules.ForwardingRules](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -564,7 +564,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwforwardingrules.ZPAApplicationSegments",
-			typ:  reflect.TypeOf(ztwforwardingrules.ZPAApplicationSegments{}),
+			typ:  reflect.TypeFor[ztwforwardingrules.ZPAApplicationSegments](),
 			ignoredFields: ignoredBecause(
 				"deliberate: SDK-local duplicate; resource uses ztwcommon.ZPAApplicationSegments references",
 				"id",
@@ -576,7 +576,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwforwardingrules.ZPAApplicationSegmentGroups",
-			typ:  reflect.TypeOf(ztwforwardingrules.ZPAApplicationSegmentGroups{}),
+			typ:  reflect.TypeFor[ztwforwardingrules.ZPAApplicationSegmentGroups](),
 			ignoredFields: ignoredBecause(
 				"deliberate: SDK-local duplicate; resource uses ztwcommon.ZPAApplicationSegmentGroups references",
 				"id",
@@ -588,7 +588,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwforwardingrules.ForwardingRulesQuery",
-			typ:  reflect.TypeOf(ztwforwardingrules.ForwardingRulesQuery{}),
+			typ:  reflect.TypeFor[ztwforwardingrules.ForwardingRulesQuery](),
 			ignoredFields: ignoredBecause(
 				"deliberate: query helper type, not a response shape",
 				"RuleName",
@@ -602,7 +602,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwforwardingrules.ForwardingRulesCountQuery",
-			typ:  reflect.TypeOf(ztwforwardingrules.ForwardingRulesCountQuery{}),
+			typ:  reflect.TypeFor[ztwforwardingrules.ForwardingRulesCountQuery](),
 			ignoredFields: ignoredBecause(
 				"deliberate: count query helper type, not a response shape",
 				"PredefinedRuleCount",
@@ -615,7 +615,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwforwardingrules.ForwardingRulesCountResponse",
-			typ:  reflect.TypeOf(ztwforwardingrules.ForwardingRulesCountResponse{}),
+			typ:  reflect.TypeFor[ztwforwardingrules.ForwardingRulesCountResponse](),
 			ignoredFields: ignoredBecause(
 				"deliberate: count response is not rendered by the ztw/forwarding-rules resource",
 				"count",
@@ -625,7 +625,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwtrafficdnsrules.ECDNSRules",
 			resource:     resources.ProductZTW,
 			resourceName: resourceTrafficDNSRules,
-			typ:          reflect.TypeOf(ztwtrafficdnsrules.ECDNSRules{}),
+			typ:          reflect.TypeFor[ztwtrafficdnsrules.ECDNSRules](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -652,7 +652,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwtrafficdnsrules.DNSRulesCountQuery",
-			typ:  reflect.TypeOf(ztwtrafficdnsrules.DNSRulesCountQuery{}),
+			typ:  reflect.TypeFor[ztwtrafficdnsrules.DNSRulesCountQuery](),
 			ignoredFields: ignoredBecause(
 				"deliberate: count query helper type, not a response shape",
 				"PredefinedRuleCount",
@@ -664,7 +664,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwtrafficdnsrules.DNSRulesCountResponse",
-			typ:  reflect.TypeOf(ztwtrafficdnsrules.DNSRulesCountResponse{}),
+			typ:  reflect.TypeFor[ztwtrafficdnsrules.DNSRulesCountResponse](),
 			ignoredFields: ignoredBecause(
 				"deliberate: count response is not rendered by the ztw/traffic-dns-rules resource",
 				"count",
@@ -674,7 +674,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 			name:         "ztwtrafficlogrules.ECTrafficLogRules",
 			resource:     resources.ProductZTW,
 			resourceName: resourceTrafficLogRules,
-			typ:          reflect.TypeOf(ztwtrafficlogrules.ECTrafficLogRules{}),
+			typ:          reflect.TypeFor[ztwtrafficlogrules.ECTrafficLogRules](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -694,7 +694,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwtrafficlogrules.TrafficLogRulesCountQuery",
-			typ:  reflect.TypeOf(ztwtrafficlogrules.TrafficLogRulesCountQuery{}),
+			typ:  reflect.TypeFor[ztwtrafficlogrules.TrafficLogRulesCountQuery](),
 			ignoredFields: ignoredBecause(
 				"deliberate: unused count query helper type, not a response shape",
 				"PredefinedRuleCount",
@@ -706,7 +706,7 @@ func reviewedSDKShapesZTW() []sdkShapeReview {
 		},
 		{
 			name: "ztwtrafficlogrules.TrafficLogRulesCountResponse",
-			typ:  reflect.TypeOf(ztwtrafficlogrules.TrafficLogRulesCountResponse{}),
+			typ:  reflect.TypeFor[ztwtrafficlogrules.TrafficLogRulesCountResponse](),
 			ignoredFields: ignoredBecause(
 				"deliberate: unused count response helper type, not rendered by the ztw/traffic-log-rules resource",
 				"count",

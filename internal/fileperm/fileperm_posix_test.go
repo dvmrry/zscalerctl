@@ -6,30 +6,35 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"golang.org/x/sys/unix"
 )
 
-func TestValidatePOSIXOwnerOnly(t *testing.T) {
+func TestOpenOwnerOnlyPOSIXRejectsGroupOrWorldBits(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("profiles: {}\n"), 0o600); err != nil {
 		t.Fatalf("os.WriteFile(%q) error = %v, want nil", path, err)
 	}
-	if err := Validate(path); err != nil {
-		t.Fatalf("Validate(0600) error = %v, want nil", err)
+	file, err := OpenOwnerOnly(path)
+	if err != nil {
+		t.Fatalf("OpenOwnerOnly(0600) error = %v, want nil", err)
 	}
-	if err := os.Chmod(path, 0o640); err != nil {
-		t.Fatalf("os.Chmod(%q, 0640) error = %v, want nil", path, err)
-	}
-	if err := Validate(path); !errors.Is(err, ErrInsecurePermissions) {
-		t.Fatalf("Validate(0640) error = %v, want ErrInsecurePermissions", err)
-	}
-	if err := os.Chmod(path, 0o604); err != nil {
-		t.Fatalf("os.Chmod(%q, 0604) error = %v, want nil", path, err)
-	}
-	if err := Validate(path); !errors.Is(err, ErrInsecurePermissions) {
-		t.Fatalf("Validate(0604) error = %v, want ErrInsecurePermissions", err)
+	_ = file.Close()
+	for _, mode := range []os.FileMode{0o640, 0o604} {
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatalf("os.Chmod(%q, %03o) error = %v, want nil", path, mode, err)
+		}
+		if file, err := OpenOwnerOnly(path); !errors.Is(err, ErrInsecurePermissions) {
+			if err == nil {
+				_ = file.Close()
+			}
+			t.Fatalf("OpenOwnerOnly(%03o) error = %v, want ErrInsecurePermissions", mode, err)
+		}
 	}
 }
 
@@ -82,7 +87,7 @@ func TestWriteOwnerOnlyPOSIXRefusesExisting(t *testing.T) {
 	}
 }
 
-func TestValidatePOSIXRejectsSymlink(t *testing.T) {
+func TestOpenOwnerOnlyPOSIXRejectsSymlink(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -94,13 +99,40 @@ func TestValidatePOSIXRejectsSymlink(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatalf("os.Symlink(%q, %q) error = %v, want nil", target, link, err)
 	}
-	if err := Validate(link); !errors.Is(err, ErrInsecurePermissions) {
-		t.Fatalf("Validate(symlink) error = %v, want ErrInsecurePermissions", err)
-	}
 	if file, err := OpenOwnerOnly(link); !errors.Is(err, ErrInsecurePermissions) {
 		if err == nil {
 			_ = file.Close()
 		}
 		t.Fatalf("OpenOwnerOnly(symlink) error = %v, want ErrInsecurePermissions", err)
+	}
+}
+
+func TestOpenOwnerOnlyPOSIXRejectsFIFO(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "secret.fifo")
+	if err := unix.Mkfifo(path, 0o600); err != nil {
+		t.Fatalf("unix.Mkfifo(%q) error = %v, want nil", path, err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		file, err := OpenOwnerOnly(path)
+		if err == nil {
+			_ = file.Close()
+		}
+		errCh <- err
+	}()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, ErrInsecurePermissions) {
+			t.Fatalf("OpenOwnerOnly(fifo) error = %v, want ErrInsecurePermissions", err)
+		}
+		if !strings.Contains(err.Error(), "not a regular file") {
+			t.Fatalf("OpenOwnerOnly(fifo) error = %v, want non-regular file message", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OpenOwnerOnly(fifo) did not return; want non-regular file rejection")
 	}
 }

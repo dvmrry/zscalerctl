@@ -1,20 +1,33 @@
 package resources
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"math"
+	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
 
-	"github.com/dvmrry/zscalerctl/internal/redact"
+	"zscalerctl/internal/redact"
 )
 
 var (
-	ErrMutatingOperation   = errors.New("mutating operation is not available in read-only release")
-	ErrInvalidResourceSpec = errors.New("invalid resource spec")
-	ErrUnexpectedField     = errors.New("unexpected rendered field")
+	ErrMutatingOperation     = errors.New("mutating operation is not available in read-only release")
+	ErrInvalidResourceSpec   = errors.New("invalid resource spec")
+	ErrInvalidProjectedValue = errors.New("invalid projected value")
+	ErrUnexpectedField       = errors.New("unexpected rendered field")
+	ErrUnknownField          = errors.New("unknown projected field")
+	ErrSuppressedField       = errors.New("field is not rendered in the active redaction mode")
+	ErrUnknownResource       = errors.New("unknown browser resource")
+	ErrMissingID             = errors.New("browser resource id is required")
+	ErrInvalidResourceID     = errors.New("invalid zscaler resource id")
+	ErrRecordNotFound        = errors.New("browser record not found")
+	ErrUnsupportedLoad       = errors.New("unsupported browser load operation")
 )
 
 type Product string
@@ -25,6 +38,7 @@ const (
 	ProductZTW       Product = "ztw"
 	ProductZCC       Product = "zcc"
 	ProductZidentity Product = "zidentity"
+	ProductZDX       Product = "zdx"
 )
 
 type Capability string
@@ -44,13 +58,56 @@ func (o Operation) Mutates() bool {
 }
 
 type FieldSpec struct {
-	Name                   string              `json:"name"`
-	JSONName               string              `json:"json_name,omitempty"`
-	Classification         FieldClassification `json:"classification"`
-	AllowedModes           []redact.Mode       `json:"allowed_modes,omitempty"`
-	Fields                 []FieldSpec         `json:"fields,omitempty"`
-	SensitiveNameReason    string              `json:"sensitive_name_reason,omitempty"`
-	StandardFreeTextReason string              `json:"standard_free_text_reason,omitempty"`
+	Name           string              `json:"name"`
+	JSONName       string              `json:"json_name,omitempty"`
+	Classification FieldClassification `json:"classification"`
+	// AllowedModes lists the modes that render the field. It is always
+	// emitted: a secret field renders in no mode and shows [], so a reader
+	// never mistakes a missing key for "unstated".
+	AllowedModes []redact.Mode `json:"allowed_modes"`
+	// Type is the JSON type zscalerctl emits for the field: string, integer,
+	// number, boolean, object, or array<T> of those. It is observed by
+	// sampling each reader's record mapper (field_types_gen.go) and empty
+	// where no fixed type is emitted.
+	Type   string      `json:"type,omitempty"`
+	Fields []FieldSpec `json:"fields,omitempty"`
+	// References names the catalog resources this field's id may belong to
+	// (usually one); see fieldReferences in references.go.
+	References             []ResourceRef `json:"references,omitempty"`
+	SensitiveNameReason    string        `json:"sensitive_name_reason,omitempty"`
+	StandardFreeTextReason string        `json:"standard_free_text_reason,omitempty"`
+	// SecretReason says why a secret field never renders. It is required on
+	// every secret field and forbidden elsewhere: secret means credential
+	// material, not "unreviewed" or "might be sensitive", so that link ids,
+	// settings and structure stay readable.
+	SecretReason SecretReason `json:"secret_reason,omitempty"`
+}
+
+// SecretReason is the closed set of reasons a field is secret.
+type SecretReason string
+
+const (
+	// SecretCredential: a password, pre-shared key, client secret or other
+	// value that authenticates as someone.
+	SecretCredential SecretReason = "credential"
+	// SecretToken: an access, session, policy or one-time token or passcode.
+	SecretToken SecretReason = "token"
+	// SecretKeyMaterial: private key or certificate key material.
+	SecretKeyMaterial SecretReason = "key_material"
+	// SecretOpaqueBlob: an encoded configuration blob that can embed any of
+	// the above and cannot be inspected field by field.
+	SecretOpaqueBlob SecretReason = "opaque_blob" // #nosec G101 -- secret reason name, not a credential
+	// SecretUnstructured: a free-form key/value map (such as "extensions")
+	// whose keys and values are not modeled, so nothing in it can be cleared.
+	SecretUnstructured SecretReason = "unstructured"
+)
+
+func validSecretReason(reason SecretReason) bool {
+	switch reason {
+	case SecretCredential, SecretToken, SecretKeyMaterial, SecretOpaqueBlob, SecretUnstructured:
+		return true
+	}
+	return false
 }
 
 type FieldClassification string
@@ -71,10 +128,22 @@ type ResourceShape string
 const (
 	ShapeList      ResourceShape = "list"
 	ShapeSingleton ResourceShape = "singleton"
+	// ShapeReport is time-windowed telemetry read with the report operation.
+	// It has no list, get or show, so dump, diff, refs and the machine read family never select it.
+	ShapeReport ResourceShape = "report"
 )
 
 func standardFreeTextReason(subject string) string {
 	return subject + "; " + standardFreeTextControls
+}
+
+// MarshalJSON writes a nil AllowedModes as [] rather than null.
+func (f FieldSpec) MarshalJSON() ([]byte, error) {
+	type plain FieldSpec
+	if f.AllowedModes == nil {
+		f.AllowedModes = []redact.Mode{}
+	}
+	return json.Marshal(plain(f))
 }
 
 func (f FieldSpec) JSONField() string {
@@ -142,6 +211,13 @@ func ListOperations() []Operation {
 	}
 }
 
+// ReportOperations is the operation set of a report resource: report only.
+func ReportOperations() []Operation {
+	return []Operation{
+		{Name: "report", Capability: CapabilityRead},
+	}
+}
+
 // SingletonOperations is the operation set for a list-shaped singleton: a
 // resource whose CLI verb is `list` but that yields exactly one projected
 // record. It intentionally returns the `list` operation (not `show`) because a
@@ -199,7 +275,94 @@ type SourceRecord struct {
 }
 
 func NewSourceRecord(fields map[string]any) SourceRecord {
-	return SourceRecord{fields: copyMap(fields)}
+	return SourceRecord{fields: copySourceMap(fields)}
+}
+
+// confirmedEmptyList marks a list the API itself returned as []. Projection
+// renders it as [] (in a mode that renders the field), so the output says
+// "none" only where the API did. Every other empty list, nil or not, is
+// skipped: a mapper's empty slice cannot tell "sent as []" from "not sent",
+// so a missing key means the list was not sent, not rendered, or not modeled.
+type confirmedEmptyList struct{}
+
+// isUnconfirmedEmptyList reports an empty slice or array that does not carry
+// the confirmed-empty marker; projection skips it.
+func isUnconfirmedEmptyList(value any) bool {
+	v := reflect.ValueOf(value)
+	return v.IsValid() && (v.Kind() == reflect.Slice || v.Kind() == reflect.Array) && v.Len() == 0
+}
+
+// NewSourceRecordFromProjected rebuilds a source record from fields that are
+// already projected output, such as a saved dump record, for re-verification.
+// Projection rendered every empty list in them deliberately, so each counts as
+// confirmed and survives re-projection unchanged.
+func NewSourceRecordFromProjected(fields map[string]any) SourceRecord {
+	return SourceRecord{fields: confirmEmptyLists(copySourceMap(fields)).(map[string]any)}
+}
+
+func confirmEmptyLists(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, item := range v {
+			v[key] = confirmEmptyLists(item)
+		}
+		return v
+	case []any:
+		if len(v) == 0 {
+			return confirmedEmptyList{}
+		}
+		for i, item := range v {
+			v[i] = confirmEmptyLists(item)
+		}
+		return v
+	}
+	if isUnconfirmedEmptyList(value) {
+		return confirmedEmptyList{}
+	}
+	return value
+}
+
+// ListLen returns the length of the record's value for key when it is a list,
+// and -1 otherwise (absent or not a list).
+func (r SourceRecord) ListLen(key string) int {
+	v := reflect.ValueOf(r.fields[key])
+	if !v.IsValid() || (v.Kind() != reflect.Slice && v.Kind() != reflect.Array) {
+		return -1
+	}
+	return v.Len()
+}
+
+// ScalarString returns the record's value for key as text when it is a
+// string or a number, and false otherwise (absent, null, or structured).
+func (r SourceRecord) ScalarString(key string) (string, bool) {
+	switch v := r.fields[key].(type) {
+	case string:
+		return v, true
+	case json.Number:
+		return v.String(), true
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return fmt.Sprint(v), true
+	}
+	return "", false
+}
+
+// Has reports whether the record has a value for key.
+func (r SourceRecord) Has(key string) bool {
+	_, ok := r.fields[key]
+	return ok
+}
+
+// WithConfirmedEmptyList returns a copy of r in which key holds a list the
+// API returned as []. A key that already holds a non-empty value is left
+// unchanged.
+func (r SourceRecord) WithConfirmedEmptyList(key string) SourceRecord {
+	if value, ok := r.fields[key]; ok && !isUnconfirmedEmptyList(value) {
+		return r
+	}
+	fields := make(map[string]any, len(r.fields))
+	maps.Copy(fields, r.fields)
+	fields[key] = confirmedEmptyList{}
+	return SourceRecord{fields: fields}
 }
 
 type ProjectedRecord struct {
@@ -224,22 +387,420 @@ func (r ProjectedRecord) Value(key string) (any, bool) {
 	return copyAny(value), true
 }
 
-// Select returns a copy of the record narrowed to keys, in the given order,
-// including only keys that are present. It can only narrow the already-projected
-// field set; it never adds or resurrects a dropped or secret field, so it is
-// safe to apply after projection and redaction.
+// Select returns a copy of the record narrowed to keys, including only keys
+// that are present. A key is a top-level field or a dotted path through nested
+// fields ("groups.id"): a path keeps each object along it with only the
+// selected keys, and narrows every element of a list it crosses, so
+// "groups.id" turns groups into [{"id": ...}, ...] with one entry per group.
+// A key that selects a field whole wins over paths beneath it. Select can only
+// narrow the already-projected field set; it never adds or resurrects a
+// dropped or secret field, so it is safe to apply after projection and
+// redaction.
 func (r ProjectedRecord) Select(keys []string) ProjectedRecord {
-	out := make(map[string]any, len(keys))
-	for _, key := range keys {
+	tree := newSelectionTree(keys)
+	out := make(map[string]any, len(tree))
+	for key, sub := range tree {
 		if value, ok := r.fields[key]; ok {
-			out[key] = copyAny(value)
+			out[key] = selectProjectedValue(copyAny(value), sub)
 		}
 	}
 	return ProjectedRecord{fields: out}
 }
 
+// selectionTree maps a field to the selection beneath it; a nil subtree keeps
+// the field whole.
+type selectionTree map[string]selectionTree
+
+func newSelectionTree(keys []string) selectionTree {
+	root := selectionTree{}
+	for _, key := range keys {
+		node := root
+		segments := strings.Split(key, ".")
+		for i, segment := range segments {
+			sub, seen := node[segment]
+			if seen && sub == nil {
+				// An ancestor is already selected whole.
+				break
+			}
+			if i == len(segments)-1 {
+				node[segment] = nil
+				break
+			}
+			if sub == nil {
+				sub = selectionTree{}
+				node[segment] = sub
+			}
+			node = sub
+		}
+	}
+	return root
+}
+
+// selectProjectedValue narrows an owned projected value to tree. Objects keep
+// only the selected keys that are present (an object missing all of them
+// stays as {}, so list elements keep their positions); lists are narrowed
+// element by element; any other value has nothing beneath it to drop.
+func selectProjectedValue(value any, tree selectionTree) any {
+	if tree == nil {
+		return value
+	}
+	switch v := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(tree))
+		for key, sub := range tree {
+			if child, ok := v[key]; ok {
+				out[key] = selectProjectedValue(child, sub)
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = selectProjectedValue(item, tree)
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]any, len(v))
+		for i, item := range v {
+			out[i], _ = selectProjectedValue(item, tree).(map[string]any)
+		}
+		return out
+	}
+	return value
+}
+
+// ProjectedPathValue returns the value a top-level field or dotted path
+// reaches in a projected record's fields, for column-oriented rendering. A
+// path through objects returns the value at its end; a path that crosses a
+// list returns a list of what it reaches in each element, skipping elements
+// that lack the key (a null leaf is reached, and renders as an empty slot).
+// Unlike Select's JSON, which keeps such elements as {}, the result does not
+// keep element positions. ok is false when the path reaches nothing.
+func ProjectedPathValue(fields map[string]any, path string) (any, bool) {
+	if value, ok := fields[path]; ok {
+		return value, true
+	}
+	if !strings.Contains(path, ".") {
+		return nil, false
+	}
+	return projectedPathValue(fields, strings.Split(path, "."))
+}
+
+func projectedPathValue(value any, path []string) (any, bool) {
+	if len(path) == 0 {
+		return value, true
+	}
+	var items []any
+	switch v := value.(type) {
+	case map[string]any:
+		next, ok := v[path[0]]
+		if !ok {
+			return nil, false
+		}
+		return projectedPathValue(next, path[1:])
+	case []any:
+		items = v
+	case []map[string]any:
+		items = make([]any, len(v))
+		for i, item := range v {
+			items[i] = item
+		}
+	default:
+		return nil, false
+	}
+	var out []any
+	for _, item := range items {
+		if reached, ok := projectedPathValue(item, path); ok {
+			out = append(out, reached)
+		}
+	}
+	if out == nil {
+		return nil, false
+	}
+	return out, true
+}
+
 type ProjectedRecords struct {
 	records []ProjectedRecord
+	// isolated means every record recursively owns normalized projected values,
+	// so package-private read paths do not need another defensive copy.
+	isolated bool
+}
+
+// UnknownFieldError reports a requested --fields projected field that is not
+// declared in the catalog for a product/resource.
+type UnknownFieldError struct {
+	Product  Product
+	Resource string
+	Field    string
+}
+
+func (e UnknownFieldError) Error() string {
+	return fmt.Sprintf("--fields: %q is not a field of %s/%s", e.Field, e.Product, e.Resource)
+}
+
+// Unwrap returns the sentinel error for errors.Is checks.
+func (e UnknownFieldError) Unwrap() error { return ErrUnknownField }
+
+// UnknownFilterError reports a requested --filter field that is not declared
+// in the catalog for a product/resource. It has its own type so adapters can
+// preserve the flag-specific usage message while sharing ErrUnknownField for
+// classification.
+type UnknownFilterError struct {
+	Product  Product
+	Resource string
+	Field    string
+}
+
+func (e UnknownFilterError) Error() string {
+	return fmt.Sprintf("--filter: %q is not a field of %s/%s", e.Field, e.Product, e.Resource)
+}
+
+// Unwrap returns the sentinel error for errors.Is checks.
+func (e UnknownFilterError) Unwrap() error { return ErrUnknownField }
+
+// ProjectedFilter describes one post-projection record filter.
+type ProjectedFilter struct {
+	Field     string
+	Value     string
+	Substring bool
+}
+
+// NarrowOptions describes post-projection row and field narrowing.
+type NarrowOptions struct {
+	Fields  []string
+	Filters []ProjectedFilter
+	Search  string
+}
+
+// ValidateNarrowOptions validates all catalog names used by --fields and
+// --filter before a caller performs any read. A --fields name is a top-level
+// field or a dotted path through nested catalog fields ("groups.id"); a filter
+// name is the same, but a dotted filter path must end at a leaf
+// ("groups.name"). This
+// check is catalog-only, so it can run before configuration (and therefore the
+// redaction mode) is known; ValidateNarrowOptionsInMode adds the mode check
+// once it is. Empty names are left to the adapter's request-shape validation,
+// which owns parsing and required-value errors.
+func ValidateNarrowOptions(spec ResourceSpec, opts NarrowOptions) error {
+	for _, name := range opts.Fields {
+		if name == "" {
+			continue
+		}
+		if _, ok := FieldPathAvailability(spec, name); !ok {
+			return UnknownFieldError{
+				Product:  spec.Product,
+				Resource: spec.Name,
+				Field:    name,
+			}
+		}
+	}
+	for _, filter := range opts.Filters {
+		if filter.Field == "" {
+			continue
+		}
+		if !validFilterPath(spec.Fields, filter.Field) {
+			return UnknownFilterError{
+				Product:  spec.Product,
+				Resource: spec.Name,
+				Field:    filter.Field,
+			}
+		}
+	}
+	return nil
+}
+
+// PathAvailability says whether a catalog field or dotted filter path renders
+// in a redaction mode. A nested field renders only where every field above it
+// also renders, so RenderableIn is the intersection along the path.
+type PathAvailability struct {
+	Secret       bool
+	RenderableIn []redact.Mode
+}
+
+// RenderedIn reports whether the path renders in mode.
+func (a PathAvailability) RenderedIn(mode redact.Mode) bool {
+	mode = redact.EffectiveMode(mode)
+	return slices.Contains(a.RenderableIn, mode)
+}
+
+// FieldPathAvailability returns the availability of a top-level field or a
+// dotted path whose segments are nested catalog fields. ok is false when the
+// name is not in the catalog.
+func FieldPathAvailability(spec ResourceSpec, name string) (PathAvailability, bool) {
+	chain := fieldChain(spec.Fields, name)
+	if chain == nil {
+		return PathAvailability{}, false
+	}
+	return availabilityAlong(chain), true
+}
+
+func availabilityAlong(chain []FieldSpec) PathAvailability {
+	var out PathAvailability
+	for _, field := range chain {
+		if field.Classification == ClassSecret {
+			out.Secret = true
+		}
+	}
+	for _, mode := range []redact.Mode{redact.ModeStandard, redact.ModeShare, redact.ModeParanoid} {
+		renders := true
+		for _, field := range chain {
+			if !field.AllowedIn(mode) {
+				renders = false
+				break
+			}
+		}
+		if renders {
+			out.RenderableIn = append(out.RenderableIn, mode)
+		}
+	}
+	return out
+}
+
+// SuppressedFieldError reports a --filter path naming a real catalog field
+// that the active mode never renders. Filtering on it could only match
+// nothing, which reads as a confident "no such records"; refusing it keeps an
+// omitted field from posing as an empty result.
+type SuppressedFieldError struct {
+	// Flag is the flag that named the field: "--filter" (the default) or
+	// "--count-by".
+	Flag         string
+	Product      Product
+	Resource     string
+	Field        string
+	Mode         redact.Mode
+	Secret       bool
+	RenderableIn []redact.Mode
+}
+
+func (e SuppressedFieldError) Error() string {
+	flag, use, consequence := "--filter", "filtered on", "so it could never match"
+	if e.Flag == "--count-by" {
+		flag, use, consequence = e.Flag, "counted", "so every record would count as missing"
+	}
+	if e.Secret {
+		return fmt.Sprintf("%s: %q of %s/%s is secret and never renders, so it cannot be %s",
+			flag, e.Field, e.Product, e.Resource, use)
+	}
+	if len(e.RenderableIn) == 0 {
+		return fmt.Sprintf("%s: %q of %s/%s renders in no redaction mode, so it cannot be %s",
+			flag, e.Field, e.Product, e.Resource, use)
+	}
+	return fmt.Sprintf("%s: %q of %s/%s is omitted in %s mode, %s; it renders with --redaction %s",
+		flag, e.Field, e.Product, e.Resource, redact.EffectiveMode(e.Mode), consequence, modeList(e.RenderableIn))
+}
+
+// Unwrap returns the sentinel error for errors.Is checks.
+func (e SuppressedFieldError) Unwrap() error { return ErrSuppressedField }
+
+func modeList(modes []redact.Mode) string {
+	names := make([]string, len(modes))
+	for i, m := range modes {
+		names[i] = string(m)
+	}
+	return strings.Join(names, " or ")
+}
+
+// ValidateNarrowOptionsInMode runs ValidateNarrowOptions and then rejects any
+// filter path the mode does not render. Requested --fields that the mode omits
+// stay valid, since the caller still gets the fields that do render;
+// OmittedFields reports them.
+func ValidateNarrowOptionsInMode(spec ResourceSpec, mode redact.Mode, opts NarrowOptions) error {
+	if err := ValidateNarrowOptions(spec, opts); err != nil {
+		return err
+	}
+	for _, filter := range opts.Filters {
+		if filter.Field == "" {
+			continue
+		}
+		availability, _ := FieldPathAvailability(spec, filter.Field)
+		if !availability.RenderedIn(mode) {
+			return SuppressedFieldError{
+				Product:      spec.Product,
+				Resource:     spec.Name,
+				Field:        filter.Field,
+				Mode:         mode,
+				Secret:       availability.Secret,
+				RenderableIn: availability.RenderableIn,
+			}
+		}
+	}
+	return nil
+}
+
+// OmittedFields lists the catalog fields a mode leaves out of output, as
+// top-level names or dotted paths for nested fields under a parent that does
+// render. With requested fields (or dotted paths) it covers only those and
+// what lies beneath them; without, every field. Secret fields never render in
+// any mode and the schema says so, so they are listed only when requested (a
+// path through a secret field counts), and then separately.
+func OmittedFields(spec ResourceSpec, mode redact.Mode, requested []string) (omitted []string, secret []string) {
+	if len(requested) == 0 {
+		return omittedPaths(spec.Fields, mode, ""), nil
+	}
+	for _, name := range requested {
+		chain := fieldChain(spec.Fields, name)
+		if chain == nil {
+			continue
+		}
+		availability := availabilityAlong(chain)
+		switch {
+		case availability.Secret:
+			secret = append(secret, name)
+		case !availability.RenderedIn(mode):
+			omitted = append(omitted, name)
+		default:
+			omitted = append(omitted, omittedPaths(chain[len(chain)-1].Fields, mode, name+".")...)
+		}
+	}
+	// Overlapping requests (groups and groups.name) reach the same paths.
+	return uniqueInOrder(omitted), uniqueInOrder(secret)
+}
+
+func uniqueInOrder(names []string) []string {
+	seen := make(map[string]bool, len(names))
+	out := names[:0]
+	for _, name := range names {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// fieldChain returns the catalog fields along a top-level name or dotted
+// path, or nil when the name is not in the catalog.
+func fieldChain(fields []FieldSpec, name string) []FieldSpec {
+	if field, ok := fieldByJSONName(fields, name); ok {
+		return []FieldSpec{field}
+	}
+	var chain []FieldSpec
+	for segment := range strings.SplitSeq(name, ".") {
+		field, ok := fieldByJSONName(fields, segment)
+		if !ok {
+			return nil
+		}
+		chain = append(chain, field)
+		fields = field.Fields
+	}
+	return chain
+}
+
+func omittedPaths(fields []FieldSpec, mode redact.Mode, prefix string) []string {
+	var out []string
+	for _, field := range fields {
+		if field.Classification == ClassSecret {
+			continue
+		}
+		path := prefix + field.JSONField()
+		if !field.AllowedIn(mode) {
+			out = append(out, path)
+			continue
+		}
+		out = append(out, omittedPaths(field.Fields, mode, path+".")...)
+	}
+	return out
 }
 
 func NewProjectedRecords(records []ProjectedRecord) ProjectedRecords {
@@ -248,15 +809,78 @@ func NewProjectedRecords(records []ProjectedRecord) ProjectedRecords {
 	return ProjectedRecords{records: out}
 }
 
+// newIsolatedProjectedRecords copies records that already own normalized
+// projected values and preserves that private-state invariant.
+func newIsolatedProjectedRecords(records []ProjectedRecord) ProjectedRecords {
+	out := make([]ProjectedRecord, len(records))
+	copy(out, records)
+	return ProjectedRecords{records: out, isolated: true}
+}
+
+// NewProjectedRecordsFromProjectedFields reconstructs ProjectedRecords from
+// trusted, already-projected, and already-redacted field maps. It does not
+// verify those maps against a catalog spec or redaction mode. Callers that
+// accept maps across a trust boundary must use
+// NewVerifiedProjectedRecordsFromProjectedFields instead.
+func NewProjectedRecordsFromProjectedFields(records []map[string]any) ProjectedRecords {
+	out := make([]ProjectedRecord, len(records))
+	for i, record := range records {
+		out[i] = ProjectedRecord{fields: copyMap(record)}
+	}
+	return ProjectedRecords{records: out, isolated: true}
+}
+
+// NewVerifiedProjectedRecordsFromProjectedFields reconstructs ProjectedRecords
+// from already-projected field maps after verifying every field is declared by
+// spec and renderable in mode. It copies each record defensively and returns no
+// ProjectedRecords when validation fails.
+func NewVerifiedProjectedRecordsFromProjectedFields(
+	spec ResourceSpec,
+	mode redact.Mode,
+	records []map[string]any,
+) (ProjectedRecords, error) {
+	if err := spec.Validate(); err != nil {
+		return ProjectedRecords{}, err
+	}
+	validator := newRenderedSubsetValidator(spec, mode)
+	out := make([]ProjectedRecord, len(records))
+	for i, record := range records {
+		copied := copyMap(record)
+		if err := validator.assert(copied); err != nil {
+			return ProjectedRecords{}, err
+		}
+		out[i] = ProjectedRecord{fields: copied}
+	}
+	return ProjectedRecords{records: out, isolated: true}, nil
+}
+
+// VerifyProjectedRecords checks that every projected record contains only
+// fields declared by spec and renderable in mode. ProjectedRecords are
+// immutable through their public API, so successful verification does not
+// require reconstructing them through maps.
+func VerifyProjectedRecords(spec ResourceSpec, mode redact.Mode, records ProjectedRecords) error {
+	return assertProjectedRecordsSubset(spec, mode, records)
+}
+
 func (ProjectedRecords) OutputSafe() {}
 
 func (rs ProjectedRecords) MarshalJSON() ([]byte, error) {
 	out := make([]map[string]any, len(rs.records))
-	for i, record := range rs.records {
-		out[i] = record.Fields()
+	if rs.isolated {
+		for i, record := range rs.records {
+			out[i] = record.fields
+		}
+	} else {
+		for i, record := range rs.records {
+			out[i] = record.Fields()
+		}
 	}
 	return json.Marshal(out)
 }
+
+// Len returns the number of projected records without exposing the backing
+// slice or any record fields.
+func (rs ProjectedRecords) Len() int { return len(rs.records) }
 
 // Select narrows every record to keys (see ProjectedRecord.Select).
 func (rs ProjectedRecords) Select(keys []string) ProjectedRecords {
@@ -264,13 +888,260 @@ func (rs ProjectedRecords) Select(keys []string) ProjectedRecords {
 	for i, record := range rs.records {
 		out[i] = record.Select(keys)
 	}
-	return ProjectedRecords{records: out}
+	return ProjectedRecords{records: out, isolated: true}
 }
 
 func (rs ProjectedRecords) Records() []ProjectedRecord {
 	out := make([]ProjectedRecord, len(rs.records))
 	copy(out, rs.records)
 	return out
+}
+
+// EffectiveFields returns the renderable field order for a resource, optionally
+// narrowed to requested fields or dotted paths. Unknown names are rejected.
+// Known names that do not render in the active mode (a path renders only when
+// every field along it does) are silently omitted so callers cannot widen
+// projected output through field selection.
+func EffectiveFields(spec ResourceSpec, mode redact.Mode, requested []string) ([]string, error) {
+	order := spec.FieldOrder(mode)
+	if len(requested) == 0 {
+		return order, nil
+	}
+	if err := ValidateNarrowOptions(spec, NarrowOptions{Fields: requested}); err != nil {
+		return nil, err
+	}
+	renderable := make(map[string]struct{}, len(order))
+	for _, name := range order {
+		renderable[name] = struct{}{}
+	}
+	out := make([]string, 0, len(requested))
+	for _, name := range requested {
+		if _, ok := renderable[name]; ok {
+			out = append(out, name)
+			continue
+		}
+		if !strings.Contains(name, ".") {
+			continue
+		}
+		if availability, _ := FieldPathAvailability(spec, name); availability.RenderedIn(mode) {
+			out = append(out, name)
+		}
+	}
+	return out, nil
+}
+
+// NarrowProjectedRecords applies filters/search to projected records before
+// optional field selection. It only reduces the projected record set and field
+// set; it never reads source records or widens the projection allow-list.
+func NarrowProjectedRecords(
+	spec ResourceSpec,
+	mode redact.Mode,
+	records ProjectedRecords,
+	opts NarrowOptions,
+) (ProjectedRecords, error) {
+	if err := ValidateNarrowOptionsInMode(spec, mode, opts); err != nil {
+		return ProjectedRecords{}, err
+	}
+	fields, err := EffectiveFields(spec, mode, opts.Fields)
+	if err != nil {
+		return ProjectedRecords{}, err
+	}
+	narrowed := FilterProjectedRecords(records, opts.Filters, opts.Search)
+	if len(opts.Fields) > 0 {
+		narrowed = narrowed.Select(fields)
+	}
+	return narrowed, nil
+}
+
+// FilterProjectedRecords applies filters and search to already-projected
+// records. Missing fields do not match, which keeps dropped and secret fields
+// unreachable after projection.
+func FilterProjectedRecords(
+	records ProjectedRecords,
+	filters []ProjectedFilter,
+	search string,
+) ProjectedRecords {
+	if len(filters) == 0 && search == "" {
+		return records
+	}
+	kept := make([]ProjectedRecord, 0)
+	for _, record := range records.records {
+		fields := record.fields
+		if !records.isolated {
+			fields = record.Fields()
+		}
+		if projectedRecordMatches(fields, filters, search) {
+			kept = append(kept, record)
+		}
+	}
+	return ProjectedRecords{records: kept, isolated: records.isolated}
+}
+
+func projectedRecordMatches(fields map[string]any, filters []ProjectedFilter, search string) bool {
+	for _, filter := range filters {
+		if !projectedFilterMatches(fields, filter) {
+			return false
+		}
+	}
+	if search == "" {
+		return true
+	}
+	term := strings.ToLower(search)
+	for _, value := range fields {
+		if strings.Contains(strings.ToLower(FormatProjectedValue(value)), term) {
+			return true
+		}
+	}
+	return false
+}
+
+// projectedFilterMatches applies one filter. A top-level field matches on its
+// whole rendered value. A dotted path matches when any value it reaches does:
+// lists along the path, and a list at its end, are matched element by element,
+// so "groups.name=Eng" means some group is named exactly "Eng".
+func projectedFilterMatches(fields map[string]any, filter ProjectedFilter) bool {
+	values := []any(nil)
+	if value, ok := fields[filter.Field]; ok {
+		// A top-level key matches the whole rendered value, and a list also
+		// matches when any element does, as a dotted path into it would:
+		// --filter urlCategories=X keeps every rule that lists X.
+		values = append([]any{value}, topLevelElements(value)...)
+	} else if strings.Contains(filter.Field, ".") {
+		values = projectedPathValues(fields, strings.Split(filter.Field, "."))
+	}
+	for _, value := range values {
+		rendered := FormatProjectedValue(value)
+		if filter.Substring {
+			if strings.Contains(strings.ToLower(rendered), strings.ToLower(filter.Value)) {
+				return true
+			}
+			continue
+		}
+		if rendered == filter.Value {
+			return true
+		}
+	}
+	return false
+}
+
+// topLevelElements returns a list's own elements, one level deep (an inner
+// list is one element), or nothing for a non-list value.
+func topLevelElements(value any) []any {
+	switch v := value.(type) {
+	case []any:
+		return v
+	case []string:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out
+	}
+	return nil
+}
+
+// projectedPathValues returns the values a dotted path reaches in a projected
+// value. Missing keys reach nothing, so fields dropped by projection or
+// redaction never match.
+func projectedPathValues(value any, path []string) []any {
+	switch v := value.(type) {
+	case []any:
+		var out []any
+		for _, item := range v {
+			out = append(out, projectedPathValues(item, path)...)
+		}
+		return out
+	case []string:
+		if len(path) > 0 {
+			return nil
+		}
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out
+	}
+	if len(path) == 0 {
+		return []any{value}
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	next, ok := object[path[0]]
+	if !ok {
+		return nil
+	}
+	return projectedPathValues(next, path[1:])
+}
+
+// validFilterPath reports whether name is a top-level field or a dotted path
+// whose every segment is a catalog field nested in the one before it. A path
+// must end at a field without nested fields, so it always matches leaf
+// values rather than a rendered object.
+func validFilterPath(fields []FieldSpec, name string) bool {
+	if _, ok := fieldByJSONName(fields, name); ok {
+		return true
+	}
+	for segment := range strings.SplitSeq(name, ".") {
+		field, ok := fieldByJSONName(fields, segment)
+		if !ok {
+			return false
+		}
+		fields = field.Fields
+	}
+	return len(fields) == 0
+}
+
+func fieldByJSONName(fields []FieldSpec, name string) (FieldSpec, bool) {
+	for _, field := range fields {
+		if field.JSONField() == name {
+			return field, true
+		}
+	}
+	return FieldSpec{}, false
+}
+
+// FormatProjectedValue renders a projected value for filter and search
+// matching. It keeps the established matching normalization independent from
+// terminal presentation escaping.
+func FormatProjectedValue(value any) string {
+	return sanitizeProjectedValue(rawProjectedValue(value))
+}
+
+// ProjectedValueText flattens a projected value without modifying its text.
+// Presentation callers must apply their sink-specific encoder before writing
+// the result; matching callers should use FormatProjectedValue instead.
+func ProjectedValueText(value any) string {
+	return rawProjectedValue(value)
+}
+
+func rawProjectedValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case []string:
+		return strings.Join(v, ",")
+	case []any:
+		parts := make([]string, len(v))
+		for i, item := range v {
+			parts[i] = rawProjectedValue(item)
+		}
+		return strings.Join(parts, ",")
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func sanitizeProjectedValue(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\t' || r == '\n' || r == '\r' || r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 type ProjectionReport struct {
@@ -295,7 +1166,7 @@ func ProjectRecords(spec ResourceSpec, mode redact.Mode, records []SourceRecord)
 		projected = append(projected, item)
 		reports = append(reports, report)
 	}
-	return NewProjectedRecords(projected), reports, nil
+	return newIsolatedProjectedRecords(projected), reports, nil
 }
 
 func ProjectRecordsAndVerify(spec ResourceSpec, mode redact.Mode, records []SourceRecord) (ProjectedRecords, []ProjectionReport, error) {
@@ -324,6 +1195,9 @@ func projectRecordCore(spec ResourceSpec, mode redact.Mode, record SourceRecord)
 	report := ProjectionReport{}
 
 	for key, value := range record.fields {
+		if isUnconfirmedEmptyList(value) {
+			continue
+		}
 		field, ok := allowed[key]
 		if !ok {
 			report.DroppedFields = append(report.DroppedFields, key)
@@ -349,7 +1223,7 @@ func ProjectRecordAndVerify(spec ResourceSpec, mode redact.Mode, record SourceRe
 	if err != nil {
 		return ProjectedRecord{}, ProjectionReport{}, err
 	}
-	if err := AssertRenderedSubset(spec, mode, projected.Fields()); err != nil {
+	if err := AssertRenderedSubset(spec, mode, projected.fields); err != nil {
 		return ProjectedRecord{}, ProjectionReport{}, err
 	}
 	return projected, report, nil
@@ -362,13 +1236,46 @@ func projectValue(
 	path string,
 	report *ProjectionReport,
 ) (any, bool, bool) {
+	if _, unsupported := value.(unsupportedProjectedValue); unsupported {
+		return unsupportedProjectedValue{}, false, true
+	}
+	if _, empty := value.(confirmedEmptyList); empty {
+		return []any{}, false, true
+	}
 	if len(field.Fields) > 0 {
 		return projectNestedValue(mode, field, value, path, report)
+	}
+	if hasUnsupportedProjectedValue(value) {
+		return unsupportedProjectedValue{}, false, true
 	}
 	if hasStructuredValue(value) {
 		return nil, false, false
 	}
 	return sanitizeScalar(mode, field, value)
+}
+
+func hasUnsupportedProjectedValue(value any) bool {
+	switch v := value.(type) {
+	case unsupportedProjectedValue:
+		return true
+	case map[string]any:
+		for _, item := range v {
+			if hasUnsupportedProjectedValue(item) {
+				return true
+			}
+		}
+	case []any:
+		if slices.ContainsFunc(v, hasUnsupportedProjectedValue) {
+			return true
+		}
+	case []map[string]any:
+		for _, item := range v {
+			if hasUnsupportedProjectedValue(item) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func projectNestedValue(
@@ -430,6 +1337,9 @@ func projectNestedMap(
 	redacted := false
 
 	for key, value := range values {
+		if isUnconfirmedEmptyList(value) {
+			continue
+		}
 		field, ok := allowed[key]
 		nestedPath := path + "." + key
 		if !ok {
@@ -482,8 +1392,103 @@ func sanitizeScalar(mode redact.Mode, field FieldSpec, value any) (any, bool, bo
 			}
 		}
 		return out, redacted, true
+	case json.Number:
+		return copyAny(v), false, true
 	default:
+		valueOf := reflect.ValueOf(value)
+		if valueOf.IsValid() && valueOf.Kind() == reflect.String {
+			out, report := scanStringValue(r, field, valueOf.String())
+			return out, !report.Empty(), true
+		}
+		if valueOf.IsValid() &&
+			(valueOf.Kind() == reflect.Slice || valueOf.Kind() == reflect.Array) &&
+			valueOf.Type().Elem().Kind() == reflect.String &&
+			valueOf.Type().Elem() != reflect.TypeFor[json.Number]() {
+			out := make([]string, valueOf.Len())
+			redacted := false
+			for i := range valueOf.Len() {
+				sanitized, report := scanStringValue(r, field, valueOf.Index(i).String())
+				out[i] = sanitized
+				if !report.Empty() {
+					redacted = true
+				}
+			}
+			return out, redacted, true
+		}
+		if valueOf.IsValid() &&
+			(valueOf.Kind() == reflect.Slice || valueOf.Kind() == reflect.Array) &&
+			isCopyableSourceSequenceType(valueOf.Type()) &&
+			!isSupportedSequenceType(valueOf.Type()) {
+			out, ok := normalizeSourceScalarSequence(valueOf)
+			return out, false, ok
+		}
+		if valueOf.IsValid() &&
+			isCopyableSourceScalarType(valueOf.Type()) &&
+			!isSupportedScalarType(valueOf.Type()) {
+			out, ok := normalizeSourceScalar(valueOf)
+			return out, false, ok
+		}
 		return copyAny(value), false, true
+	}
+}
+
+func normalizeSourceScalar(value reflect.Value) (any, bool) {
+	builtin := builtinScalarType(value.Type())
+	if builtin == nil {
+		return nil, false
+	}
+	return value.Convert(builtin).Interface(), true
+}
+
+func normalizeSourceScalarSequence(value reflect.Value) (any, bool) {
+	builtin := builtinScalarType(value.Type().Elem())
+	if builtin == nil {
+		return nil, false
+	}
+	out := reflect.MakeSlice(reflect.SliceOf(builtin), value.Len(), value.Len())
+	for i := range value.Len() {
+		out.Index(i).Set(value.Index(i).Convert(builtin))
+	}
+	return out.Interface(), true
+}
+
+func builtinScalarType(valueType reflect.Type) reflect.Type {
+	if valueType == reflect.TypeFor[json.Number]() {
+		return valueType
+	}
+	switch valueType.Kind() {
+	case reflect.Bool:
+		return reflect.TypeOf(false)
+	case reflect.Float32:
+		return reflect.TypeFor[float32]()
+	case reflect.Float64:
+		return reflect.TypeFor[float64]()
+	case reflect.Int:
+		return reflect.TypeFor[int]()
+	case reflect.Int8:
+		return reflect.TypeFor[int8]()
+	case reflect.Int16:
+		return reflect.TypeFor[int16]()
+	case reflect.Int32:
+		return reflect.TypeFor[int32]()
+	case reflect.Int64:
+		return reflect.TypeFor[int64]()
+	case reflect.String:
+		return reflect.TypeFor[string]()
+	case reflect.Uint:
+		return reflect.TypeFor[uint]()
+	case reflect.Uint8:
+		return reflect.TypeFor[uint8]()
+	case reflect.Uint16:
+		return reflect.TypeFor[uint16]()
+	case reflect.Uint32:
+		return reflect.TypeFor[uint32]()
+	case reflect.Uint64:
+		return reflect.TypeFor[uint64]()
+	case reflect.Uintptr:
+		return reflect.TypeFor[uintptr]()
+	default:
+		return nil
 	}
 }
 
@@ -517,12 +1522,7 @@ func hasStructuredValue(value any) bool {
 	case map[string]any, []map[string]any:
 		return true
 	case []any:
-		for _, item := range v {
-			if hasStructuredValue(item) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(v, hasStructuredValue)
 	default:
 		return false
 	}
@@ -532,23 +1532,40 @@ func AssertRenderedSubset(spec ResourceSpec, mode redact.Mode, rendered map[stri
 	if err := spec.Validate(); err != nil {
 		return err
 	}
-	return assertRenderedSubsetCore(spec, mode, rendered)
+	return newRenderedSubsetValidator(spec, mode).assert(rendered)
 }
 
-// assertRenderedSubsetCore checks subset membership without re-validating the
-// spec. Callers that loop over many records must validate once before calling.
-func assertRenderedSubsetCore(spec ResourceSpec, mode redact.Mode, rendered map[string]any) error {
-	allowed := spec.AllowedFields(mode)
-	for key := range rendered {
-		field, ok := allowed[key]
-		if !ok {
-			return fmt.Errorf("%w: %s/%s field %s", ErrUnexpectedField, spec.Product, spec.Name, key)
-		}
-		if err := assertValueSubset(spec, mode, field, rendered[key], key); err != nil {
-			return err
-		}
+type renderedSubsetField struct {
+	spec     FieldSpec
+	children map[string]renderedSubsetField
+}
+
+type renderedSubsetValidator struct {
+	spec   ResourceSpec
+	fields map[string]renderedSubsetField
+}
+
+func newRenderedSubsetValidator(spec ResourceSpec, mode redact.Mode) renderedSubsetValidator {
+	return renderedSubsetValidator{
+		spec:   spec,
+		fields: newRenderedSubsetFields(spec.Fields, mode),
 	}
-	return nil
+}
+
+func newRenderedSubsetFields(fields []FieldSpec, mode redact.Mode) map[string]renderedSubsetField {
+	mode = redact.EffectiveMode(mode)
+	allowed := make(map[string]renderedSubsetField)
+	for _, field := range fields {
+		if !field.AllowedIn(mode) {
+			continue
+		}
+		compiled := renderedSubsetField{spec: field}
+		if len(field.Fields) > 0 {
+			compiled.children = newRenderedSubsetFields(field.Fields, mode)
+		}
+		allowed[field.JSONField()] = compiled
+	}
+	return allowed
 }
 
 func assertProjectedRecordsSubset(spec ResourceSpec, mode redact.Mode, records ProjectedRecords) error {
@@ -556,37 +1573,48 @@ func assertProjectedRecordsSubset(spec ResourceSpec, mode redact.Mode, records P
 	if err := spec.Validate(); err != nil {
 		return err
 	}
-	for _, record := range records.Records() {
-		if err := assertRenderedSubsetCore(spec, mode, record.Fields()); err != nil {
+	validator := newRenderedSubsetValidator(spec, mode)
+	// ProjectedRecords and ProjectedRecord expose mutable slices and maps only
+	// through defensive-copy accessors. The verifier is in the owning package and
+	// reads their private immutable state directly, avoiding copies that provide no
+	// additional isolation at this internal boundary.
+	for _, record := range records.records {
+		if err := validator.assert(record.fields); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func assertValueSubset(spec ResourceSpec, mode redact.Mode, field FieldSpec, value any, path string) error {
+func (v renderedSubsetValidator) assert(rendered map[string]any) error {
+	return v.assertMap(v.fields, rendered, "")
+}
+
+func (v renderedSubsetValidator) assertValue(field renderedSubsetField, value any, path string) error {
+	if !isSupportedProjectedValue(reflect.ValueOf(value), make(map[copyVisit]bool)) {
+		return fmt.Errorf("%w: %s/%s field %s", ErrInvalidProjectedValue, v.spec.Product, v.spec.Name, path)
+	}
 	if !hasStructuredValue(value) {
 		return nil
 	}
-	if len(field.Fields) == 0 {
-		return fmt.Errorf("%w: %s/%s field %s has unmodeled nested data", ErrUnexpectedField, spec.Product, spec.Name, path)
+	if len(field.spec.Fields) == 0 {
+		return fmt.Errorf("%w: %s/%s field %s has unmodeled nested data", ErrUnexpectedField, v.spec.Product, v.spec.Name, path)
 	}
-	allowed := allowedFieldMap(field.Fields, mode)
-	switch v := value.(type) {
+	switch typed := value.(type) {
 	case map[string]any:
-		return assertMapSubset(spec, mode, allowed, v, path)
+		return v.assertMap(field.children, typed, path)
 	case []any:
-		for i, item := range v {
+		for i, item := range typed {
 			itemPath := fmt.Sprintf("%s[%d]", path, i)
-			if err := assertValueSubset(spec, mode, field, item, itemPath); err != nil {
+			if err := v.assertValue(field, item, itemPath); err != nil {
 				return err
 			}
 		}
 		return nil
 	case []map[string]any:
-		for i, item := range v {
+		for i, item := range typed {
 			itemPath := fmt.Sprintf("%s[%d]", path, i)
-			if err := assertMapSubset(spec, mode, allowed, item, itemPath); err != nil {
+			if err := v.assertMap(field.children, item, itemPath); err != nil {
 				return err
 			}
 		}
@@ -596,20 +1624,21 @@ func assertValueSubset(spec ResourceSpec, mode redact.Mode, field FieldSpec, val
 	}
 }
 
-func assertMapSubset(
-	spec ResourceSpec,
-	mode redact.Mode,
-	allowed map[string]FieldSpec,
+func (v renderedSubsetValidator) assertMap(
+	allowed map[string]renderedSubsetField,
 	rendered map[string]any,
 	path string,
 ) error {
 	for key, value := range rendered {
 		field, ok := allowed[key]
-		nestedPath := path + "." + key
-		if !ok {
-			return fmt.Errorf("%w: %s/%s field %s", ErrUnexpectedField, spec.Product, spec.Name, nestedPath)
+		nestedPath := key
+		if path != "" {
+			nestedPath = path + "." + key
 		}
-		if err := assertValueSubset(spec, mode, field, value, nestedPath); err != nil {
+		if !ok {
+			return fmt.Errorf("%w: %s/%s field %s", ErrUnexpectedField, v.spec.Product, v.spec.Name, nestedPath)
+		}
+		if err := v.assertValue(field, value, nestedPath); err != nil {
 			return err
 		}
 	}
@@ -656,7 +1685,7 @@ func (s ResourceSpec) Validate() error {
 		return fmt.Errorf("%w: invalid resource name %q", ErrInvalidResourceSpec, s.Name)
 	}
 	switch s.EffectiveShape() {
-	case ShapeList, ShapeSingleton:
+	case ShapeList, ShapeSingleton, ShapeReport:
 	default:
 		return fmt.Errorf("%w: %s/%s invalid shape %q", ErrInvalidResourceSpec, s.Product, s.Name, s.Shape)
 	}
@@ -675,6 +1704,12 @@ func (s ResourceSpec) Validate() error {
 		default:
 			return fmt.Errorf("%w: %s/%s operation %s has invalid capability %q", ErrInvalidResourceSpec, s.Product, s.Name, op.Name, op.Capability)
 		}
+	}
+	// A report resource has exactly the report operation, and only a report
+	// resource has it.
+	if (s.EffectiveShape() == ShapeReport) != s.SupportsReadOperation("report") ||
+		(s.EffectiveShape() == ShapeReport && len(s.Operations) != 1) {
+		return fmt.Errorf("%w: %s/%s report shape and the report operation go together, alone", ErrInvalidResourceSpec, s.Product, s.Name)
 	}
 	if s.EffectiveShape() == ShapeSingleton && !s.SupportsReadOperation("list") {
 		return fmt.Errorf("%w: %s/%s singleton resources must support list", ErrInvalidResourceSpec, s.Product, s.Name)
@@ -732,6 +1767,10 @@ func validateFields(product Product, resource, prefix string, fields []FieldSpec
 		if jsonName == "" {
 			return fmt.Errorf("%w: %s/%s has field without name", ErrInvalidResourceSpec, product, resource)
 		}
+		// "." separates nested fields in --filter paths and projection reports.
+		if strings.Contains(jsonName, ".") {
+			return fmt.Errorf("%w: %s/%s field %s contains '.'", ErrInvalidResourceSpec, product, resource, path)
+		}
 		if _, ok := seen[jsonName]; ok {
 			return fmt.Errorf("%w: %s/%s duplicate field %s", ErrInvalidResourceSpec, product, resource, path)
 		}
@@ -751,6 +1790,12 @@ func validateFields(product Product, resource, prefix string, fields []FieldSpec
 		}
 		if field.Classification == ClassSecret && len(field.AllowedModes) != 0 {
 			return fmt.Errorf("%w: %s/%s secret field %s cannot be allowed", ErrInvalidResourceSpec, product, resource, path)
+		}
+		if field.Classification == ClassSecret && !validSecretReason(field.SecretReason) {
+			return fmt.Errorf("%w: %s/%s secret field %s needs a SecretReason (credential, token, key_material, opaque_blob or unstructured)", ErrInvalidResourceSpec, product, resource, path)
+		}
+		if field.Classification != ClassSecret && field.SecretReason != "" {
+			return fmt.Errorf("%w: %s/%s field %s has a SecretReason but is not secret", ErrInvalidResourceSpec, product, resource, path)
 		}
 		if field.Classification != ClassSecret && len(field.AllowedModes) == 0 {
 			return fmt.Errorf("%w: %s/%s field %s has no allowed modes", ErrInvalidResourceSpec, product, resource, path)
@@ -860,24 +1905,53 @@ func freeTextField(name string, subject string) FieldSpec {
 	}
 }
 
-func secretField(name string) FieldSpec {
-	return FieldSpec{
-		Name:           name,
-		Classification: ClassSecret,
-	}
+// Secret fields: credential material only, each with its reason.
+func credentialField(name string) FieldSpec { return secretWithReason(name, SecretCredential) }
+func tokenField(name string) FieldSpec      { return secretWithReason(name, SecretToken) }
+func opaqueBlobField(name string) FieldSpec { return secretWithReason(name, SecretOpaqueBlob) }
+func unstructuredField(name string) FieldSpec {
+	return secretWithReason(name, SecretUnstructured)
 }
 
-func idNameExtensionsField(name string, allowed []redact.Mode) FieldSpec {
+func secretWithReason(name string, reason SecretReason) FieldSpec {
+	return FieldSpec{Name: name, Classification: ClassSecret, SecretReason: reason}
+}
+
+// namedOperationalField is an operational field whose name looks sensitive
+// (passwordExpiry, provisioningKeyId) but whose value is not: reason says why.
+func namedOperationalField(name string, allowed []redact.Mode, reason string) FieldSpec {
+	field := operationalField(name, allowed)
+	field.SensitiveNameReason = reason
+	return field
+}
+
+// idNameExtensionsField is a reference list of {id, name, extensions}.
+// nameModes bounds the referenced object's name; the list itself, and so its
+// ids, also render in share mode, because reference ids are fine to share and
+// without them a rule's scope (users, groups, locations, ...) is invisible in
+// the default mode. Paranoid mode renders the ids only when nameModes does.
+func idNameExtensionsField(name string, nameModes []redact.Mode) FieldSpec {
 	return FieldSpec{
 		Name:           name,
 		Classification: ClassTenantConfig,
-		AllowedModes:   allowed,
+		AllowedModes:   withShareMode(nameModes),
 		Fields: []FieldSpec{
 			operationalField("id", allModes()),
-			tenantConfigField("name", standardShareModes()),
-			secretField("extensions"),
+			tenantConfigField("name", nameModes),
+			unstructuredField("extensions"),
 		},
 	}
+}
+
+// withShareMode returns modes plus share, keeping the canonical mode order.
+func withShareMode(modes []redact.Mode) []redact.Mode {
+	out := []redact.Mode{}
+	for _, mode := range allModes() {
+		if mode == redact.ModeShare || slices.Contains(modes, mode) {
+			out = append(out, mode)
+		}
+	}
+	return out
 }
 
 func idNameField(name string, allowed []redact.Mode) FieldSpec {
@@ -888,7 +1962,6 @@ func idNameField(name string, allowed []redact.Mode) FieldSpec {
 		Fields: []FieldSpec{
 			operationalField("id", allModes()),
 			tenantConfigField("name", standardShareModes()),
-			secretField("parent"),
 		},
 	}
 }
@@ -931,8 +2004,10 @@ func idNameExternalIDField(name string, allowed []redact.Mode) FieldSpec {
 		Fields: []FieldSpec{
 			operationalField("id", allModes()),
 			tenantConfigField("name", standardShareModes()),
-			secretField("externalId"),
-			secretField("extensions"),
+			// The external id is the referenced object's id in the other
+			// product (a ZPA application segment id on a ZIA rule).
+			operationalField("externalId", allModes()),
+			unstructuredField("extensions"),
 		},
 	}
 }
@@ -945,6 +2020,34 @@ func networkPortsField(name string, allowed []redact.Mode) FieldSpec {
 		Fields: []FieldSpec{
 			operationalField("start", allModes()),
 			operationalField("end", allModes()),
+		},
+	}
+}
+
+// portRangeListField is a list of {from, to} port ranges. Ports render in
+// standard mode only, like the flat tcpPortRanges/udpPortRanges beside them.
+func portRangeListField(name string) FieldSpec {
+	return FieldSpec{
+		Name:           name,
+		Classification: ClassTenantConfig,
+		AllowedModes:   standardOnlyMode(),
+		Fields: []FieldSpec{
+			operationalField("from", standardOnlyMode()),
+			operationalField("to", standardOnlyMode()),
+		},
+	}
+}
+
+// idNameRefField is an {id, name} reference: the id renders in every mode
+// (ids are fine to share), the name in standard and share.
+func idNameRefField(name string) FieldSpec {
+	return FieldSpec{
+		Name:           name,
+		Classification: ClassTenantConfig,
+		AllowedModes:   allModes(),
+		Fields: []FieldSpec{
+			operationalField("id", allModes()),
+			tenantConfigField("name", standardShareModes()),
 		},
 	}
 }
@@ -992,21 +2095,20 @@ func sensitiveIdentifierFields(names ...string) []FieldSpec {
 	return fields
 }
 
-func secretFields(names ...string) []FieldSpec {
-	fields := make([]FieldSpec, 0, len(names))
-	for _, name := range names {
-		fields = append(fields, secretField(name))
-	}
-	return fields
-}
-
 func Catalog() ResourceCatalog {
 	c := make(ResourceCatalog, 0)
 	c = append(c, catalogZIA()...)
+	c = append(c, catalogZIASDKv3855()...)
 	c = append(c, catalogZPA()...)
+	c = append(c, catalogZPAIdentity()...)
+	c = append(c, catalogZPAScout()...)
 	c = append(c, catalogZTW()...)
 	c = append(c, catalogZCC()...)
 	c = append(c, catalogZidentity()...)
+	c = append(c, catalogOtherScout()...)
+	c = append(c, catalogZDX()...)
+	applyFieldReferences(c)
+	applyFieldTypes(c)
 	return c
 }
 
@@ -1017,38 +2119,363 @@ func sortReport(report *ProjectionReport) {
 }
 
 func copyMap(in map[string]any) map[string]any {
+	return copyMapForDomain(in, projectedValueDomain)
+}
+
+func copySourceMap(in map[string]any) map[string]any {
+	return copyMapForDomain(in, sourceValueDomain)
+}
+
+func copyMapForDomain(in map[string]any, domain valueCopyDomain) map[string]any {
 	if in == nil {
 		return nil
 	}
 	out := make(map[string]any, len(in))
 	for key, value := range in {
-		out[key] = copyAny(value)
+		out[key] = copyAnyForDomain(value, domain)
 	}
 	return out
 }
 
 func copyAny(value any) any {
+	return copyAnyForDomain(value, projectedValueDomain)
+}
+
+func copyAnyForDomain(value any, domain valueCopyDomain) any {
+	if value == nil {
+		return nil
+	}
 	switch v := value.(type) {
-	case map[string]any:
-		return copyMap(v)
-	case []map[string]any:
-		out := make([]map[string]any, len(v))
-		for i, item := range v {
-			out[i] = copyMap(item)
-		}
-		return out
-	case []any:
-		out := make([]any, len(v))
-		for i, item := range v {
-			out[i] = copyAny(item)
-		}
-		return out
+	case confirmedEmptyList:
+		return v
 	case []string:
-		out := make([]string, len(v))
-		copy(out, v)
-		return out
-	default:
+		return slices.Clone(v)
+	case []int:
+		return slices.Clone(v)
+	case json.Number:
+		if _, err := json.Marshal(v); err != nil {
+			return unsupportedProjectedValue{}
+		}
+		return v
+	}
+	valueOf := reflect.ValueOf(value)
+	switch valueOf.Kind() {
+	case reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.String,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		if !scalarTypeAllowedForDomain(valueOf.Type(), domain) {
+			return unsupportedProjectedValue{}
+		}
 		return value
+	case reflect.Float32, reflect.Float64:
+		if !scalarTypeAllowedForDomain(valueOf.Type(), domain) ||
+			math.IsNaN(valueOf.Float()) || math.IsInf(valueOf.Float(), 0) {
+			return unsupportedProjectedValue{}
+		}
+		return value
+	}
+	cloned, ok := cloneCompositeValue(valueOf, make(map[copyVisit]bool), domain)
+	if !ok {
+		return unsupportedProjectedValue{}
+	}
+	if !cloned.IsValid() {
+		// A nil struct pointer normalizes to JSON null.
+		return nil
+	}
+	return cloned.Interface()
+}
+
+// structShaped reports a struct, a pointer to one, or a slice/array of
+// either: SDK shapes that reach projection only through their JSON form.
+func structShaped(value reflect.Value) bool {
+	typ := value.Type()
+	if typ.Kind() == reflect.Slice || typ.Kind() == reflect.Array {
+		typ = typ.Elem()
+	}
+	if typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	return typ.Kind() == reflect.Struct
+}
+
+func jsonNormalized(value reflect.Value) (any, bool) {
+	if !value.CanInterface() {
+		return nil, false
+	}
+	body, err := json.Marshal(value.Interface())
+	if err != nil {
+		return nil, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var out any
+	if err := decoder.Decode(&out); err != nil {
+		return nil, false
+	}
+	return out, true
+}
+
+type valueCopyDomain uint8
+
+const (
+	projectedValueDomain valueCopyDomain = iota
+	sourceValueDomain
+)
+
+type copyVisit struct {
+	typeOf   reflect.Type
+	pointer  uintptr
+	length   int
+	capacity int
+}
+
+// unsupportedProjectedValue fails closed when a projected value cannot be
+// copied without retaining caller-owned mutable state.
+type unsupportedProjectedValue struct{}
+
+func (unsupportedProjectedValue) MarshalJSON() ([]byte, error) {
+	return nil, ErrInvalidProjectedValue
+}
+
+// cloneCompositeValue recursively copies either the private source domain or
+// the narrower projected-output domain. Source-only named scalars remain
+// private until projection normalizes them; cyclic, unmodeled, or non-data
+// values are quarantined so copying cannot expose shared mutable state.
+func cloneCompositeValue(
+	value reflect.Value,
+	active map[copyVisit]bool,
+	domain valueCopyDomain,
+) (reflect.Value, bool) {
+	if !value.IsValid() {
+		return reflect.Value{}, true
+	}
+	if value.CanInterface() {
+		if number, ok := reflect.TypeAssert[json.Number](value); ok {
+			if _, err := json.Marshal(number); err != nil {
+				return reflect.Value{}, false
+			}
+			return value, true
+		}
+	}
+	if domain == sourceValueDomain && structShaped(value) {
+		// A reader may hand over an SDK struct (or a list of them) for a
+		// nested field. Copy it as the plain maps and lists its JSON encoding
+		// describes, numbers kept exact; the catalog still decides which keys
+		// render. Values JSON cannot encode stay unsupported.
+		normalized, ok := jsonNormalized(value)
+		if !ok {
+			return reflect.Value{}, false
+		}
+		return cloneCompositeValue(reflect.ValueOf(normalized), active, domain)
+	}
+	switch value.Kind() {
+	case reflect.Interface:
+		if value.IsNil() {
+			return reflect.Zero(value.Type()), true
+		}
+		cloned, ok := cloneCompositeValue(value.Elem(), active, domain)
+		if !ok {
+			return reflect.Value{}, false
+		}
+		out := reflect.New(value.Type()).Elem()
+		out.Set(cloned)
+		return out, true
+	case reflect.Slice:
+		if !sequenceTypeAllowedForDomain(value.Type(), domain) {
+			return reflect.Value{}, false
+		}
+		if value.IsNil() {
+			return reflect.Zero(value.Type()), true
+		}
+		visit := copyVisit{
+			typeOf: value.Type(), pointer: value.Pointer(), length: value.Len(), capacity: value.Cap(),
+		}
+		if active[visit] {
+			return reflect.Value{}, false
+		}
+		active[visit] = true
+		defer delete(active, visit)
+		out := reflect.MakeSlice(value.Type(), value.Len(), value.Len())
+		for i := range value.Len() {
+			cloned, ok := cloneCompositeValue(value.Index(i), active, domain)
+			if !ok {
+				return reflect.Value{}, false
+			}
+			out.Index(i).Set(cloned)
+		}
+		return out, true
+	case reflect.Map:
+		if value.Type() != reflect.TypeFor[map[string]any]() {
+			return reflect.Value{}, false
+		}
+		if value.IsNil() {
+			return reflect.Zero(value.Type()), true
+		}
+		visit := copyVisit{typeOf: value.Type(), pointer: value.Pointer()}
+		if active[visit] {
+			return reflect.Value{}, false
+		}
+		active[visit] = true
+		defer delete(active, visit)
+		out := reflect.MakeMapWithSize(value.Type(), value.Len())
+		iter := value.MapRange()
+		for iter.Next() {
+			cloned, ok := cloneCompositeValue(iter.Value(), active, domain)
+			if !ok {
+				cloned = reflect.New(value.Type().Elem()).Elem()
+				cloned.Set(reflect.ValueOf(unsupportedProjectedValue{}))
+			}
+			out.SetMapIndex(iter.Key(), cloned)
+		}
+		return out, true
+	case reflect.Array:
+		if !scalarTypeAllowedForDomain(value.Type().Elem(), domain) ||
+			(domain == projectedValueDomain && value.Type().PkgPath() != "") {
+			return reflect.Value{}, false
+		}
+		out := reflect.New(value.Type()).Elem()
+		for i := range value.Len() {
+			cloned, ok := cloneCompositeValue(value.Index(i), active, domain)
+			if !ok {
+				return reflect.Value{}, false
+			}
+			out.Index(i).Set(cloned)
+		}
+		return out, true
+	case reflect.Float32, reflect.Float64:
+		if !scalarTypeAllowedForDomain(value.Type(), domain) ||
+			math.IsNaN(value.Float()) || math.IsInf(value.Float(), 0) {
+			return reflect.Value{}, false
+		}
+		return value, true
+	case reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.String,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return value, scalarTypeAllowedForDomain(value.Type(), domain)
+	case reflect.Chan, reflect.Complex64, reflect.Complex128, reflect.Func,
+		reflect.Pointer, reflect.Struct, reflect.UnsafePointer:
+		return reflect.Value{}, false
+	default:
+		return reflect.Value{}, false
+	}
+}
+
+func isSupportedSequenceType(valueType reflect.Type) bool {
+	if valueType == reflect.TypeFor[[]any]() ||
+		valueType == reflect.TypeFor[[]map[string]any]() {
+		return true
+	}
+	return valueType.PkgPath() == "" && isSupportedScalarType(valueType.Elem())
+}
+
+func isCopyableSourceSequenceType(valueType reflect.Type) bool {
+	if valueType == reflect.TypeFor[[]any]() ||
+		valueType == reflect.TypeFor[[]map[string]any]() {
+		return true
+	}
+	return (valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Array) &&
+		isCopyableSourceScalarType(valueType.Elem())
+}
+
+func isSupportedScalarType(valueType reflect.Type) bool {
+	builtin := builtinScalarType(valueType)
+	return builtin != nil && valueType == builtin
+}
+
+func isCopyableSourceScalarType(valueType reflect.Type) bool {
+	return builtinScalarType(valueType) != nil
+}
+
+func scalarTypeAllowedForDomain(valueType reflect.Type, domain valueCopyDomain) bool {
+	if domain == sourceValueDomain {
+		return isCopyableSourceScalarType(valueType)
+	}
+	return isSupportedScalarType(valueType)
+}
+
+func sequenceTypeAllowedForDomain(valueType reflect.Type, domain valueCopyDomain) bool {
+	if domain == sourceValueDomain {
+		return isCopyableSourceSequenceType(valueType)
+	}
+	return isSupportedSequenceType(valueType)
+}
+
+func isSupportedProjectedValue(value reflect.Value, active map[copyVisit]bool) bool {
+	if !value.IsValid() {
+		return true
+	}
+	if value.CanInterface() {
+		if number, ok := reflect.TypeAssert[json.Number](value); ok {
+			_, err := json.Marshal(number)
+			return err == nil
+		}
+	}
+	switch value.Kind() {
+	case reflect.Interface:
+		return value.IsNil() || isSupportedProjectedValue(value.Elem(), active)
+	case reflect.Slice:
+		if !isSupportedSequenceType(value.Type()) {
+			return false
+		}
+		if value.IsNil() {
+			return true
+		}
+		visit := copyVisit{
+			typeOf: value.Type(), pointer: value.Pointer(), length: value.Len(), capacity: value.Cap(),
+		}
+		if active[visit] {
+			return false
+		}
+		active[visit] = true
+		defer delete(active, visit)
+		for i := range value.Len() {
+			if !isSupportedProjectedValue(value.Index(i), active) {
+				return false
+			}
+		}
+		return true
+	case reflect.Map:
+		if value.Type() != reflect.TypeFor[map[string]any]() {
+			return false
+		}
+		if value.IsNil() {
+			return true
+		}
+		visit := copyVisit{typeOf: value.Type(), pointer: value.Pointer()}
+		if active[visit] {
+			return false
+		}
+		active[visit] = true
+		defer delete(active, visit)
+		iter := value.MapRange()
+		for iter.Next() {
+			if !isSupportedProjectedValue(iter.Value(), active) {
+				return false
+			}
+		}
+		return true
+	case reflect.Array:
+		if !isSupportedSequenceType(value.Type()) {
+			return false
+		}
+		for i := range value.Len() {
+			if !isSupportedProjectedValue(value.Index(i), active) {
+				return false
+			}
+		}
+		return true
+	case reflect.Float32, reflect.Float64:
+		return isSupportedScalarType(value.Type()) &&
+			!math.IsNaN(value.Float()) && !math.IsInf(value.Float(), 0)
+	case reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.String,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return isSupportedScalarType(value.Type())
+	default:
+		return false
 	}
 }
 

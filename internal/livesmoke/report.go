@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dvmrry/zscalerctl/internal/redact"
+	"zscalerctl/internal/redact"
 )
 
 type resultRow struct {

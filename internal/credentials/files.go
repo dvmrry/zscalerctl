@@ -6,11 +6,13 @@ import (
 	"io"
 	"strings"
 
-	"github.com/dvmrry/zscalerctl/internal/fileperm"
-	"github.com/dvmrry/zscalerctl/internal/secret"
+	"zscalerctl/internal/fileperm"
+	"zscalerctl/internal/secret"
 )
 
 var ErrUnsafePermissions = errors.New("unsafe credential file permissions")
+
+const maxSecretFileBytes = 64 * 1024
 
 // ReadOwnerOnlySecretFile opens the file, checks permissions on the open
 // handle (eliminating the TOCTOU race between a separate stat and read), reads
@@ -30,9 +32,12 @@ func ReadOwnerOnlySecretFile(path string) (secret.Secret, error) {
 	}
 	defer f.Close()
 
-	body, err := io.ReadAll(f)
+	body, err := io.ReadAll(io.LimitReader(f, maxSecretFileBytes+1))
 	if err != nil {
 		return secret.Secret{}, fmt.Errorf("read credential file: %w", err)
+	}
+	if len(body) > maxSecretFileBytes {
+		return secret.Secret{}, fmt.Errorf("credential file exceeds %d byte limit", maxSecretFileBytes)
 	}
 	return secret.New(strings.TrimRight(string(body), "\r\n")), nil
 }

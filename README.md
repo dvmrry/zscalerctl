@@ -6,157 +6,134 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13176/badge)](https://www.bestpractices.dev/projects/13176)
 [![Release](https://img.shields.io/github/v/release/dvmrry/zscalerctl)](https://github.com/dvmrry/zscalerctl/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.26-00ADD8)](go.mod)
 
-> Unofficial, security-first, **read-only** CLI for authorized Zscaler administrators — safe configuration query, inventory, and sanitized exports.
+> Unofficial, **read-only** CLI for authorized Zscaler administrators and
+> their automation: configuration queries, inventory, sanitized dumps and
+> drift reports.
 
-A single Go binary, agentic/pipeline-first by design, so one reviewed command can replace duplicated API snippets across your workflows. Not affiliated with, endorsed by, or sponsored by Zscaler.
+Not affiliated with, endorsed by, or sponsored by Zscaler.
 
-## What you get
+## What it does
 
-- **Read-only by design** — no write commands and no raw API executor (and none planned for v1).
-- **Agentic-first output** — deterministic JSON whenever output is piped or redirected; a styled `pretty` view on a terminal, both rendered from the same sanitized data.
-- **Explicit auth only** — reads only `ZSCALERCTL_*` config; never the Zscaler SDK's own env vars or files.
-- **Leak-resistant** — allow-list projection into safe views, with every SDK field classified or deliberately excluded on the record, test-enforced ([docs/FIELD_COVERAGE.md](docs/FIELD_COVERAGE.md)); redaction and secret scanning as defense-in-depth for values.
-- **Sanitized, fail-closed dumps and local drift reports** — releases ship checksums, per-target SBOMs, and provenance attestations.
-- **Stable automation contract** — documented exit codes and JSON error envelopes.
+- **Reads, never writes.** There are no commands that change a tenant and no
+  raw API executor.
+- **Renders only reviewed fields.** Every resource is read through a catalog
+  that lists the fields allowed to render and the redaction modes that render
+  them. Anything else, including every credential, is dropped. Redaction and
+  secret scanning run on top as defense in depth.
+- **Machine-first output.** Piped output is deterministic JSON, failures emit a
+  JSON error envelope on stderr, and exit codes are a stable contract.
+- **Explicit configuration.** Only `ZSCALERCTL_*` variables and optional
+  owner-only profiles are read; never the Zscaler SDK's own variables or files.
 
-Reviewed read/list/show coverage spans **ZIA, ZPA, ZTW, ZCC, and Zidentity**. The catalog is the source of truth:
+Coverage: configuration for **ZIA, ZPA, ZTW, ZCC and Zidentity**, and
+time-windowed **ZDX** reports. The catalog is the source of truth:
 
 ```sh
-zscalerctl --format json schema list
+zscalerctl --format json schema list     # every resource, operation and field
+zscalerctl --format json schema gaps     # what is deliberately not read, and why
 ```
 
-See [docs/RESOURCES.md](docs/RESOURCES.md) for the resource reference and [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md) for deferred and queued work.
+The [resource reference](https://github.com/dvmrry/zscalerctl/blob/main/docs/RESOURCES.md)
+lists every field and the modes that render it.
 
 ## Install
 
-Release archives for macOS, Linux, and Windows include checksums, CycloneDX SBOMs, and GitHub provenance attestations. See [docs/INSTALL.md](docs/INSTALL.md) for verification, credentials, proxy, completions, and platform notes.
-
-With a Go toolchain (no checkout needed):
-
-```sh
-go install github.com/dvmrry/zscalerctl/cmd/zscalerctl@latest
-zscalerctl version
-```
-
-From a checkout (rerun after every `git pull` — the binary on PATH does not
-update itself):
+Download a release archive for macOS, Linux (amd64, arm64) or Windows (amd64)
+and verify it, or build from a clone with Go 1.26.10 or newer:
 
 ```sh
+git clone https://github.com/dvmrry/zscalerctl.git
+cd zscalerctl
 go install ./cmd/zscalerctl
 ```
+
+[docs/INSTALL.md](docs/INSTALL.md) covers verification, credentials, profiles,
+proxies, completions and platform notes.
 
 ## Quick start
 
 ```sh
-# Inspect local config without contacting Zscaler
-zscalerctl doctor
-zscalerctl auth status
-
-# Browse the reviewed catalog
-zscalerctl schema list
-
-# Read resources
+zscalerctl doctor                     # is configuration ready? (no network)
 zscalerctl zia locations list
-zscalerctl zpa server-groups list
-zscalerctl ztw workload-groups list
-
-# Diagnostic lookup: which categories does this domain/URL resolve to?
-zscalerctl zia url-lookup example.com
-
-# Write a sanitized, fail-closed dump
-zscalerctl dump --products zia --out ./scratch-live-dump
-
-# Compare two existing dumps for drift
-zscalerctl diff ./scratch-live-dump-old ./scratch-live-dump-new --fail-on-drift
+zscalerctl zpa server-groups list --fields id,name
+zscalerctl zia users list --count-by groups.id        # members per group
+zscalerctl zdx apps report --since 2h
+zscalerctl dump --products zia --output ./scratch-dump
+zscalerctl diff ./scratch-dump-old ./scratch-dump-new --fail-on-drift
 ```
 
-Output defaults to `--format auto`: a terminal gets the human-readable `pretty` view, while a pipe, redirect, or `--output` file gets JSON, so automation is the default surface without a flag. Force it either way with `--format json` or `--format pretty` (or `--format table` for the tab-separated form). The `pretty` view is a styled overlay of the same sanitized data — it adds no fields and passes through the same redaction. Use `--output <path>` to write a single command's output to a restricted file; use `dump --out <dir>` for dump directories (the two are intentionally not combined). Dump refuses to overwrite by default; add `--force` only to replace an existing zscalerctl dump directory.
-
-The examples above are written for interactive use. Scripts and agents should pass `--format json` explicitly rather than rely on auto-detection — a PTY-based harness can read as a terminal and receive the `pretty` view. Dump directories and diff reports contain sanitized but still confidential tenant inventory; keep them in ignored scratch paths and do not paste payloads into tickets or chats. `diff` compares two dump directories you already collected; use cron, CI, or another external scheduler if you want recurring drift checks. The agent-oriented guide is in [AGENTS.md](AGENTS.md).
+A terminal gets a readable `pretty` view; a pipe or redirect gets JSON. Scripts
+and agents should pass `--format json` explicitly. Dumps and diff reports are
+sanitized but still confidential tenant inventory: keep them out of tickets
+and chats.
 
 ## Authentication
 
-OneAPI is the default. The CLI reads only explicit `ZSCALERCTL_*` values:
+OneAPI is the default:
 
 ```sh
 export ZSCALERCTL_CLIENT_ID=<client-id>
 export ZSCALERCTL_CLIENT_SECRET_FILE=/path/to/owner-only/secret-file
 export ZSCALERCTL_VANITY_DOMAIN=<vanity-domain>
-export ZSCALERCTL_CLOUD=PRODUCTION
-export ZSCALERCTL_ZPA_CUSTOMER_ID=<zpa-customer-id>          # ZPA resources only
-export ZSCALERCTL_ZPA_MICROTENANT_ID=<zpa-microtenant-id>   # optional, ZPA microtenants
+export ZSCALERCTL_CLOUD=PRODUCTION          # the OneAPI gateway, not the product cloud
+export ZSCALERCTL_ZPA_CUSTOMER_ID=<id>      # ZPA resources only
 ```
 
-ZIA legacy credentials are supported for ZIA resources. Legacy, profile, proxy, Windows, and secret-file details live in [docs/INSTALL.md](docs/INSTALL.md). Environment variables remain the highest-precedence configuration path; optional owner-only profiles are for local operator convenience. Corporate proxy use is opt-in via `ZSCALERCTL_PROXY_FROM_ENV=true`.
+ZIA legacy credentials, profiles, secret providers (`env:`, `file:`,
+`keyring:`, `cmd:`) and proxies are described in [docs/INSTALL.md](docs/INSTALL.md).
 
-## Automation contract
+## Redaction modes
 
-Exit codes are stable for scripting:
+`--redaction` (or `ZSCALERCTL_REDACTION`) chooses which fields render:
 
-| Code | Meaning |
+| Mode | Renders |
 | --- | --- |
-| `0` | Success |
-| `1` | Internal or unclassified failure |
-| `2` | Usage or argument error |
-| `3` | Missing or invalid credentials |
-| `4` | Product/resource not found or unsupported |
-| `5` | Live Zscaler API access failure |
-| `6` | Partial dump written (inspect `manifest.json` and `errors.ndjson`) |
-| `7` | Drift detected when `diff --fail-on-drift` is used |
+| `standard` (default) | Every reviewed field, including names, emails, free text and other identifying values. |
+| `share` | Drops free text and sensitive identifiers; rule references such as users, groups and locations render as ids. For output that will be shared. |
+| `paranoid` | Also drops most tenant configuration, keeping ids, booleans, enums and states. |
 
-Configuration and proxy errors (an invalid `ZSCALERCTL_*` value) map to `2`. With `--format json` — or the default `auto` when stdout is not a terminal — a failing command emits a redacted envelope on stderr:
+Secret fields never render in any mode, and no mode can widen what the catalog
+allows. When a mode omits fields, the read names them on stderr.
 
-```json
-{ "error": { "kind": "missing_credentials", "message": "missing zscaler API credentials" } }
-```
+## Automation
 
-List results can be narrowed in-process: `--filter key=value` keeps records whose rendered field equals the value, `--filter key~value` matches a case-insensitive substring, repeated filters must all match (AND), and `--search term` keeps records where any rendered field value contains the term. Both apply to `list` operations only (anywhere else is a usage error, exit `2`) and run strictly after projection and redaction, so they can narrow but never widen the sanitized output — a dropped or secret field name simply matches nothing. No matches is success: exit `0` with an empty array/table.
+Exit codes: `0` success, `1` internal or canceled, `2` usage or unusable
+setting, `3` missing credentials, `4` unknown resource, declared gap or
+nonexistent id, `5` live API failure (including rejected credentials and
+entitlement errors, with a `reason`), `6` partial dump, `7` drift. See
+[docs/VERSIONING.md](docs/VERSIONING.md) for the full contract and
+[docs/cli/machine-contract.md](docs/cli/machine-contract.md) for the error
+vocabulary.
 
-```sh
-zscalerctl zia locations list --filter country=US --filter name~branch
-```
+Agents start with [AGENTS.md](AGENTS.md) or the installable skill in
+[skills/zscalerctl/](skills/zscalerctl/SKILL.md). The full command reference is
+[docs/cli/zscalerctl.md](docs/cli/zscalerctl.md), and `zscalerctl introspect`
+prints the same map as JSON, including each command's local effects.
 
-## Security posture
+## Security
 
-- Defensive administration only — not an exploitation, credential-discovery, bypass, or traffic-interception tool.
-- Primary leak control is **allow-list projection** into safe view records; redaction and secret scanning are defense-in-depth, not a license to render raw API responses.
-- **v1 ships no write commands and no generic raw API executor.**
+The read-only guarantee covers the tenant. Locally, `config init` and
+`--output` write files (a directory for `dump`), commands that load configuration read
+config and secret files, and a configured `cmd:` secret provider runs a
+process; `introspect` lists these effects per command.
 
-Full model: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) · [docs/DATA_CLASSIFICATION.md](docs/DATA_CLASSIFICATION.md).
-
-## Documentation
-
-**Usage**
-- [AGENTS.md](AGENTS.md) — cold-start guide for AI agents driving the CLI
-- [skills/zscalerctl/](skills/zscalerctl/SKILL.md) — canonical installable agent skill; [`.agents/skills/zscalerctl/`](.agents/skills/zscalerctl/SKILL.md) is a generated discovery copy kept in sync by `scripts/sync-agents-skill.sh --check`
-- [docs/INSTALL.md](docs/INSTALL.md) — install, verify, configure
-- [docs/RESOURCES.md](docs/RESOURCES.md) — enabled resource reference
-- [docs/RESOURCE_QUEUE.md](docs/RESOURCE_QUEUE.md) — deferred / queued / excluded state
-
-**Security & governance**
-- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
-- [docs/DATA_CLASSIFICATION.md](docs/DATA_CLASSIFICATION.md)
-- [docs/ZSCALER_SENSITIVE_DATA.md](docs/ZSCALER_SENSITIVE_DATA.md)
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-
-**Project**
-- [docs/VERSIONING.md](docs/VERSIONING.md) · [docs/DEPENDENCY_POLICY.md](docs/DEPENDENCY_POLICY.md) · [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
-- [docs/SDK_SURFACE_INVENTORY.md](docs/SDK_SURFACE_INVENTORY.md) · [docs/ZSCALER_PRODUCT_SCOPE_PLAN.md](docs/ZSCALER_PRODUCT_SCOPE_PLAN.md) · [docs/SCRIPTS.md](docs/SCRIPTS.md)
+Report vulnerabilities privately as described in
+[SECURITY.md](https://github.com/dvmrry/zscalerctl/blob/main/SECURITY.md).
 
 ## Development
 
 ```sh
-make check        # full gate: tests, vet, vuln, staticcheck, semgrep, secret scan, doc + registry verifiers
-make live-smoke   # validate the live-smoke resource manifest (artifacts to a temp dir)
+make check        # tests, vet, vulnerability scan, staticcheck, semgrep, secret scan, doc and registry checks
+make heavy-check  # race and fuzz here, make test on a Linux host; POST=1 reports it on the PR
 ```
 
-## Contributing
+In a private repo, pull requests skip CI's unit and race jobs to save Actions
+minutes, so run `ZSCALERCTL_LINUX_HOST=<ssh host> make heavy-check POST=1` on
+the pushed branch before merging. The Linux host needs Nix.
 
-Open an issue to discuss a change first, then submit a pull request against
-`main`. Every PR must pass `make check` and carry exactly one `semver:*` label;
-new functionality must include tests. Security-sensitive reports go through
-[SECURITY.md](SECURITY.md), not the public tracker.
+A pull request either adds `docs/releases/vX.Y.Z.md` (the next version's
+release notes; merging publishes that release) or carries the `no-release`
+label. New behaviour needs tests.
 
 License: [Apache-2.0](LICENSE).

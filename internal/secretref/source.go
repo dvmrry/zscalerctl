@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/dvmrry/zscalerctl/internal/secret"
+	"zscalerctl/internal/secret"
 )
 
 // SecretSource carries safe provenance metadata and resolves to a secret only

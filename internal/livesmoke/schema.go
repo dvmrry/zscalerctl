@@ -92,15 +92,15 @@ func catalogReadResources(specs []ResourceSpec) []string {
 }
 
 func resourceProduct(qualified string) string {
-	if i := strings.IndexByte(qualified, '/'); i >= 0 {
-		return qualified[:i]
+	if before, _, ok := strings.Cut(qualified, "/"); ok {
+		return before
 	}
 	return qualified
 }
 
 func resourceName(qualified string) string {
-	if i := strings.IndexByte(qualified, '/'); i >= 0 {
-		return qualified[i+1:]
+	if _, after, ok := strings.Cut(qualified, "/"); ok {
+		return after
 	}
 	return qualified
 }
@@ -112,12 +112,12 @@ func normalizeRequestedResource(entry string) (string, error) {
 	if resource == "" {
 		return "", fmt.Errorf("--resources contains an empty entry")
 	}
-	if i := strings.IndexByte(resource, '/'); i >= 0 {
-		product := resource[:i]
+	if before, after, ok := strings.Cut(resource, "/"); ok {
+		product := before
 		if !smokeProducts[product] {
 			return "", fmt.Errorf("--resources supports only zia/, zpa/, ztw/, zcc/, or zidentity/ qualified resources; got: %s", resource)
 		}
-		if resource[i+1:] == "" {
+		if after == "" {
 			return "", fmt.Errorf("--resources contains an empty resource name")
 		}
 		return resource, nil
@@ -129,7 +129,7 @@ func normalizeRequestedResource(entry string) (string, error) {
 // qualified resources.
 func parseResourceList(list string) ([]string, error) {
 	var out []string
-	for _, entry := range strings.Split(list, ",") {
+	for entry := range strings.SplitSeq(list, ",") {
 		normalized, err := normalizeRequestedResource(entry)
 		if err != nil {
 			return nil, err

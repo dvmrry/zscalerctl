@@ -14,12 +14,15 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/dvmrry/zscalerctl/internal/cli"
-	"github.com/dvmrry/zscalerctl/internal/config"
-	"github.com/dvmrry/zscalerctl/internal/output"
-	"github.com/dvmrry/zscalerctl/internal/resources"
-	"github.com/dvmrry/zscalerctl/internal/zscaler"
+	"zscalerctl/internal/cli"
+	"zscalerctl/internal/config"
+	"zscalerctl/internal/dump"
+	"zscalerctl/internal/machine"
+	"zscalerctl/internal/output"
+	"zscalerctl/internal/resources"
+	"zscalerctl/internal/zscaler"
 )
 
 func TestExitCodeForError(t *testing.T) {
@@ -37,7 +40,22 @@ func TestExitCodeForError(t *testing.T) {
 		{"not_found", cli.ErrNotFound, exitNotFound},
 		{"resource_not_found", zscaler.ErrResourceNotFound, exitNotFound},
 		{"wrapped_resource_not_found", fmt.Errorf("zia get: %w", zscaler.ErrResourceNotFound), exitNotFound},
+		{"machine_not_found", &machine.MachineError{Kind: machine.ErrorKindNotFound}, exitNotFound},
+		{"machine_invalid_resource_id", &machine.MachineError{Kind: machine.ErrorKindInvalidResourceID}, exitUsageError},
+		{"machine_live_access_failed", &machine.MachineError{Kind: machine.ErrorKindLiveAccessFailed}, exitLiveAccessFailure},
+		{"machine_deadline_exceeded", &machine.MachineError{Kind: machine.ErrorKindDeadlineExceeded}, exitLiveAccessFailure},
+		{"machine_canceled", &machine.MachineError{Kind: machine.ErrorKindCanceled}, exitInternalError},
+		{"machine_usage", &machine.MachineError{Kind: machine.ErrorKindUsage}, exitUsageError},
+		{"machine_unsupported_capability", &machine.MachineError{Kind: machine.ErrorKindUnsupportedCapability}, exitNotFound},
+		{"machine_unsupported_operation", &machine.MachineError{Kind: machine.ErrorKindUnsupportedOperation}, exitNotFound},
+		{"machine_invalid_config", &machine.MachineError{Kind: machine.ErrorKindInvalidConfig}, exitUsageError},
+		{"machine_invalid_proxy", &machine.MachineError{Kind: machine.ErrorKindInvalidProxyConfig}, exitUsageError},
+		{"machine_missing_credentials", &machine.MachineError{Kind: machine.ErrorKindMissingCredentials}, exitCredentialError},
+		{"machine_unknown_resource", &machine.MachineError{Kind: machine.ErrorKindUnknownResource}, exitNotFound},
+		{"machine_unsupported_resource", &machine.MachineError{Kind: machine.ErrorKindUnsupportedResource}, exitNotFound},
+		{"machine_internal", &machine.MachineError{Kind: machine.ErrorKindInternal}, exitInternalError},
 		{"missing_credentials", zscaler.ErrMissingCredentials, exitCredentialError},
+		{"invalid_settings", zscaler.ErrInvalidSettings, exitUsageError},
 		{"invalid_resource_id", zscaler.ErrInvalidResourceID, exitUsageError},
 		{"unsupported_resource", zscaler.ErrUnsupportedResource, exitNotFound},
 		{"live_access_failed", zscaler.ErrLiveAccessFailed, exitLiveAccessFailure},
@@ -50,6 +68,18 @@ func TestExitCodeForError(t *testing.T) {
 		if got := exitCodeForError(tc.err); got != tc.want {
 			t.Errorf("exitCodeForError(%s) = %d, want %d", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestErrorKindAndExitCodePrioritizeCancellationOverMissingCredentials(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("%w: %w (while resolving the client secret)", zscaler.ErrMissingCredentials, context.Canceled)
+	if got := errorKind(err); got != machine.ErrorKindCanceled {
+		t.Errorf("errorKind(canceled missing-credentials error) = %q, want %q", got, machine.ErrorKindCanceled)
+	}
+	if got := exitCodeForError(err); got != exitInternalError {
+		t.Errorf("exitCodeForError(canceled missing-credentials error) = %d, want %d", got, exitInternalError)
 	}
 }
 
@@ -72,6 +102,225 @@ func TestErrorEnvelopeJSONIncludesResourceContext(t *testing.T) {
 	}
 	if env.Error.Resource != "locations" {
 		t.Errorf("error.resource = %q, want locations", env.Error.Resource)
+	}
+}
+
+func TestErrorEnvelopeJSONIncludesMachineErrorContext(t *testing.T) {
+	t.Parallel()
+
+	err := &machine.MachineError{
+		Kind:      machine.ErrorKindNotFound,
+		Message:   "record not found",
+		Operation: machine.OperationGet,
+		Product:   "zia",
+		Resource:  "locations",
+	}
+	var buf bytes.Buffer
+	writeError(&buf, output.FormatJSON, err)
+
+	var env errorEnvelope
+	if e := json.Unmarshal(buf.Bytes(), &env); e != nil {
+		t.Fatalf("json.Unmarshal(%q) error = %v, want nil", buf.String(), e)
+	}
+	if env.Error.Kind != "not_found" {
+		t.Errorf("error.kind = %q, want not_found", env.Error.Kind)
+	}
+	if env.Error.Message != "record not found" {
+		t.Errorf("error.message = %q, want sanitized machine message", env.Error.Message)
+	}
+	if env.Error.Operation != "get" {
+		t.Errorf("error.operation = %q, want get", env.Error.Operation)
+	}
+	if env.Error.Product != "zia" {
+		t.Errorf("error.product = %q, want zia", env.Error.Product)
+	}
+	if env.Error.Resource != "locations" {
+		t.Errorf("error.resource = %q, want locations", env.Error.Resource)
+	}
+}
+
+func TestErrorEnvelopeJSONPreservesMachineErrorKinds(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		kind string
+	}{
+		{name: "deadline_exceeded", kind: machine.ErrorKindDeadlineExceeded},
+		{name: "live_access_failed", kind: machine.ErrorKindLiveAccessFailed},
+		{name: "canceled", kind: machine.ErrorKindCanceled},
+		{name: "not_found", kind: machine.ErrorKindNotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := &machine.MachineError{
+				Kind:      tc.kind,
+				Message:   "machine read failed",
+				Operation: machine.OperationList,
+				Product:   "zia",
+				Resource:  "locations",
+			}
+			var buf bytes.Buffer
+			writeError(&buf, output.FormatJSON, err)
+
+			var env errorEnvelope
+			if e := json.Unmarshal(buf.Bytes(), &env); e != nil {
+				t.Fatalf("json.Unmarshal(machine error envelope %q) error = %v, want nil", buf.String(), e)
+			}
+			if env.Error.Kind != tc.kind {
+				t.Errorf("error.kind for %s = %q, want %q", tc.name, env.Error.Kind, tc.kind)
+			}
+			if env.Error.Operation != "list" || env.Error.Product != "zia" || env.Error.Resource != "locations" {
+				t.Errorf("error context for %s = %q/%q/%q, want list/zia/locations", tc.name, env.Error.Operation, env.Error.Product, env.Error.Resource)
+			}
+		})
+	}
+}
+
+func TestMachineLiveAccessFailedErrorMapsExitAndStderrEnvelope(t *testing.T) {
+	t.Parallel()
+
+	err := &machine.MachineError{
+		Kind:      machine.ErrorKindLiveAccessFailed,
+		Message:   "resource read failed",
+		Operation: machine.OperationList,
+		Product:   "zia",
+		Resource:  "locations",
+	}
+	if got := exitCodeForError(err); got != exitLiveAccessFailure {
+		t.Fatalf("exitCodeForError(machine live_access_failed) = %d, want %d", got, exitLiveAccessFailure)
+	}
+
+	var stderr bytes.Buffer
+	writeError(&stderr, output.FormatJSON, err)
+	var env errorEnvelope
+	if e := json.Unmarshal(stderr.Bytes(), &env); e != nil {
+		t.Fatalf("json.Unmarshal(machine live_access_failed stderr %q) error = %v, want nil", stderr.String(), e)
+	}
+	if env.Error.Kind != machine.ErrorKindLiveAccessFailed {
+		t.Errorf("stderr error.kind = %q, want %q", env.Error.Kind, machine.ErrorKindLiveAccessFailed)
+	}
+}
+
+// TestErrorEnvelopeCarriesFailureDetail pins error envelope v2: a live read
+// failure says why (reason, HTTP status, retry hint), and an error without a
+// detail keeps the v1 shape because the new fields are omitted.
+func TestErrorEnvelopeCarriesFailureDetail(t *testing.T) {
+	t.Parallel()
+
+	err := &machine.MachineError{
+		Kind:      machine.ErrorKindLiveAccessFailed,
+		Message:   "resource read failed: rate_limited (HTTP 429)",
+		Operation: machine.OperationList,
+		Product:   "zia",
+		Resource:  "url-categories",
+		Detail:    machine.FailureDetail{Reason: "rate_limited", Status: 429, Retryable: true},
+	}
+	var stderr bytes.Buffer
+	writeError(&stderr, output.FormatJSON, err)
+	var raw map[string]map[string]any
+	if e := json.Unmarshal(stderr.Bytes(), &raw); e != nil {
+		t.Fatalf("json.Unmarshal(%q) error = %v", stderr.String(), e)
+	}
+	body := raw["error"]
+	if body["reason"] != "rate_limited" || body["status"] != float64(429) || body["retryable"] != true {
+		t.Errorf("envelope = %v, want reason rate_limited, status 429, retryable true", body)
+	}
+
+	stderr.Reset()
+	writeError(&stderr, output.FormatJSON, cli.UsageError{Message: "bad flag"})
+	raw = nil
+	if e := json.Unmarshal(stderr.Bytes(), &raw); e != nil {
+		t.Fatalf("json.Unmarshal(%q) error = %v", stderr.String(), e)
+	}
+	for _, key := range []string{"reason", "status", "retryable"} {
+		if _, ok := raw["error"][key]; ok {
+			t.Errorf("usage envelope has %q, want it omitted", key)
+		}
+	}
+}
+
+func TestDumpOutputErrorsKeepActionableTextAndJSONMessages(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		err     error
+		message string
+	}{
+		{
+			name: "unsafe force target",
+			err: fmt.Errorf(
+				"%w: --force target /tmp/not-a-dump is not a zscalerctl dump directory",
+				dump.ErrUnsafePath,
+			),
+			message: "unsafe dump path: --force target /tmp/not-a-dump is not a zscalerctl dump directory",
+		},
+		{
+			name:    "existing manifest",
+			err:     fmt.Errorf("%w: /tmp/dump/manifest.json", dump.ErrUnsafeOverwrite),
+			message: "refusing to overwrite existing dump file: /tmp/dump/manifest.json",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var textErr bytes.Buffer
+			writeError(&textErr, output.FormatTable, tc.err)
+			if got, want := textErr.String(), "zscalerctl: "+tc.message+"\n"; got != want {
+				t.Errorf("writeError(text) = %q, want %q", got, want)
+			}
+
+			var jsonErr bytes.Buffer
+			writeError(&jsonErr, output.FormatJSON, tc.err)
+			var envelope errorEnvelope
+			if err := json.Unmarshal(jsonErr.Bytes(), &envelope); err != nil {
+				t.Fatalf("json.Unmarshal(writeError JSON %q) error = %v", jsonErr.String(), err)
+			}
+			if envelope.Error.Message != tc.message {
+				t.Errorf("writeError(JSON).error.message = %q, want %q", envelope.Error.Message, tc.message)
+			}
+			if envelope.Error.Operation != "" || envelope.Error.Product != "" || envelope.Error.Resource != "" {
+				t.Errorf("writeError(JSON) context = %q/%q/%q, want empty legacy context",
+					envelope.Error.Operation, envelope.Error.Product, envelope.Error.Resource)
+			}
+		})
+	}
+}
+
+func TestRunInvalidResourceIDReturnsUsageWithoutNetwork(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeMainConfig(t, "profiles:\n  default: {}\n")
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"--config", configPath,
+		"--format", "json",
+		"zia", "locations", "get", "not-a-number",
+	}, &stdout, &stderr, []string{
+		config.EnvClientID + "=test-value",
+		config.EnvClientSecret + "=test-value",
+		config.EnvVanityDomain + "=example",
+		config.EnvCloud + "=PRODUCTION",
+	})
+	if code != exitUsageError {
+		t.Fatalf("run(invalid resource ID) exit code = %d, want %d; stderr = %q", code, exitUsageError, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("run(invalid resource ID) stdout = %q, want empty", stdout.String())
+	}
+	got := decodeErrorEnvelope(t, stderr.Bytes())
+	if got.Error.Kind != machine.ErrorKindInvalidResourceID {
+		t.Errorf("run(invalid resource ID) kind = %q, want %q", got.Error.Kind, machine.ErrorKindInvalidResourceID)
+	}
+	if got.Error.Message != "invalid resource ID" {
+		t.Errorf("run(invalid resource ID) message = %q, want sanitized message", got.Error.Message)
+	}
+	if got.Error.Operation != "get" || got.Error.Product != "zia" || got.Error.Resource != "locations" {
+		t.Errorf("run(invalid resource ID) context = %q/%q/%q, want get/zia/locations", got.Error.Operation, got.Error.Product, got.Error.Resource)
 	}
 }
 
@@ -99,8 +348,8 @@ func TestRunHelpFlagReturnsSuccess(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run(--help) exit code = %d, want 0", code)
 	}
-	if !strings.Contains(stdout.String(), "usage: zscalerctl") {
-		t.Errorf("run(--help) stdout = %q, want usage text", stdout.String())
+	if !strings.Contains(stdout.String(), "Usage:") {
+		t.Errorf("run(--help) stdout = %q, want Cobra help text", stdout.String())
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("run(--help) stderr = %q, want empty", stderr.String())
@@ -120,6 +369,27 @@ func TestRunUsageErrorReturnsTwo(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "timeout must be positive") {
 		t.Errorf("run(usage error) stderr = %q, want usage error", stderr.String())
+	}
+}
+
+func TestRunOutputDirectoryReturnsUsageExit(t *testing.T) {
+	t.Parallel()
+
+	destination := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"--format", "json",
+		"--output", destination,
+		"config", "show",
+	}, &stdout, &stderr, nil)
+	if code != exitUsageError {
+		t.Fatalf("run(--output directory) exit code = %d, want %d; stderr = %q", code, exitUsageError, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("run(--output directory) stdout = %q, want empty", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "not a regular file") {
+		t.Errorf("run(--output directory) stderr = %q, want non-regular destination error", stderr.String())
 	}
 }
 
@@ -143,17 +413,45 @@ func TestRunJSONUsageErrorEnvelope(t *testing.T) {
 	}
 }
 
+func TestRunUnknownFilterReturnsRedactedJSONUsageEnvelope(t *testing.T) {
+	t.Parallel()
+
+	const secretLikeField = "Authorization: Bearer abcdefghijklmnopqrstuvwxyz"
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"--format", "json",
+		"--filter", secretLikeField + "=HQ",
+		"zia", "locations", "list",
+	}, &stdout, &stderr, nil)
+	if code != exitUsageError {
+		t.Fatalf("run(unknown filter) exit code = %d, want %d; stderr = %q", code, exitUsageError, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("run(unknown filter) stdout = %q, want empty", stdout.String())
+	}
+	got := decodeErrorEnvelope(t, stderr.Bytes())
+	if got.Error.Kind != "usage" {
+		t.Fatalf("run(unknown filter) error.kind = %q, want usage", got.Error.Kind)
+	}
+	if strings.Contains(stderr.String(), "abcdefghijklmnopqrstuvwxyz") {
+		t.Fatalf("run(unknown filter) stderr = %q, want no raw secret-like field token", stderr.String())
+	}
+	if !strings.Contains(got.Error.Message, "<REDACTED:SECRET>") {
+		t.Fatalf("run(unknown filter) error.message = %q, want redaction marker", got.Error.Message)
+	}
+}
+
 func TestRunNoCommandJSONStderrIsPureEnvelope(t *testing.T) {
 	t.Parallel()
 
 	// The whole stderr stream must be a single parseable JSON document — no
 	// plain-text usage block prepended (the double-output bug from the
-	// pre-1.0 sweep).
+	// pre-1.0 sweep). Covers both a MISSING command and an UNKNOWN command in
+	// machine (non-TTY) context; each must be a pure usage envelope (exit 2).
 	for _, args := range [][]string{
-		{"--format", "json"},
-		{"--format", "json", "frobnicate"},
+		{"--format", "json"},               // no command (machine context → missing-command)
+		{"--format", "json", "frobnicate"}, // unknown command
 	} {
-		args := args
 		var stdout, stderr bytes.Buffer
 		code := run(context.Background(), args, &stdout, &stderr, nil)
 		if code != exitUsageError {
@@ -185,6 +483,58 @@ func TestRunJSONCredentialErrorEnvelope(t *testing.T) {
 	}
 	if !strings.Contains(got.Error.Message, "missing zscaler API credentials") {
 		t.Errorf("run(json missing credentials) message = %q, want missing credentials text", got.Error.Message)
+	}
+}
+
+// TestRunJSONInvalidSettingsEnvelope pins that an unusable setting is a
+// configuration error, not a credential one: kind invalid_config, exit 2, and
+// the reason without a missing-credentials prefix.
+func TestRunJSONInvalidSettingsEnvelope(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	env := []string{
+		config.EnvClientID + "=synthetic-id",
+		config.EnvClientSecret + "=synthetic-secret",
+		config.EnvVanityDomain + "=example",
+		config.EnvCloud + "=zscalertwo",
+	}
+	code := run(context.Background(), []string{"--format", "json", "zia", "locations", "list"}, &stdout, &stderr, env)
+	if code != exitUsageError {
+		t.Fatalf("run(json invalid cloud) exit code = %d, want %d", code, exitUsageError)
+	}
+	got := decodeErrorEnvelope(t, stderr.Bytes())
+	if got.Error.Kind != "invalid_config" {
+		t.Errorf("run(json invalid cloud) kind = %q, want invalid_config", got.Error.Kind)
+	}
+	if !strings.HasPrefix(got.Error.Message, "ZSCALERCTL_CLOUD must be ") {
+		t.Errorf("run(json invalid cloud) message = %q, want the cloud reason", got.Error.Message)
+	}
+}
+
+func TestRunURLLookupCredentialErrorPreservesEnvelope(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := run(
+		context.Background(),
+		[]string{"--format", "json", "zia", "url-lookup", "example.com"},
+		&stdout,
+		&stderr,
+		[]string{"XDG_CONFIG_HOME=" + t.TempDir()},
+	)
+	if code != exitCredentialError {
+		t.Fatalf("run(URL lookup missing credentials) exit code = %d, want %d; stderr = %q", code, exitCredentialError, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("run(URL lookup missing credentials) stdout = %q, want empty", stdout.String())
+	}
+	got := decodeErrorEnvelope(t, stderr.Bytes())
+	if got.Error.Kind != "missing_credentials" || len(got.Error.Missing) == 0 {
+		t.Fatalf("run(URL lookup missing credentials) envelope = %#v, want missing kind and names", got.Error)
+	}
+	if got.Error.Operation != "" || got.Error.Product != "" || got.Error.Resource != "" {
+		t.Fatalf("run(URL lookup missing credentials) context = %q/%q/%q, want legacy empty context", got.Error.Operation, got.Error.Product, got.Error.Resource)
 	}
 }
 
@@ -246,6 +596,66 @@ profiles:
 	}
 }
 
+func TestRunJSONCmdProviderCancellationIsCancellation(t *testing.T) {
+	readyPath := filepath.Join(t.TempDir(), "provider-ready")
+	configPath := writeMainConfig(t, fmt.Sprintf(`
+profiles:
+  default:
+    auth_mode: oneapi
+    vanity_domain: example
+    client_id: client-id
+    client_secret_ref:
+      cmd:
+        argv: [%q, "-test.run=^TestRunConfigCmdHelperProcess$", "--", "block", %q]
+`, os.Args[0], readyPath))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var stdout, stderr bytes.Buffer
+	result := make(chan int, 1)
+	go func() {
+		result <- run(ctx, []string{
+			"--config", configPath,
+			"--format", "json",
+			"zia", "locations", "list",
+		}, &stdout, &stderr, []string{"XDG_CONFIG_HOME=" + t.TempDir()})
+	}()
+
+	// Starting the helper re-executes the test binary, which can take several
+	// seconds when the whole suite runs in parallel; this only waits for
+	// readiness and does not measure the code under test.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if _, err := os.Stat(readyPath); err == nil {
+			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("os.Stat(provider ready marker) error = %v", err)
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("cmd provider did not start before deadline")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case code := <-result:
+		if code != exitInternalError {
+			t.Fatalf("run(canceled cmd provider) exit code = %d, want %d; stderr = %q", code, exitInternalError, stderr.String())
+		}
+		if stdout.Len() != 0 {
+			t.Errorf("run(canceled cmd provider) stdout = %q, want empty", stdout.String())
+		}
+		got := decodeErrorEnvelope(t, stderr.Bytes())
+		if got.Error.Kind != machine.ErrorKindCanceled {
+			t.Fatalf("run(canceled cmd provider) error kind = %q, want %q", got.Error.Kind, machine.ErrorKindCanceled)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run(canceled cmd provider) did not return after cancellation")
+	}
+}
+
 // TestRunJSONCredentialErrorEnvelopeMissingArray verifies that the JSON error
 // envelope for a missing-credentials failure includes a non-empty "missing"
 // array of variable NAMES and that no secret values appear anywhere in the
@@ -301,6 +711,78 @@ func TestExitCodeForPartialDump(t *testing.T) {
 	err := cli.PartialDumpError{Dir: "/tmp/dump", Errors: 2}
 	if got := exitCodeForError(err); got != exitPartialDump {
 		t.Fatalf("exitCodeForError(PartialDumpError) = %d, want %d", got, exitPartialDump)
+	}
+}
+
+// writeDumpDirForMain creates a minimal valid dump directory for integration tests
+// in the main package. It mirrors the writeDiffDump helper in cobra_diff_test.go
+// (internal/cli package) using only exported dump package types.
+func writeDumpDirForMain(t *testing.T, product, resource, payload string) string {
+	t.Helper()
+	dir := t.TempDir()
+	relPath := filepath.ToSlash(filepath.Join("resources", product, resource+".json"))
+	path := filepath.Join(dir, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(%s) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(payload), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%s) error = %v", path, err)
+	}
+	m := dump.Manifest{
+		Schema:      dump.ManifestSchemaID,
+		CollectedAt: "2026-01-01T00:00:00Z",
+		ToolVersion: "test",
+		Redaction:   "standard",
+		Warning:     "test fixture",
+		Status:      "complete",
+		Resources: []dump.ManifestResource{
+			{Product: product, Name: resource, Status: "ok", Path: relPath, Records: 1},
+		},
+	}
+	body, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		t.Fatalf("json.MarshalIndent(manifest) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), body, 0o600); err != nil {
+		t.Fatalf("os.WriteFile(manifest) error = %v", err)
+	}
+	reportBody, err := json.MarshalIndent(dump.RedactionReport{
+		Schema:    dump.RedactionReportSchemaID,
+		Redaction: "standard",
+		Resources: []dump.ResourceReport{{
+			Product: product,
+			Name:    resource,
+			Path:    relPath,
+			Records: 1,
+		}},
+	}, "", "  ")
+	if err != nil {
+		t.Fatalf("json.MarshalIndent(redaction report) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "redaction_report.json"), reportBody, 0o600); err != nil {
+		t.Fatalf("os.WriteFile(redaction report) error = %v", err)
+	}
+	return dir
+}
+
+// TestRunDiffFailOnDriftExitsSeven is an end-to-end integration test verifying
+// that run() returns exitDriftDetected (7) when diff detects a difference
+// between two dump directories and --fail-on-drift is set, through the
+// cmd/zscalerctl boundary.
+func TestRunDiffFailOnDriftExitsSeven(t *testing.T) {
+	t.Parallel()
+
+	// Build two minimal dump dirs with a synthetic difference (name field changed).
+	oldDir := writeDumpDirForMain(t, "zia", "locations", `[{"id":"1","name":"old"}]`)
+	newDir := writeDumpDirForMain(t, "zia", "locations", `[{"id":"1","name":"new"}]`)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(),
+		[]string{"--format", "json", "diff", "--fail-on-drift", oldDir, newDir},
+		&stdout, &stderr, nil)
+	if code != exitDriftDetected {
+		t.Fatalf("run(diff --fail-on-drift, drift present) exit code = %d, want %d (exitDriftDetected)\nstdout: %s\nstderr: %s",
+			code, exitDriftDetected, stdout.String(), stderr.String())
 	}
 }
 
@@ -454,11 +936,11 @@ func TestErrorEnvelopeSchemaMatchesStruct(t *testing.T) {
 	}
 
 	topProps := schemaProps(t, doc, "properties")
-	if want := jsonTagNames(reflect.TypeOf(errorEnvelope{})); !reflect.DeepEqual(topProps, want) {
+	if want := jsonTagNames(reflect.TypeFor[errorEnvelope]()); !reflect.DeepEqual(topProps, want) {
 		t.Errorf("error.schema.json top properties = %v, want struct fields %v", topProps, want)
 	}
 	errProps := schemaProps(t, doc, "properties", "error", "properties")
-	if want := jsonTagNames(reflect.TypeOf(errorBody{})); !reflect.DeepEqual(errProps, want) {
+	if want := jsonTagNames(reflect.TypeFor[errorBody]()); !reflect.DeepEqual(errProps, want) {
 		t.Errorf("error.schema.json error properties = %v, want struct fields %v", errProps, want)
 	}
 }
@@ -490,8 +972,8 @@ func schemaProps(t *testing.T, doc map[string]any, path ...string) []string {
 
 func jsonTagNames(typ reflect.Type) []string {
 	var names []string
-	for i := 0; i < typ.NumField(); i++ {
-		tag := typ.Field(i).Tag.Get("json")
+	for field := range typ.Fields() {
+		tag := field.Tag.Get("json")
 		if tag == "" || tag == "-" {
 			continue
 		}
@@ -584,6 +1066,27 @@ func TestErrorFormatFollowsDataPathForAuto(t *testing.T) {
 	}
 }
 
+func TestRunAppNullSinkFailureUsesRequestedFormat(t *testing.T) {
+	previousOpenNullSink := openNullSink
+	openNullSink = func() (*os.File, error) {
+		return nil, errors.New("injected null sink failure")
+	}
+	defer func() { openNullSink = previousOpenNullSink }()
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"--format", "json", "version"}, &stdout, &stderr, nil)
+	if code != exitInternalError {
+		t.Fatalf("run(--format json) with null-sink failure = %d, want %d", code, exitInternalError)
+	}
+	var envelope errorEnvelope
+	if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil {
+		t.Fatalf("json.Unmarshal(null-sink error %q) = %v, want JSON error envelope", stderr.String(), err)
+	}
+	if envelope.Error.Kind != "internal" {
+		t.Fatalf("null-sink error kind = %q, want internal", envelope.Error.Kind)
+	}
+}
+
 // stubContextError implements zscaler.ErrorContexter and unwraps to a sentinel,
 // exercising errorDetails' envelope enrichment without the unexported zscaler
 // error types.
@@ -626,12 +1129,21 @@ func TestRunConfigCmdHelperProcess(t *testing.T) {
 		return
 	}
 	args := os.Args[index+1:]
-	if len(args) < 2 || args[0] != "touch" {
+	switch {
+	case len(args) == 2 && args[0] == "touch":
+		if err := os.WriteFile(args[1], []byte("ran"), 0o600); err != nil {
+			fmt.Fprint(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	case len(args) == 2 && args[0] == "block":
+		if err := os.WriteFile(args[1], []byte("ready"), 0o600); err != nil {
+			fmt.Fprint(os.Stderr, err)
+			os.Exit(1)
+		}
+		time.Sleep(time.Hour)
+		os.Exit(0)
+	default:
 		os.Exit(2)
 	}
-	if err := os.WriteFile(args[1], []byte("ran"), 0o600); err != nil {
-		fmt.Fprint(os.Stderr, err)
-		os.Exit(1)
-	}
-	os.Exit(0)
 }

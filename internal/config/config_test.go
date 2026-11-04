@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/config"
+	"zscalerctl/internal/config"
 )
 
 func TestLoadEnvSafeConfigDoesNotExposeSecrets(t *testing.T) {
@@ -245,7 +245,6 @@ func TestLoadEnvSecretFileErrorsAreInvalidConfig(t *testing.T) {
 		config.EnvZIAPasswordFile,
 		config.EnvZIAAPIKeyFile,
 	} {
-		envVar := envVar
 		t.Run(envVar, func(t *testing.T) {
 			t.Parallel()
 			_, err := config.LoadEnv([]string{envVar + "=" + missing})

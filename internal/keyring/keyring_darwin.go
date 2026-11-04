@@ -96,7 +96,7 @@ func isHexString(s string) bool {
 }
 
 func decodeSecurityHexPassword(wOutput, gStderr string) (string, bool, error) {
-	for _, line := range strings.Split(gStderr, "\n") {
+	for line := range strings.SplitSeq(gStderr, "\n") {
 		line = strings.TrimSpace(line)
 		switch {
 		case strings.HasPrefix(line, "password: 0x"):

@@ -1,10 +1,14 @@
 name: ci
 
+# A push to main re-tests the tree its pull request already passed, so in a
+# private repo, where minutes are billed, every job skips it. Public repos
+# have free minutes and run it, which keeps the README badge current.
 on:
   pull_request:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,6 +20,7 @@ concurrency:
 
 jobs:
   mod-integrity:
+    if: github.event_name != 'push' || !github.event.repository.private
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -23,13 +28,19 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           cache: true
+      - run: go mod verify
       - run: go mod tidy
       - run: go mod vendor
       - run: git diff --exit-code -- go.mod go.sum vendor
 
+  # A private repo's pull requests skip unit and the race shards below to save
+  # minutes and rely on make heavy-check, which runs them on a Linux host and
+  # this machine and posts the local/heavy-check status. Public repos and
+  # manual runs keep them.
   unit:
+    if: github.event_name == 'workflow_dispatch' || !github.event.repository.private
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -37,13 +48,14 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           cache: true
-      - run: go test -mod=vendor ./...
+      - run: make test
 
   # race is split into shards: internal/cli and internal/resources dominate
   # race time, so they each run as their own job in parallel with the rest.
   race-cli:
+    if: github.event_name == 'workflow_dispatch' || !github.event.repository.private
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -51,11 +63,12 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           cache: true
       - run: go test -race -mod=vendor ./internal/cli/...
 
   race-resources:
+    if: github.event_name == 'workflow_dispatch' || !github.event.repository.private
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -63,13 +76,14 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           cache: true
       - run: go test -race -mod=vendor ./internal/resources/...
 
   # Everything except the two heavy shards above. Computed dynamically so a new
   # package is covered automatically (no coverage gap).
   race-rest:
+    if: github.event_name == 'workflow_dispatch' || !github.event.repository.private
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -77,29 +91,38 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           cache: true
       - run: |
           go list -mod=vendor ./... | grep -vE '/internal/(cli|resources)(/|$)' | xargs go test -race -mod=vendor
+      - run: go test -race -tags=zscalerctl_testhooks -mod=vendor ./internal/diff ./internal/dump
 
   verify-gates:
+    if: github.event_name != 'push' || !github.event.repository.private
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           cache: true
       - run: make fmt-check
       - run: bash scripts/verify-sdk-boundary.sh
       - run: bash scripts/test-verify-sdk-boundary.sh
+      - run: make verify-core-boundaries
+      - run: make verify-machine-contract
       - run: bash scripts/verify-ci-no-live-creds.sh
       - run: bash scripts/test-verify-ci-no-live-creds.sh
       - run: bash scripts/verify-actions-pinned.sh
       - run: bash scripts/test-verify-actions-pinned.sh
       - run: bash scripts/verify-docs.sh
+      - run: bash scripts/verify-cli-docs.sh
+      - run: bash scripts/test-verify-cli-docs.sh
+      - run: make verify-gitleaks-allowlist
+      - run: make verify-go-toolchain
       # These verifiers run in `make check` but were absent from PR CI, so a
       # break in release automation, artifacts, the catalog draft, the resource
       # scaffold, the SDK-surface inventory, or the script registry only
@@ -109,9 +132,42 @@ jobs:
       - run: make verify-catalog-draft
       - run: make verify-resource-scaffold
       - run: make verify-sdk-surface-inventory
+      - run: make verify-sdk-ledger
       - run: make verify-script-registry
+      - run: make verify-pty-escape-clean
+      - run: make verify-ci-jobs
+
+  # Windows minutes bill at twice the Linux rate in a private repo, so there a
+  # pull request runs windows-config only when scripts/windows-ci-scope.sh
+  # finds a change that can behave differently on Windows. Public repos,
+  # pushes and manual runs always run it.
+  windows-scope:
+    if: github.event_name != 'push' || !github.event.repository.private
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          run=true
+          if [[ "$EVENT" == "pull_request" && "$PRIVATE" == "true" ]]; then
+            # The checkout is the PR merged into its base: HEAD^1 is the base
+            # and HEAD^2 the PR head.
+            run="$(bash scripts/windows-ci-scope.sh HEAD^1 HEAD^2)"
+          fi
+          echo "run=$run" >>"$GITHUB_OUTPUT"
 
   windows-config:
+    needs: windows-scope
+    if: needs.windows-scope.outputs.run == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -119,14 +175,23 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           cache: true
-      - run: go test -mod=vendor ./internal/fileperm ./internal/secretref
+      - run: go test -count=1 -mod=vendor ./internal/dump ./internal/fileperm ./internal/secretref
+      # Cobra migration (§9): the windows-config gate must exercise the CLI core,
+      # not just fileperm/secretref/keyring. `go build ./...` proves the Windows
+      # build (cobra + mousetrap); the internal/cli + internal/redact tests cover
+      # the Cobra dispatch and the redacting writer on Windows. The cmd/zscalerctl
+      # golden harness stays Linux/macOS-only — its path scrubbing assumes POSIX
+      # paths, so running it on Windows would need separate scrub handling.
+      - run: go build -mod=vendor ./...
+      - run: go test -count=1 -mod=vendor ./internal/cli ./internal/redact
       - run: go test -count=1 -mod=vendor ./internal/keyring -run TestWindowsGetLive -v
         env:
           ZSCALERCTL_KEYRING_LIVE: '1'
 
   static-analysis:
+    if: github.event_name != 'push' || !github.event.repository.private
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -134,11 +199,12 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           cache: true
       - run: go vet -mod=vendor ./...
       - run: go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
       - run: staticcheck ./...
+      - run: make verify-deadcode
       - run: make vuln
       - run: make verify-licenses
       - run: python3 -m pip install --user --require-hashes -r .github/requirements/semgrep.txt
@@ -146,23 +212,38 @@ jobs:
       - run: bash scripts/verify-semgrep.sh
 
   secret-scan:
+    if: github.event_name != 'push' || !github.event.repository.private
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITLEAKS_CONFIG: .gitleaks.toml
           GITLEAKS_ENABLE_COMMENTS: 'false'
           GITLEAKS_VERSION: 8.30.1
 
+  surface-manifest:
+    if: github.event_name != 'push' || !github.event.repository.private
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: bash scripts/verify-surface-changes-manifest.sh
+      - run: bash scripts/test-verify-surface-changes-manifest.sh
+
   # Single stable check for branch protection: succeeds only if every job above
-  # succeeded. Lets protection require one check instead of tracking each job.
+  # succeeded, except the jobs this run left out, which must then be skipped:
+  # windows-config when windows-scope says so, and unit and the race shards on
+  # a private repo's pull requests. Lets protection require one check instead of
+  # tracking each job.
   required:
-    if: ${{ always() }}
+    if: always() && (github.event_name != 'push' || !github.event.repository.private)
     needs:
       - mod-integrity
       - unit
@@ -170,18 +251,27 @@ jobs:
       - race-resources
       - race-rest
       - verify-gates
+      - windows-scope
       - windows-config
       - static-analysis
       - secret-scan
+      - surface-manifest
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - name: Require all CI jobs to succeed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          WINDOWS_SCOPE: ${{ needs.windows-scope.outputs.run }}
+          LOCAL_TESTS: ${{ github.event_name == 'pull_request' && github.event.repository.private }}
         run: |
-          results='${{ join(needs.*.result, ' ') }}'
-          echo "job results: ${results}"
-          for r in ${results}; do
-            if [ "${r}" != "success" ]; then
-              echo "::error::a required CI job did not succeed"
-              exit 1
-            fi
-          done
+          out_of_scope=()
+          if [[ "$WINDOWS_SCOPE" == "false" ]]; then
+            out_of_scope+=(windows-config)
+          fi
+          if [[ "$LOCAL_TESTS" == "true" ]]; then
+            out_of_scope+=(unit race-cli race-resources race-rest)
+          fi
+          /bin/bash scripts/require-ci-jobs.sh "$NEEDS" "${out_of_scope[@]}"

@@ -4,17 +4,6 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      bump:
-        description: Semver bump to release
-        required: true
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-          - none
 
 permissions:
   contents: read
@@ -26,11 +15,66 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A push releases only when it adds a notes file. Every other push skips the
+  # gate: its pull request's CI already passed the same tree, and rerunning
+  # make check on each merge cost more minutes than the PR itself.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.version.outputs.release }}
+      version: ${{ steps.version.outputs.version }}
+      version_no_v: ${{ steps.version.outputs.version_no_v }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine release version
+        id: version
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # The pushed change releases the version whose notes it adds
+          # (scripts/release-version.sh); the PR check already required it.
+          version="$(bash scripts/release-version.sh "$BEFORE" "$GITHUB_SHA")"
+          if [[ "$version" == "none" ]]; then
+            echo "release=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "release=true" >>"$GITHUB_OUTPUT"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "version_no_v=${version#v}" >>"$GITHUB_OUTPUT"
+
+  release-gate:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: '1.26.10'
+          cache: true
+
+      - name: Install Semgrep
+        run: python3 -m pip install --user --require-hashes -r .github/requirements/semgrep.txt
+
+      - name: Release gate
+        run: /usr/bin/make release-check
+
   release:
+    needs:
+      - version
+      - release-gate
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: read
       id-token: write
       attestations: write
     steps:
@@ -41,52 +85,11 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           cache: true
 
-      - name: Install Semgrep
-        run: python3 -m pip install --user --require-hashes -r .github/requirements/semgrep.txt
-
-      - name: Add user Python bin to PATH
-        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Determine release version
-        id: version
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DISPATCH_BUMP: ${{ github.event.inputs.bump }}
-          # Permit the 0.x -> 1.0.0 major bump only on an explicit manual
-          # dispatch of "major". The push/label path never sets this, so a
-          # semver:major label alone can never cut 1.0 — it stays a deliberate
-          # human act. See docs/VERSIONING.md.
-          ZSCALERCTL_ALLOW_MAJOR_ZERO: ${{ github.event.inputs.bump == 'major' }}
-        run: |
-          set -euo pipefail
-          if [[ -n "${DISPATCH_BUMP:-}" ]]; then
-            bump="$DISPATCH_BUMP"
-          else
-            labels="$(bash scripts/pr-labels-for-commit.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA")"
-            ZSCALERCTL_PR_LABELS="$labels" bash scripts/verify-semver-label.sh
-            bump="$(printf '%s\n' "$labels" | awk -F: '/^semver:/ {print $2; exit}')"
-          fi
-
-          if [[ "$bump" == "none" ]]; then
-            echo "release=false" >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          next_version="$(bash scripts/next-version.sh "$bump")"
-          echo "release=true" >>"$GITHUB_OUTPUT"
-          echo "version=$next_version" >>"$GITHUB_OUTPUT"
-          echo "version_no_v=${next_version#v}" >>"$GITHUB_OUTPUT"
-
-      - name: Release gate
-        if: steps.version.outputs.release == 'true'
-        run: make release-check
-
       - name: Secret scan
-        if: steps.version.outputs.release == 'true'
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITLEAKS_CONFIG: .gitleaks.toml
@@ -94,7 +97,6 @@ jobs:
           GITLEAKS_VERSION: 8.30.1
 
       - name: Install SBOM tool
-        if: steps.version.outputs.release == 'true'
         run: |
           set -euo pipefail
           mkdir -p .release-tools
@@ -105,16 +107,15 @@ jobs:
           echo "$GITHUB_WORKSPACE/.release-tools" >>"$GITHUB_PATH"
 
       - name: Build release artifacts
-        if: steps.version.outputs.release == 'true'
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          VERSION_NO_V: ${{ steps.version.outputs.version_no_v }}
+          VERSION: ${{ needs.version.outputs.version }}
+          VERSION_NO_V: ${{ needs.version.outputs.version_no_v }}
         run: |
           set -euo pipefail
           mkdir -p dist
           commit="${GITHUB_SHA}"
           date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          ldflags="-s -w -X github.com/dvmrry/zscalerctl/internal/version.version=${VERSION_NO_V} -X github.com/dvmrry/zscalerctl/internal/version.commit=${commit} -X github.com/dvmrry/zscalerctl/internal/version.date=${date}"
+          ldflags="-s -w -X zscalerctl/internal/version.version=${VERSION_NO_V} -X zscalerctl/internal/version.commit=${commit} -X zscalerctl/internal/version.date=${date}"
 
           if git rev-parse "$VERSION" >/dev/null 2>&1; then
             tagged_commit="$(git rev-list -n 1 "$VERSION")"
@@ -152,7 +153,9 @@ jobs:
             cp "dist/$name.sbom.cdx.json" "dist/$name/sbom.cdx.json"
             mkdir -p "dist/$name/docs" "dist/$name/man" "dist/$name/skills"
             cp LICENSE README.md AGENTS.md "dist/$name/"
-            cp docs/INSTALL.md "dist/$name/docs/"
+            cp docs/INSTALL.md docs/VERSIONING.md "dist/$name/docs/"
+            cp -R docs/schema "dist/$name/docs/schema"
+            cp -R docs/cli "dist/$name/docs/cli"
             cp man/zscalerctl.1 "dist/$name/man/"
             cp -R skills/zscalerctl "dist/$name/skills/"
             tar -C dist -czf "dist/$name.tar.gz" "$name"
@@ -162,17 +165,14 @@ jobs:
           (cd dist && shasum -a 256 *.tar.gz *.sbom.cdx.json > SHA256SUMS)
 
       - name: Attest release artifacts
-        if: steps.version.outputs.release == 'true'
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-checksums: dist/SHA256SUMS
 
       - name: Install cosign
-        if: steps.version.outputs.release == 'true'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign checksums with cosign
-        if: steps.version.outputs.release == 'true'
         run: |
           set -euo pipefail
           # Keyless: signs with the job's OIDC identity (id-token: write) via
@@ -198,10 +198,9 @@ jobs:
             SHA256SUMS
 
       - name: Publish release
-        if: steps.version.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           if git rev-parse "$VERSION" >/dev/null 2>&1; then
@@ -222,9 +221,4 @@ jobs:
             exit 1
           fi
 
-          notes_file="docs/releases/${VERSION}.md"
-          if [[ -f "$notes_file" ]]; then
-            gh release create "$VERSION" dist/* --title "$VERSION" --notes-file "$notes_file"
-          else
-            gh release create "$VERSION" dist/* --title "$VERSION" --generate-notes
-          fi
+          gh release create "$VERSION" dist/* --title "$VERSION" --notes-file "docs/releases/${VERSION}.md"

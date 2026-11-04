@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/output"
+	"zscalerctl/internal/output"
 )
 
 func TestShouldColorRespectsPolicy(t *testing.T) {
@@ -26,7 +26,6 @@ func TestShouldColorRespectsPolicy(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := output.ShouldColor(tt.mode, tt.env, tt.stdoutTTY)
@@ -51,7 +50,6 @@ func TestSupports256Color(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := output.Supports256Color(tt.env)

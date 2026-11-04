@@ -1,86 +1,69 @@
-# Versioning Policy
+# Versioning
 
-`zscalerctl` uses semantic versioning for release tags.
+`zscalerctl` follows semantic versioning from `v1.0.0`. Release tags have the
+form `vMAJOR.MINOR.PATCH`, and release builds stamp the tag into
+`zscalerctl version`. The v0.x tags are an earlier line and are not supported.
 
-Release tags are the source of truth and use the `vMAJOR.MINOR.PATCH` form,
-such as `v0.1.0`. Release builds inject that tag into `zscalerctl version`.
+## What the version covers
 
-## Before 1.0.0
+The supported surface is what the CLI does and prints:
 
-Before `v1.0.0`, the project uses `v0.MINOR.PATCH`.
+- commands, flags, arguments and environment variables, as listed in
+  [cli/zscalerctl.md](cli/zscalerctl.md) and `zscalerctl introspect`;
+- the JSON and NDJSON output of resource reads, `--count-by` counts and
+  bounded list pages;
+- the stderr error envelope and the exit codes below;
+- dump directories (manifest, resource files, redaction report,
+  `errors.ndjson`) and diff reports;
+- `machine manifest` (`machine.v1`), `introspect` and `schema` output;
+- the resource catalog: which resources are read and which fields render in
+  each redaction mode.
 
-- `v0.1.0`: first security-reviewed, read-only release.
-- `v0.2.0`, `v0.3.0`, and later `0.x` minor releases: meaningful feature
-  expansion or behavior change, including new resources, new auth modes, new
-  output formats, dump schema changes, command or flag changes, or default
-  redaction behavior changes.
-- `v0.1.1`, `v0.1.2`, and later patch releases: fixes and hardening that
-  preserve the current command, output, and resource surface, including
-  deadlock fixes, redaction bug fixes, dependency updates, docs corrections,
-  CI/security gate improvements, and performance fixes that do not change
-  output semantics.
+The JSON Schemas in [schema/](schema/) describe these artifacts. A schema URL
+never changes meaning once a release has emitted it: an incompatible shape
+gets a new file and URL. Go packages under `internal/` are not a supported API.
 
-Breaking changes are allowed in `0.x` minor releases, but not in patch releases.
-`semver:major` is reserved until after `v1.0.0`; cutting `v1.0.0` itself is a
-deliberate manual step (see [Automation](#automation)).
+## Exit codes
 
-Machine-readable output schemas are part of the release contract. This includes
-dump manifests, redaction reports, partial-dump error records, diff reports, and
-the stderr JSON error envelope emitted by a failing command under JSON output.
-The published JSON Schemas for these artifacts live in [schema/](schema/) and
-carry versioned `schema` ids; drift tests keep them in sync with the emitting
-structs. Backward-compatible schema additions are minor releases; incompatible
-schema changes are breaking changes.
+| Code | Meaning |
+| --- | --- |
+| `0` | Success. |
+| `1` | Internal error or canceled. |
+| `2` | Usage error, invalid resource id, or an unusable configuration or proxy setting. |
+| `3` | Credentials missing: unset, incomplete, or a secret that could not be resolved. |
+| `4` | Unknown or unsupported resource or operation, a declared coverage gap, or a `get` whose id does not exist. |
+| `5` | Live API failure, including deadline exceeded and credentials the API rejects. The envelope's `reason` says which (`credentials_rejected`, `forbidden`, `not_subscribed`, `rate_limited`, `timeout`, ...). |
+| `6` | Partial dump: some resources failed. |
+| `7` | Drift detected by `diff --fail-on-drift`. |
 
-Process exit codes are also part of the contract: `0` success, `1` internal
-error, `2` usage (including invalid CLI flags, an invalid resource id, an
-invalid `ZSCALERCTL_*` configuration value, and invalid proxy configuration),
-`3` missing or invalid credentials, `4` resource not found or unsupported
-(including a product/resource the tenant is not entitled to, or a get-by-ID whose
-ID does not exist), `5` live API access failure, and `6` partial dump. Changing
-the meaning of an exit code is a breaking change. Exit code `7` means drift
-detected when `diff --fail-on-drift` is used.
+Changing what a code means is a breaking change.
 
-## After 1.0.0
+## Which number changes
 
-- Major: breaking contract changes, including removing or renaming commands,
-  flags, environment variables, resources, or fields; incompatible JSON or dump
-  schema changes; auth/config precedence changes; weakened security guarantees;
-  or changed read-only guarantees.
-- Minor: backward-compatible capability, including added resources, classified
-  fields, commands, flags, output modes, or supported auth paths.
-- Patch: bug fixes, security fixes, documentation fixes, dependency updates,
-  and internal hardening with no intended contract expansion. A patch may redact
-  more aggressively if it fixes a leak risk, but the release notes must call it
-  out because automation may observe the changed output.
+- **Major:** a breaking change to the supported surface, such as removing or
+  renaming a command, flag, environment variable, resource or field, an
+  incompatible output or schema change, a changed exit code, a change to
+  configuration precedence, or a weaker read-only or redaction guarantee.
+- **Minor:** a backward-compatible addition: a resource, a field, a command,
+  a flag, an output mode or an auth path.
+- **Patch:** fixes, dependency updates, documentation and internal changes
+  that add nothing to the surface.
 
-## Automation
+Redaction changes are named in the release notes whatever their size,
+because automation and people reading output can see them. Rendering a field
+in a mode that did not render it before is at least a minor release; hiding
+more to fix a leak can be a patch.
 
-Every pull request must have exactly one semver label:
+## Releasing
 
-- `semver:patch`
-- `semver:minor`
-- `semver:major`
-- `semver:none`
+A pull request either adds one notes file, `docs/releases/vX.Y.Z.md`, or
+carries the `no-release` label; the `release-notes` check requires exactly
+one of the two. The file name is the version and must be the next patch,
+minor or major after the latest tag; the file's contents are the release
+notes. Released notes are never edited; a change may delete old ones, since
+the published release keeps its notes.
 
-The semver label check fails if the label is missing or ambiguous. While the
-latest release is `0.x`, `semver:major` also fails.
-
-On merge to `main`, the release workflow reads the merged pull request's semver
-label, computes the next tag from the latest `v*` tag, runs release gates, builds
-artifacts, and creates the GitHub release. `semver:none` skips release creation.
-
-### Cutting v1.0.0
-
-While the latest release is `0.x`, both the semver-label check and
-`next-version.sh` reject a major bump unless `ZSCALERCTL_ALLOW_MAJOR_ZERO=true`.
-Nothing sets that on the normal push/label path, so a `semver:major` label alone
-can never produce `1.0.0`.
-
-To cut `1.0.0`, manually run the release workflow (Actions → release → Run
-workflow) with bump `major`. That manual-dispatch path — and only that path —
-sets `ZSCALERCTL_ALLOW_MAJOR_ZERO=true`, so the `0.x → 1.0.0` bump is always a
-deliberate human action. The release is built and tagged inside Actions, which is
-also what produces the provenance attestations; pushing a `v1.0.0` tag by hand
-would skip them. After `1.0.0`, the guard no longer applies and `semver:major`
-releases follow the normal label flow.
+Merging a pull request that adds a notes file releases that version: the
+release workflow runs the release gates, builds and signs the archives,
+attests their provenance, tags the merge and publishes the GitHub release
+with those notes. Tags are made only by that workflow.

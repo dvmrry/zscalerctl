@@ -1,0 +1,430 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
+	"time"
+
+	"zscalerctl/internal/config"
+	"zscalerctl/internal/machine"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/secretref"
+	"zscalerctl/internal/zscaler"
+)
+
+// StatusOptions configures shared status computations.
+type StatusOptions struct {
+	Timeout time.Duration
+}
+
+// Keep the existing runtime-owned names available to CLI rendering code while
+// the canonical safe value types live at the typed engine boundary.
+type DoctorStatus = machine.DoctorStatus
+type AuthStatus = machine.AuthStatus
+type ConfigStatus = machine.ConfigStatus
+
+// StatusInspector retains only precomputed sanitized views. Raw config,
+// credentials, secret references, provider commands, and proxy values are not
+// retained after construction.
+type StatusInspector struct {
+	doctor    machine.DoctorStatus
+	doctorErr error
+	auth      machine.AuthStatus
+	config    machine.ConfigStatus
+}
+
+// NewStatusInspectorFromConfig computes sanitized status views from an
+// already-loaded config without resolving secrets or constructing a reader.
+func NewStatusInspectorFromConfig(
+	ctx context.Context,
+	cfg config.Config,
+	opts Options,
+) (*StatusInspector, error) {
+	return newStatusInspectorFromConfig(ctx, cfg, opts, machine.OperationConfigStatus)
+}
+
+func newStatusInspectorFromConfig(
+	ctx context.Context,
+	cfg config.Config,
+	opts Options,
+	operation machine.Operation,
+) (*StatusInspector, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, statusContextError(err, operation)
+	}
+	cfg = normalizeConfigSecretSources(cfg)
+	if err := applyOptions(&cfg, opts); err != nil {
+		return nil, StatusConfigError(operation, err)
+	}
+	doctor, doctorErr := NewDoctorStatus(cfg, StatusOptions{Timeout: opts.Timeout})
+	if doctorErr != nil {
+		doctorErr = StatusConfigError(machine.OperationDoctor, doctorErr)
+	}
+	return &StatusInspector{
+		doctor:    doctor,
+		doctorErr: doctorErr,
+		auth:      NewAuthStatus(cfg),
+		config:    NewConfigStatus(cfg),
+	}, nil
+}
+
+// Inspect returns one closed typed status result. It performs no filesystem,
+// provider, process, SDK, or network work after construction.
+func (s *StatusInspector) Inspect(
+	ctx context.Context,
+	req machine.StatusRequest,
+) (machine.StatusResult, error) {
+	if s == nil {
+		return machine.StatusResult{}, errors.New("status inspector is nil")
+	}
+	if !isSupportedStatusOperation(req.Operation) {
+		return machine.StatusResult{}, unsupportedStatusOperationError()
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return machine.StatusResult{}, statusContextError(err, req.Operation)
+	}
+	switch req.Operation {
+	case machine.OperationDoctor:
+		if s.doctorErr != nil {
+			return machine.StatusResult{}, s.doctorErr
+		}
+		return machine.NewDoctorStatusResult(s.doctor), nil
+	case machine.OperationAuthStatus:
+		return machine.NewAuthStatusResult(s.auth), nil
+	case machine.OperationConfigStatus:
+		return machine.NewConfigStatusResult(s.config), nil
+	}
+	return machine.StatusResult{}, unsupportedStatusOperationError()
+}
+
+// NewDoctorStatus validates status-relevant runtime configuration and returns
+// a sanitized value-only status for rendering by callers.
+func NewDoctorStatus(cfg config.Config, opts StatusOptions) (DoctorStatus, error) {
+	cfg = normalizeConfigSecretSources(cfg)
+	if err := zscaler.ValidateProxyConfig(zscaler.ProxyConfig{
+		URL:             cfg.Proxy.URL,
+		FromEnvironment: cfg.Proxy.FromEnvironment,
+	}); err != nil {
+		return DoctorStatus{}, fmt.Errorf("%w: proxy settings are invalid", zscaler.ErrInvalidProxyConfig)
+	}
+	r := redact.New(cfg.Defaults.Redaction)
+	return DoctorStatus{
+		Status:      sanitizeStatusString(r, doctorStatusValue(cfg)),
+		Mode:        sanitizeStatusString(r, "read-only"),
+		Profile:     sanitizeStatusString(r, cfg.Profile),
+		Config:      sanitizeStatusString(r, ConfigSourceStatus(cfg.Safe())),
+		AuthMode:    sanitizeStatusString(r, string(cfg.EffectiveAuthMode())),
+		Redaction:   sanitizeStatusString(r, string(cfg.Defaults.Redaction)),
+		Timeout:     sanitizeStatusString(r, opts.Timeout.String()),
+		Cache:       sanitizeStatusString(r, CacheStatus(cfg.Defaults.NoCache)),
+		Proxy:       sanitizeStatusString(r, ProxyStatus(cfg.Proxy)),
+		Credentials: sanitizeStatusString(r, CredentialStatus(cfg)),
+		LiveAPI:     sanitizeStatusString(r, LiveAPIStatus(cfg)),
+	}, nil
+}
+
+// NewAuthStatus returns sanitized value-only authentication status.
+func NewAuthStatus(cfg config.Config) AuthStatus {
+	cfg = normalizeConfigSecretSources(cfg)
+	r := redact.New(cfg.Defaults.Redaction)
+	return AuthStatus{
+		Credentials:        sanitizeStatusString(r, CredentialStatus(cfg)),
+		CredentialExchange: sanitizeStatusString(r, "not requested"),
+		LiveAPI:            sanitizeStatusString(r, LiveAPIStatus(cfg)),
+	}
+}
+
+// NewConfigStatus returns the sanitized configuration-presence view used by
+// status renderers. No raw config path, proxy URL, identifier, or secret is
+// copied into the result.
+func NewConfigStatus(cfg config.Config) ConfigStatus {
+	cfg = normalizeConfigSecretSources(cfg)
+	safe := cfg.Safe()
+	r := redact.New(cfg.Defaults.Redaction)
+	return ConfigStatus{
+		Source:          sanitizeStatusString(r, safe.Source),
+		ConfigFileSet:   safe.ConfigFileSet,
+		Profile:         sanitizeStatusString(r, safe.Profile),
+		AuthMode:        sanitizeStatusString(r, safe.AuthMode),
+		VanityDomainSet: safe.VanityDomainSet,
+		Cloud:           sanitizeStatusString(r, safe.Cloud),
+		Credentials: machine.ConfigCredentialStatus{
+			ClientIDSet:         safe.Credentials.ClientIDSet,
+			ClientSecretSet:     safe.Credentials.ClientSecretSet,
+			ClientSecretFileSet: safe.Credentials.ClientSecretFileSet,
+			ClientSecretScheme:  sanitizeStatusString(r, safe.Credentials.ClientSecretScheme),
+		},
+		ZPA: machine.ConfigZPAStatus{
+			CustomerIDSet:    safe.ZPA.CustomerIDSet,
+			MicrotenantIDSet: safe.ZPA.MicrotenantIDSet,
+		},
+		ZIALegacy: machine.ConfigZIALegacyStatus{
+			UsernameSet:     safe.ZIALegacy.UsernameSet,
+			PasswordSet:     safe.ZIALegacy.PasswordSet,
+			PasswordFileSet: safe.ZIALegacy.PasswordFileSet,
+			PasswordScheme:  sanitizeStatusString(r, safe.ZIALegacy.PasswordScheme),
+			APIKeySet:       safe.ZIALegacy.APIKeySet,
+			APIKeyFileSet:   safe.ZIALegacy.APIKeyFileSet,
+			APIKeyScheme:    sanitizeStatusString(r, safe.ZIALegacy.APIKeyScheme),
+			CloudSet:        safe.ZIALegacy.CloudSet,
+		},
+		Proxy: machine.ConfigProxyStatus{
+			URLSet:          safe.Proxy.URLSet,
+			FromEnvironment: safe.Proxy.FromEnvironment,
+		},
+		Defaults: machine.ConfigDefaultsStatus{
+			Redaction: sanitizeStatusString(r, safe.Defaults.Redaction),
+			NoCache:   safe.Defaults.NoCache,
+		},
+	}
+}
+
+func sanitizeStatusString(r redact.Redactor, value string) string {
+	return sanitizeEngineString(r, value)
+}
+
+func statusContextError(err error, operation machine.Operation) error {
+	kind := machine.ErrorKindCanceled
+	message := "request canceled"
+	sentinel := context.Canceled
+	if errors.Is(err, context.DeadlineExceeded) {
+		kind = machine.ErrorKindDeadlineExceeded
+		message = "request deadline exceeded"
+		sentinel = context.DeadlineExceeded
+	}
+	return newBoundaryError(&machine.MachineError{
+		Kind:      kind,
+		Message:   message,
+		Operation: operation,
+	}, sentinel)
+}
+
+// StatusConfigError converts a status configuration or context failure into a
+// static machine-safe error. It preserves only safe sentinel identity for
+// in-process classification and never retains the original error or details.
+func StatusConfigError(operation machine.Operation, err error) error {
+	if err == nil {
+		return nil
+	}
+	if !isSupportedStatusOperation(operation) {
+		operation = ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return statusContextError(err, operation)
+	}
+	if errors.Is(err, config.ErrInvalidConfig) {
+		return newBoundaryError(&machine.MachineError{
+			Kind:      machine.ErrorKindInvalidConfig,
+			Message:   "invalid configuration",
+			Operation: operation,
+		}, config.ErrInvalidConfig)
+	}
+	if errors.Is(err, zscaler.ErrInvalidProxyConfig) {
+		return newBoundaryError(&machine.MachineError{
+			Kind:      machine.ErrorKindInvalidProxyConfig,
+			Message:   "invalid proxy configuration",
+			Operation: operation,
+		}, zscaler.ErrInvalidProxyConfig)
+	}
+	return &machine.MachineError{
+		Kind:      machine.ErrorKindInternal,
+		Message:   "status configuration load failed",
+		Operation: operation,
+	}
+}
+
+func isSupportedStatusOperation(operation machine.Operation) bool {
+	switch operation {
+	case machine.OperationDoctor, machine.OperationAuthStatus, machine.OperationConfigStatus:
+		return true
+	default:
+		return false
+	}
+}
+
+func unsupportedStatusOperationError() error {
+	return &machine.MachineError{
+		Kind:    machine.ErrorKindUnsupportedOperation,
+		Message: "unsupported status operation",
+	}
+}
+
+func normalizeConfigSecretSources(cfg config.Config) config.Config {
+	if nilSecretSource(cfg.Credentials.ClientSecret) {
+		cfg.Credentials.ClientSecret = secretref.Unset()
+	}
+	if nilSecretSource(cfg.ZIALegacy.Password) {
+		cfg.ZIALegacy.Password = secretref.Unset()
+	}
+	if nilSecretSource(cfg.ZIALegacy.APIKey) {
+		cfg.ZIALegacy.APIKey = secretref.Unset()
+	}
+	return cfg
+}
+
+func nilSecretSource(source secretref.SecretSource) bool {
+	if source == nil {
+		return true
+	}
+	value := reflect.ValueOf(source)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
+// credentialState is how far the effective configuration is from a live read.
+// The doctor status, credential status and live API status all derive from
+// it, so they cannot disagree.
+type credentialState int
+
+const (
+	credentialsNotConfigured credentialState = iota
+	credentialsPartial
+	credentialsInvalid
+	credentialsConfigured
+)
+
+// credentialStateOf classifies cfg with the checks a read runs before it
+// resolves any secret: zscaler.ValidateSettings, then
+// config.MissingCredentials. A set but unusable setting wins over anything
+// missing and is returned so callers can say why.
+func credentialStateOf(cfg config.Config) (credentialState, error) {
+	cfg = normalizeConfigSecretSources(cfg)
+	if err := zscaler.ValidateSettings(readerSettings(cfg)); err != nil {
+		return credentialsInvalid, err
+	}
+	if len(cfg.MissingCredentials()) == 0 {
+		return credentialsConfigured, nil
+	}
+	anySet := cfg.Credentials.AnySet() || cfg.VanityDomain != ""
+	if cfg.EffectiveAuthMode() == config.AuthModeZIALegacy {
+		anySet = cfg.ZIALegacy.AnySet()
+	}
+	if anySet {
+		return credentialsPartial, nil
+	}
+	return credentialsNotConfigured, nil
+}
+
+// doctorStatusValue is "OK" when live read-only commands can run and "not
+// ready" otherwise; the credentials and live API fields say why.
+func doctorStatusValue(cfg config.Config) string {
+	if state, _ := credentialStateOf(cfg); state == credentialsConfigured {
+		return "OK"
+	}
+	return "not ready"
+}
+
+// CredentialStatus reports whether the active auth mode has enough usable
+// configured fields for live read-only access.
+func CredentialStatus(cfg config.Config) string {
+	switch state, _ := credentialStateOf(cfg); state {
+	case credentialsConfigured:
+		return "configured"
+	case credentialsInvalid:
+		return "invalid settings"
+	case credentialsPartial:
+		return "partial"
+	default:
+		return "not configured"
+	}
+}
+
+// LiveAPIStatus reports the live read-only availability implied by the active
+// credential state.
+func LiveAPIStatus(cfg config.Config) string {
+	cfg = normalizeConfigSecretSources(cfg)
+	state, err := credentialStateOf(cfg)
+	switch state {
+	case credentialsConfigured:
+		if cfg.EffectiveAuthMode() != config.AuthModeZIALegacy && strings.TrimSpace(cfg.ZPA.CustomerID) == "" {
+			return "available for ZIA read-only commands; ZPA resources require ZSCALERCTL_ZPA_CUSTOMER_ID"
+		}
+		return "available for read-only commands"
+	case credentialsInvalid:
+		return "unavailable: " + err.Error()
+	}
+	requires := "requires " + strings.Join(cfg.MissingCredentials(), ", ")
+	if cfg.EffectiveAuthMode() == config.AuthModeZIALegacy {
+		return requires
+	}
+	return requires + "; ZPA resources also require ZSCALERCTL_ZPA_CUSTOMER_ID"
+}
+
+// SetStatus renders the common set/unset status for configuration booleans.
+func SetStatus(set bool) string {
+	if set {
+		return "set"
+	}
+	return "unset"
+}
+
+// SecretSourceStatus renders a secret source without exposing its value.
+func SecretSourceStatus(set bool, scheme string) string {
+	if !set {
+		return "unset"
+	}
+	if scheme == "" {
+		return "set"
+	}
+	return "set (" + scheme + ")"
+}
+
+// ConfigSourceStatus reports whether the active config came from a file or the
+// environment.
+func ConfigSourceStatus(safe config.SafeConfig) string {
+	return ConfigFileStatus(safe.ConfigFileSet)
+}
+
+// ConfigFileStatus reports the config source from the safe presence boolean.
+func ConfigFileStatus(configFileSet bool) string {
+	if configFileSet {
+		return "config file"
+	}
+	return "environment"
+}
+
+// CacheStatus reports whether SDK cache bypass is configured.
+func CacheStatus(noCache bool) string {
+	if noCache {
+		return "bypass"
+	}
+	return "default"
+}
+
+// ProxyStatus reports the active proxy configuration source without exposing
+// proxy values. A direct connection names an HTTPS_PROXY it ignores: where
+// only the proxy reaches the API, every read would otherwise just time out.
+func ProxyStatus(proxy config.Proxy) string {
+	switch {
+	case proxy.FromEnvironment:
+		return "environment"
+	case strings.TrimSpace(proxy.URL) != "":
+		return "explicit"
+	case proxy.EnvironmentProxySet:
+		return "direct (" + config.IgnoredProxyHint + ")"
+	default:
+		return "direct"
+	}
+}
+
+// ValueOrUnset renders trimmed configuration values that are safe to disclose.
+func ValueOrUnset(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unset"
+	}
+	return value
+}

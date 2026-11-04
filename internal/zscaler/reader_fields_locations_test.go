@@ -26,8 +26,8 @@ import (
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common"
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
 
-	"github.com/dvmrry/zscalerctl/internal/redact"
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
 )
 
 const (
@@ -262,7 +262,7 @@ const (
 // map whose only value is a secret canary. The scope value and account-id
 // lists carry standard-only sensitive identifiers.
 func wave4FamilyFixture() locationmanagement.Locations {
-	ext := map[string]interface{}{"hidden": wave4FamilySecretCanary}
+	ext := map[string]any{"hidden": wave4FamilySecretCanary}
 	return locationmanagement.Locations{
 		ID:       7001,
 		Name:     "Family Fixture",
@@ -436,18 +436,26 @@ func TestLocationFamilyHonorsAllowedModes(t *testing.T) {
 		}
 		assertFieldsAbsent(t, res.name+" (paranoid)", paranoid, standardShare...)
 
-		// Standard-only sensitive identifiers and the standard-only reference
-		// lists drop in both share and paranoid.
-		standardOnly := []string{
-			"subLocScopeValues",
-			"subLocAccIds",
-			"dynamiclocationGroups",
-			"staticLocationGroups",
-			"virtualZenClusters",
-			"virtualZens",
-		}
+		// Standard-only sensitive identifiers drop in both share and paranoid.
+		standardOnly := []string{"subLocScopeValues", "subLocAccIds"}
 		assertFieldsAbsent(t, res.name+" (share)", share, standardOnly...)
 		assertFieldsAbsent(t, res.name+" (paranoid)", paranoid, standardOnly...)
+
+		// Reference lists whose names are standard-only keep their ids (never
+		// their names) in share and drop in paranoid.
+		refIDs := map[string]int{
+			"dynamiclocationGroups": 901,
+			"staticLocationGroups":  902,
+			"virtualZenClusters":    903,
+			"virtualZens":           904,
+		}
+		for field, wantID := range refIDs {
+			assertRefListIDsOnly(t, res.name+" (share)", share, field, wantID)
+			assertFieldsAbsent(t, res.name+" (paranoid)", paranoid, field)
+		}
+		for _, got := range []map[string]any{share, paranoid} {
+			assertNoCanaries(t, res.name, got, "dyn-group-a", "static-group-a", "vzen-cluster-a", "vzen-node-a")
+		}
 	}
 }
 

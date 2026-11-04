@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zscaler/zscaler-sdk-go/v3/zscaler"
@@ -17,6 +18,12 @@ import (
 const (
 	DefaultPageSize = 500
 )
+
+// PolicyRuleMutex serializes policy rule writes across the policysetcontroller
+// and policysetcontrollerv2 packages. The API rejects concurrent changes to the
+// same policy set with api.concurrent.access.error, so v1 and v2 writes must
+// share one lock.
+var PolicyRuleMutex sync.Mutex
 
 type Pagination struct {
 	PageSize        int     `json:"pagesize,omitempty" url:"pagesize,omitempty"`
@@ -156,6 +163,19 @@ type CommonSummary struct {
 	ID      string `json:"id,omitempty"`
 	Name    string `json:"name,omitempty"`
 	Enabled bool   `json:"enabled,omitempty"`
+}
+
+type GuestDetails struct {
+	FederationID string      `json:"federationId,omitempty"`
+	PartnerInfo  PartnerInfo `json:"partnerInfo,omitempty"`
+}
+
+type PartnerInfo struct {
+	ApprovalStatus   string `json:"approvalStatus,omitempty"`
+	FederationStatus string `json:"federationStatus,omitempty"`
+	PartnerGid       string `json:"partnerGid,omitempty"`
+	PartnerName      string `json:"partnerName,omitempty"`
+	PartnerScopeName string `json:"partnerScopeName,omitempty"`
 }
 
 // RemoveCloudSuffix removes appended cloud name (zscalerthree.net) i.e "CrowdStrike_ZPA_Pre-ZTA (zscalerthree.net)"

@@ -21,10 +21,15 @@ Coverage percent is classified / total exported SDK fields. A low number is
 not a leak — every unclassified field is dropped — it is a measure of how
 much of the available SDK surface has been deliberately reviewed and exposed.
 This report exists so that "field coverage" is a verifiable number, not an
-assurance. See [DATA_CLASSIFICATION.md](DATA_CLASSIFICATION.md) for the class
-definitions and the fail-closed output rules. The machine-readable companion
+assurance. [RESOURCES.md](RESOURCES.md) gives each field's class and the
+modes it renders in. The machine-readable companion
 [field-coverage.json](field-coverage.json) lists every ignored field name and
 its reason, which feeds field-expansion planning.
+
+The ZIA `firewall-dns-rules` resource preserves the historical output key
+`isWebEunEnabled` alongside the SDK v3.8.48 spelling `isWebEUNEnabled`; both
+keys expose the same read-only flag. The compatibility alias is intentionally
+not counted as a second SDK field in the coverage totals.
 
 ## Ignored Fields Are Decided, Not Vague
 
@@ -44,13 +49,13 @@ is either rendered by classification or permanently excluded on the record.
 
 ## Repo-Wide Totals
 
-- Resources: 165
-- Total exported SDK fields: 2979
-- Classified: 2961
-- Ignored (fail-closed dropped): 18
-  - Deliberate (permanently excluded): 18
+- Resources: 212
+- Total exported SDK fields: 4236
+- Classified: 4174
+- Ignored (fail-closed dropped): 62
+  - Deliberate (permanently excluded): 62
   - Deferred (awaiting modeling): 0
-- Coverage: 99.4%
+- Coverage: 98.5%
 - Decided coverage (classified + deliberate): 100.0%
 
 ## Per-Product Totals
@@ -59,10 +64,11 @@ Ranked worst coverage first.
 
 | Product | Resources | Total | Classified | Deliberate | Deferred | Coverage | Decided |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| zia | 102 | 1681 | 1663 | 18 | 0 | 98.9% | 100.0% |
-| zcc | 11 | 325 | 325 | 0 | 0 | 100.0% | 100.0% |
-| zidentity | 3 | 43 | 43 | 0 | 0 | 100.0% | 100.0% |
-| zpa | 28 | 638 | 638 | 0 | 0 | 100.0% | 100.0% |
+| zidentity | 4 | 81 | 63 | 18 | 0 | 77.8% | 100.0% |
+| zia | 114 | 1908 | 1883 | 25 | 0 | 98.7% | 100.0% |
+| zpa | 56 | 1572 | 1554 | 18 | 0 | 98.9% | 100.0% |
+| zcc | 12 | 347 | 346 | 1 | 0 | 99.7% | 100.0% |
+| zdx | 5 | 36 | 36 | 0 | 0 | 100.0% | 100.0% |
 | ztw | 21 | 292 | 292 | 0 | 0 | 100.0% | 100.0% |
 
 ## Per-Resource Coverage
@@ -74,44 +80,62 @@ names, buckets, and reasons behind each row.
 
 | Product | Resource | Total | Classified | Deliberate | Deferred | Coverage | Decided |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| zidentity | users | 44 | 27 | 17 | 0 | 61.4% | 100.0% |
 | zia | users | 22 | 18 | 4 | 0 | 81.8% | 100.0% |
 | zia | workload-groups | 7 | 6 | 1 | 0 | 85.7% | 100.0% |
+| zpa | roles | 18 | 16 | 2 | 0 | 88.9% | 100.0% |
 | zia | locations | 60 | 54 | 6 | 0 | 90.0% | 100.0% |
 | zia | sublocations | 60 | 54 | 6 | 0 | 90.0% | 100.0% |
+| zpa | admins | 27 | 25 | 2 | 0 | 92.6% | 100.0% |
+| zia | ips-signature-rules | 14 | 13 | 1 | 0 | 92.9% | 100.0% |
+| zia | ssl-inspection-rules | 34 | 32 | 2 | 0 | 94.1% | 100.0% |
+| zidentity | resource-servers | 18 | 17 | 1 | 0 | 94.4% | 100.0% |
+| zia | firewall-filtering-rules | 44 | 42 | 2 | 0 | 95.5% | 100.0% |
+| zia | firewall-dns-rules | 48 | 46 | 2 | 0 | 95.8% | 100.0% |
 | zia | url-categories | 27 | 26 | 1 | 0 | 96.3% | 100.0% |
+| zpa | browser-access | 49 | 48 | 1 | 0 | 98.0% | 100.0% |
+| zpa | inspection-app-segments | 52 | 51 | 1 | 0 | 98.1% | 100.0% |
+| zpa | pra-app-segments | 52 | 51 | 1 | 0 | 98.1% | 100.0% |
+| zpa | application-segments | 56 | 55 | 1 | 0 | 98.2% | 100.0% |
+| zpa | access-policy-rules | 76 | 75 | 1 | 0 | 98.7% | 100.0% |
+| zpa | capabilities-policy-rules | 76 | 75 | 1 | 0 | 98.7% | 100.0% |
+| zpa | client-forwarding-policy-rules | 76 | 75 | 1 | 0 | 98.7% | 100.0% |
+| zpa | clientless-session-protection-policy-rules | 76 | 75 | 1 | 0 | 98.7% | 100.0% |
+| zpa | credential-policy-rules | 76 | 75 | 1 | 0 | 98.7% | 100.0% |
+| zpa | inspection-policy-rules | 76 | 75 | 1 | 0 | 98.7% | 100.0% |
+| zpa | isolation-policy-rules | 76 | 75 | 1 | 0 | 98.7% | 100.0% |
+| zpa | redirection-policy-rules | 76 | 75 | 1 | 0 | 98.7% | 100.0% |
+| zpa | siem-policy-rules | 76 | 75 | 1 | 0 | 98.7% | 100.0% |
+| zpa | timeout-policy-rules | 76 | 75 | 1 | 0 | 98.7% | 100.0% |
+| zcc | company-info | 119 | 118 | 1 | 0 | 99.2% | 100.0% |
 | zia | nss-feeds | 126 | 126 | 0 | 0 | 100.0% | 100.0% |
-| zcc | company-info | 111 | 111 | 0 | 0 | 100.0% | 100.0% |
+| zia | endpoint-dlp-rules | 72 | 72 | 0 | 0 | 100.0% | 100.0% |
 | zia | org-information | 69 | 69 | 0 | 0 | 100.0% | 100.0% |
 | ztw | locations | 54 | 54 | 0 | 0 | 100.0% | 100.0% |
 | zia | casb-dlp-rules | 53 | 53 | 0 | 0 | 100.0% | 100.0% |
-| zpa | application-segments | 52 | 52 | 0 | 0 | 100.0% | 100.0% |
 | zia | advanced-settings | 51 | 51 | 0 | 0 | 100.0% | 100.0% |
 | zia | dlp-web-rules | 49 | 49 | 0 | 0 | 100.0% | 100.0% |
 | zia | advanced-threat-settings | 48 | 48 | 0 | 0 | 100.0% | 100.0% |
-| zpa | inspection-app-segments | 48 | 48 | 0 | 0 | 100.0% | 100.0% |
-| zpa | pra-app-segments | 48 | 48 | 0 | 0 | 100.0% | 100.0% |
 | zcc | application-profiles | 46 | 46 | 0 | 0 | 100.0% | 100.0% |
 | zpa | app-connectors | 45 | 45 | 0 | 0 | 100.0% | 100.0% |
-| zpa | browser-access | 45 | 45 | 0 | 0 | 100.0% | 100.0% |
+| zia | url-filtering-rules | 44 | 44 | 0 | 0 | 100.0% | 100.0% |
 | zpa | service-edges | 44 | 44 | 0 | 0 | 100.0% | 100.0% |
-| zia | firewall-dns-rules | 43 | 43 | 0 | 0 | 100.0% | 100.0% |
-| zia | url-filtering-rules | 42 | 42 | 0 | 0 | 100.0% | 100.0% |
 | ztw | forwarding-rules | 42 | 42 | 0 | 0 | 100.0% | 100.0% |
 | zpa | app-connector-groups | 41 | 41 | 0 | 0 | 100.0% | 100.0% |
 | zpa | service-edge-groups | 41 | 41 | 0 | 0 | 100.0% | 100.0% |
-| zia | cloud-app-control | 39 | 39 | 0 | 0 | 100.0% | 100.0% |
-| zia | firewall-filtering-rules | 39 | 39 | 0 | 0 | 100.0% | 100.0% |
+| zia | cloud-app-control | 40 | 40 | 0 | 0 | 100.0% | 100.0% |
 | zia | ips-policies | 39 | 39 | 0 | 0 | 100.0% | 100.0% |
 | zcc | admin-roles | 38 | 38 | 0 | 0 | 100.0% | 100.0% |
 | zia | forwarding-rules | 38 | 38 | 0 | 0 | 100.0% | 100.0% |
 | zia | risk-profiles | 37 | 37 | 0 | 0 | 100.0% | 100.0% |
 | zia | nat-control-rules | 36 | 36 | 0 | 0 | 100.0% | 100.0% |
 | zia | file-type-rules | 35 | 35 | 0 | 0 | 100.0% | 100.0% |
-| zia | ssl-inspection-rules | 32 | 32 | 0 | 0 | 100.0% | 100.0% |
+| zia | email-dlp-rules | 33 | 33 | 0 | 0 | 100.0% | 100.0% |
 | zia | end-user-notification-settings | 30 | 30 | 0 | 0 | 100.0% | 100.0% |
 | zia | gre-tunnels | 30 | 30 | 0 | 0 | 100.0% | 100.0% |
 | zia | dlp-dictionaries | 29 | 29 | 0 | 0 | 100.0% | 100.0% |
 | zia | sandbox-rules | 29 | 29 | 0 | 0 | 100.0% | 100.0% |
+| zpa | idps | 29 | 29 | 0 | 0 | 100.0% | 100.0% |
 | zia | location-groups | 28 | 28 | 0 | 0 | 100.0% | 100.0% |
 | zcc | forwarding-profiles | 26 | 26 | 0 | 0 | 100.0% | 100.0% |
 | zcc | devices | 25 | 25 | 0 | 0 | 100.0% | 100.0% |
@@ -124,9 +148,11 @@ names, buckets, and reasons behind each row.
 | ztw | traffic-dns-rules | 21 | 21 | 0 | 0 | 100.0% | 100.0% |
 | zpa | server-groups | 20 | 20 | 0 | 0 | 100.0% | 100.0% |
 | zia | admin-roles | 19 | 19 | 0 | 0 | 100.0% | 100.0% |
+| zia | locations-lite | 19 | 19 | 0 | 0 | 100.0% | 100.0% |
 | zpa | version-profiles | 19 | 19 | 0 | 0 | 100.0% | 100.0% |
 | ztw | forwarding-gateways | 19 | 19 | 0 | 0 | 100.0% | 100.0% |
 | zia | casb-malware-rules | 18 | 18 | 0 | 0 | 100.0% | 100.0% |
+| zia | registered-devices | 18 | 18 | 0 | 0 | 100.0% | 100.0% |
 | zcc | trusted-networks | 17 | 17 | 0 | 0 | 100.0% | 100.0% |
 | zia | dlp-edm-schemas | 17 | 17 | 0 | 0 | 100.0% | 100.0% |
 | zia | pac-files | 17 | 17 | 0 | 0 | 100.0% | 100.0% |
@@ -136,24 +162,27 @@ names, buckets, and reasons behind each row.
 | zia | browser-control-settings | 16 | 16 | 0 | 0 | 100.0% | 100.0% |
 | zia | tenancy-restriction-profiles | 16 | 16 | 0 | 0 | 100.0% | 100.0% |
 | zia | vzen-nodes | 16 | 16 | 0 | 0 | 100.0% | 100.0% |
-| zidentity | resource-servers | 16 | 16 | 0 | 0 | 100.0% | 100.0% |
 | zpa | posture-profiles | 16 | 16 | 0 | 0 | 100.0% | 100.0% |
+| zpa | scim-attributes | 16 | 16 | 0 | 0 | 100.0% | 100.0% |
 | zpa | segment-groups | 16 | 16 | 0 | 0 | 100.0% | 100.0% |
+| zia | http-header-profiles | 15 | 15 | 0 | 0 | 100.0% | 100.0% |
 | zia | intermediate-ca-certificates | 15 | 15 | 0 | 0 | 100.0% | 100.0% |
-| zidentity | users | 15 | 15 | 0 | 0 | 100.0% | 100.0% |
 | zpa | branch-connectors | 15 | 15 | 0 | 0 | 100.0% | 100.0% |
 | zcc | fail-open-policy | 14 | 14 | 0 | 0 | 100.0% | 100.0% |
 | zcc | web-app-services | 14 | 14 | 0 | 0 | 100.0% | 100.0% |
+| zcc | web-privacy | 14 | 14 | 0 | 0 | 100.0% | 100.0% |
 | zia | auth-settings | 14 | 14 | 0 | 0 | 100.0% | 100.0% |
 | zia | dns-gateways | 14 | 14 | 0 | 0 | 100.0% | 100.0% |
-| zia | ips-signature-rules | 14 | 14 | 0 | 0 | 100.0% | 100.0% |
 | zpa | microtenants | 14 | 14 | 0 | 0 | 100.0% | 100.0% |
 | ztw | traffic-log-rules | 14 | 14 | 0 | 0 | 100.0% | 100.0% |
 | zcc | predefined-ip-apps | 13 | 13 | 0 | 0 | 100.0% | 100.0% |
+| zdx | alert-history | 13 | 13 | 0 | 0 | 100.0% | 100.0% |
+| zdx | alerts | 13 | 13 | 0 | 0 | 100.0% | 100.0% |
 | zia | bandwidth-classes | 13 | 13 | 0 | 0 | 100.0% | 100.0% |
 | zpa | cloud-connectors | 13 | 13 | 0 | 0 | 100.0% | 100.0% |
 | ztw | ec-groups | 13 | 13 | 0 | 0 | 100.0% | 100.0% |
 | zia | casb-tenants | 12 | 12 | 0 | 0 | 100.0% | 100.0% |
+| zia | dlp-global-options | 12 | 12 | 0 | 0 | 100.0% | 100.0% |
 | zidentity | groups | 12 | 12 | 0 | 0 | 100.0% | 100.0% |
 | zpa | app-servers | 12 | 12 | 0 | 0 | 100.0% | 100.0% |
 | zpa | client-types | 12 | 12 | 0 | 0 | 100.0% | 100.0% |
@@ -163,32 +192,43 @@ names, buckets, and reasons behind each row.
 | zia | network-services | 11 | 11 | 0 | 0 | 100.0% | 100.0% |
 | zia | proxies | 11 | 11 | 0 | 0 | 100.0% | 100.0% |
 | zia | static-ips | 11 | 11 | 0 | 0 | 100.0% | 100.0% |
+| zpa | managed-browser-profiles | 11 | 11 | 0 | 0 | 100.0% | 100.0% |
 | ztw | network-services | 11 | 11 | 0 | 0 | 100.0% | 100.0% |
 | ztw | public-cloud-info | 11 | 11 | 0 | 0 | 100.0% | 100.0% |
 | zcc | process-based-apps | 10 | 10 | 0 | 0 | 100.0% | 100.0% |
+| zia | alert-definitions | 10 | 10 | 0 | 0 | 100.0% | 100.0% |
 | zia | devices | 10 | 10 | 0 | 0 | 100.0% | 100.0% |
+| zia | http-header-action-profiles | 10 | 10 | 0 | 0 | 100.0% | 100.0% |
 | zpa | cbi-zpa-profiles | 10 | 10 | 0 | 0 | 100.0% | 100.0% |
 | zpa | config-overrides | 10 | 10 | 0 | 0 | 100.0% | 100.0% |
 | zpa | isolation-profiles | 10 | 10 | 0 | 0 | 100.0% | 100.0% |
 | zpa | machine-groups | 10 | 10 | 0 | 0 | 100.0% | 100.0% |
+| zpa | saml-attributes | 10 | 10 | 0 | 0 | 100.0% | 100.0% |
+| zpa | scim-groups | 10 | 10 | 0 | 0 | 100.0% | 100.0% |
 | ztw | dns-gateways | 10 | 10 | 0 | 0 | 100.0% | 100.0% |
 | zia | alert-subscriptions | 9 | 9 | 0 | 0 | 100.0% | 100.0% |
 | zia | dedicated-ip-gateways | 9 | 9 | 0 | 0 | 100.0% | 100.0% |
 | zia | proxy-gateways | 9 | 9 | 0 | 0 | 100.0% | 100.0% |
+| zia | smpc-instances | 9 | 9 | 0 | 0 | 100.0% | 100.0% |
 | zia | vzen-clusters | 9 | 9 | 0 | 0 | 100.0% | 100.0% |
 | zia | zpa-gateways | 9 | 9 | 0 | 0 | 100.0% | 100.0% |
+| zpa | dr-tool-versions | 9 | 9 | 0 | 0 | 100.0% | 100.0% |
 | zpa | trusted-networks | 9 | 9 | 0 | 0 | 100.0% | 100.0% |
 | zia | c2c-incident-receivers | 8 | 8 | 0 | 0 | 100.0% | 100.0% |
 | zia | device-groups | 8 | 8 | 0 | 0 | 100.0% | 100.0% |
 | zia | ip-destination-groups | 8 | 8 | 0 | 0 | 100.0% | 100.0% |
 | zia | mobile-threat-settings | 8 | 8 | 0 | 0 | 100.0% | 100.0% |
+| zpa | client-settings | 8 | 8 | 0 | 0 | 100.0% | 100.0% |
 | ztw | ip-destination-groups | 8 | 8 | 0 | 0 | 100.0% | 100.0% |
 | ztw | ip-groups | 8 | 8 | 0 | 0 | 100.0% | 100.0% |
 | zia | dlp-notification-templates | 7 | 7 | 0 | 0 | 100.0% | 100.0% |
 | zia | domain-profiles | 7 | 7 | 0 | 0 | 100.0% | 100.0% |
 | zia | rule-labels | 7 | 7 | 0 | 0 | 100.0% | 100.0% |
+| zidentity | api-clients | 7 | 7 | 0 | 0 | 100.0% | 100.0% |
 | ztw | location-templates | 7 | 7 | 0 | 0 | 100.0% | 100.0% |
 | ztw | workload-groups | 7 | 7 | 0 | 0 | 100.0% | 100.0% |
+| zdx | apps | 6 | 6 | 0 | 0 | 100.0% | 100.0% |
+| zia | adaptive-access-profiles | 6 | 6 | 0 | 0 | 100.0% | 100.0% |
 | zia | cloud-app-instances | 6 | 6 | 0 | 0 | 100.0% | 100.0% |
 | zia | dc-exclusions | 6 | 6 | 0 | 0 | 100.0% | 100.0% |
 | zia | dlp-engines | 6 | 6 | 0 | 0 | 100.0% | 100.0% |
@@ -213,8 +253,10 @@ names, buckets, and reasons behind each row.
 | zia | cloud-application-policy | 4 | 4 | 0 | 0 | 100.0% | 100.0% |
 | zia | cloud-application-ssl-policy | 4 | 4 | 0 | 0 | 100.0% | 100.0% |
 | zia | dlp-icap-servers | 4 | 4 | 0 | 0 | 100.0% | 100.0% |
+| zia | dns-application-groups | 4 | 4 | 0 | 0 | 100.0% | 100.0% |
 | zia | email-profiles | 4 | 4 | 0 | 0 | 100.0% | 100.0% |
 | zia | ftp-control-policy | 4 | 4 | 0 | 0 | 100.0% | 100.0% |
+| zia | integration-partners | 4 | 4 | 0 | 0 | 100.0% | 100.0% |
 | zia | network-application-groups | 4 | 4 | 0 | 0 | 100.0% | 100.0% |
 | zia | network-applications | 4 | 4 | 0 | 0 | 100.0% | 100.0% |
 | zia | network-service-groups | 4 | 4 | 0 | 0 | 100.0% | 100.0% |
@@ -228,15 +270,26 @@ names, buckets, and reasons behind each row.
 | zia | eusa-status | 3 | 3 | 0 | 0 | 100.0% | 100.0% |
 | zia | ipv6-config | 3 | 3 | 0 | 0 | 100.0% | 100.0% |
 | zia | supported-browser-versions | 3 | 3 | 0 | 0 | 100.0% | 100.0% |
+| zpa | branch-connector-groups | 3 | 3 | 0 | 0 | 100.0% | 100.0% |
+| zpa | extranet-partners | 3 | 3 | 0 | 0 | 100.0% | 100.0% |
+| zpa | iam-idp-mapping | 3 | 3 | 0 | 0 | 100.0% | 100.0% |
+| zpa | location-summaries | 3 | 3 | 0 | 0 | 100.0% | 100.0% |
+| zpa | workload-tag-groups | 3 | 3 | 0 | 0 | 100.0% | 100.0% |
 | ztw | public-cloud-accounts | 3 | 3 | 0 | 0 | 100.0% | 100.0% |
+| zdx | departments | 2 | 2 | 0 | 0 | 100.0% | 100.0% |
+| zdx | locations | 2 | 2 | 0 | 0 | 100.0% | 100.0% |
 | zia | atp-malware-inspection | 2 | 2 | 0 | 0 | 100.0% | 100.0% |
 | zia | atp-malware-policy | 2 | 2 | 0 | 0 | 100.0% | 100.0% |
 | zia | dlp-edm-schemas-lite | 2 | 2 | 0 | 0 | 100.0% | 100.0% |
 | zia | url-allow-list | 2 | 2 | 0 | 0 | 100.0% | 100.0% |
 | zia | url-deny-list | 2 | 2 | 0 | 0 | 100.0% | 100.0% |
+| zpa | session-termination-settings | 2 | 2 | 0 | 0 | 100.0% | 100.0% |
 | zia | activation-status | 1 | 1 | 0 | 0 | 100.0% | 100.0% |
 | zia | auth-exempted-urls | 1 | 1 | 0 | 0 | 100.0% | 100.0% |
 | zia | malicious-urls | 1 | 1 | 0 | 0 | 100.0% | 100.0% |
 | zia | sandbox-settings | 1 | 1 | 0 | 0 | 100.0% | 100.0% |
 | zia | security-exceptions | 1 | 1 | 0 | 0 | 100.0% | 100.0% |
+| zpa | admin-sso-options | 1 | 1 | 0 | 0 | 100.0% | 100.0% |
+| zpa | auth-domains | 1 | 1 | 0 | 0 | 100.0% | 100.0% |
+| zpa | step-up-auth-levels | 1 | 1 | 0 | 0 | 100.0% | 100.0% |
 

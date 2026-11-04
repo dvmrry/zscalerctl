@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/resources"
 )
 
 // TestFieldCoverageReportIsCurrent regenerates the committed field-coverage
@@ -528,10 +528,14 @@ func renderFieldCoverageMarkdown(report fieldCoverageReport) []byte {
 	b.WriteString("not a leak — every unclassified field is dropped — it is a measure of how\n")
 	b.WriteString("much of the available SDK surface has been deliberately reviewed and exposed.\n")
 	b.WriteString("This report exists so that \"field coverage\" is a verifiable number, not an\n")
-	b.WriteString("assurance. See [DATA_CLASSIFICATION.md](DATA_CLASSIFICATION.md) for the class\n")
-	b.WriteString("definitions and the fail-closed output rules. The machine-readable companion\n")
+	b.WriteString("assurance. [RESOURCES.md](RESOURCES.md) gives each field's class and the\n")
+	b.WriteString("modes it renders in. The machine-readable companion\n")
 	b.WriteString("[field-coverage.json](field-coverage.json) lists every ignored field name and\n")
 	b.WriteString("its reason, which feeds field-expansion planning.\n\n")
+	b.WriteString("The ZIA `firewall-dns-rules` resource preserves the historical output key\n")
+	b.WriteString("`isWebEunEnabled` alongside the SDK v3.8.48 spelling `isWebEUNEnabled`; both\n")
+	b.WriteString("keys expose the same read-only flag. The compatibility alias is intentionally\n")
+	b.WriteString("not counted as a second SDK field in the coverage totals.\n\n")
 
 	b.WriteString("## Ignored Fields Are Decided, Not Vague\n\n")
 	b.WriteString("Every ignore reason must begin with one of two prefixes, so each ignored\n")

@@ -1,32 +1,41 @@
-# github.com/allegro/bigcache/v3 v3.1.0
-## explicit; go 1.16
+# charm.land/lipgloss/v2 v2.0.4
+## explicit; go 1.25.0
+charm.land/lipgloss/v2
+charm.land/lipgloss/v2/table
+# github.com/allegro/bigcache/v3 v3.2.0
+## explicit; go 1.22
 github.com/allegro/bigcache/v3
 github.com/allegro/bigcache/v3/queue
-# github.com/aymanbagabas/go-osc52/v2 v2.0.1
-## explicit; go 1.16
-github.com/aymanbagabas/go-osc52/v2
-# github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc
-## explicit; go 1.18
+# github.com/charmbracelet/colorprofile v0.4.3
+## explicit; go 1.25.0
 github.com/charmbracelet/colorprofile
-# github.com/charmbracelet/lipgloss v1.1.0
-## explicit; go 1.18
-github.com/charmbracelet/lipgloss
-github.com/charmbracelet/lipgloss/table
-# github.com/charmbracelet/x/ansi v0.8.0
-## explicit; go 1.18
+# github.com/charmbracelet/ultraviolet v0.0.0-20260525132238-948f4557a654
+## explicit; go 1.25.0
+github.com/charmbracelet/ultraviolet
+# github.com/charmbracelet/x/ansi v0.11.7
+## explicit; go 1.24.2
 github.com/charmbracelet/x/ansi
 github.com/charmbracelet/x/ansi/kitty
 github.com/charmbracelet/x/ansi/parser
-# github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd
-## explicit; go 1.18
-github.com/charmbracelet/x/cellbuf
-# github.com/charmbracelet/x/term v0.2.1
-## explicit; go 1.18
+# github.com/charmbracelet/x/term v0.2.2
+## explicit; go 1.24.0
 github.com/charmbracelet/x/term
+# github.com/charmbracelet/x/termios v0.1.1
+## explicit; go 1.18
+github.com/charmbracelet/x/termios
+# github.com/charmbracelet/x/windows v0.2.2
+## explicit; go 1.23.0
+github.com/charmbracelet/x/windows
+# github.com/clipperhouse/displaywidth v0.11.0
+## explicit; go 1.18
+github.com/clipperhouse/displaywidth
+# github.com/clipperhouse/uax29/v2 v2.7.0
+## explicit; go 1.18
+github.com/clipperhouse/uax29/v2/graphemes
 # github.com/fatih/color v1.18.0
 ## explicit; go 1.17
 github.com/fatih/color
-# github.com/go-jose/go-jose/v4 v4.1.4
+# github.com/go-jose/go-jose/v4 v4.1.6
 ## explicit; go 1.24.0
 github.com/go-jose/go-jose/v4
 github.com/go-jose/go-jose/v4/cipher
@@ -64,6 +73,9 @@ github.com/hashicorp/terraform-plugin-log/tflog
 # github.com/hashicorp/terraform-plugin-sdk/v2 v2.40.1
 ## explicit; go 1.25.8
 github.com/hashicorp/terraform-plugin-sdk/v2/helper/logging
+# github.com/inconshreveable/mousetrap v1.1.0
+## explicit; go 1.18
+github.com/inconshreveable/mousetrap
 # github.com/jmespath/go-jmespath v0.4.0
 ## explicit; go 1.14
 github.com/jmespath/go-jmespath
@@ -72,7 +84,7 @@ github.com/jmespath/go-jmespath
 github.com/kelseyhightower/envconfig
 # github.com/kr/text v0.2.0
 ## explicit
-# github.com/lucasb-eyer/go-colorful v1.2.0
+# github.com/lucasb-eyer/go-colorful v1.4.0
 ## explicit; go 1.12
 github.com/lucasb-eyer/go-colorful
 # github.com/mattn/go-colorable v0.1.14
@@ -81,23 +93,29 @@ github.com/mattn/go-colorable
 # github.com/mattn/go-isatty v0.0.20
 ## explicit; go 1.15
 github.com/mattn/go-isatty
-# github.com/mattn/go-runewidth v0.0.16
-## explicit; go 1.9
+# github.com/mattn/go-runewidth v0.0.23
+## explicit; go 1.20
 github.com/mattn/go-runewidth
 # github.com/mitchellh/go-testing-interface v1.14.1
 ## explicit; go 1.14
 github.com/mitchellh/go-testing-interface
-# github.com/muesli/termenv v0.16.0
+# github.com/muesli/cancelreader v0.2.2
 ## explicit; go 1.17
-github.com/muesli/termenv
+github.com/muesli/cancelreader
 # github.com/rivo/uniseg v0.4.7
 ## explicit; go 1.18
 github.com/rivo/uniseg
+# github.com/spf13/cobra v1.10.2
+## explicit; go 1.15
+github.com/spf13/cobra
+# github.com/spf13/pflag v1.0.9
+## explicit; go 1.12
+github.com/spf13/pflag
 # github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e
 ## explicit; go 1.19
 github.com/xo/terminfo
-# github.com/zscaler/zscaler-sdk-go/v3 v3.8.38
-## explicit; go 1.25.8
+# github.com/zscaler/zscaler-sdk-go/v3 v3.8.58
+## explicit; go 1.26.0
 github.com/zscaler/zscaler-sdk-go/v3/cache
 github.com/zscaler/zscaler-sdk-go/v3/logger
 github.com/zscaler/zscaler-sdk-go/v3/ratelimiter
@@ -118,9 +136,15 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc/services/predefined_ip_apps
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc/services/process_based_apps
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc/services/trusted_network
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc/services/web_app_service
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc/services/web_privacy
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zdx
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zdx/services/administration
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zdx/services/alerts
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zdx/services/common
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zdx/services/reports/applications
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/activation
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adaptive_access
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/admins
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/roles
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/advanced_settings
@@ -140,9 +164,11 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/cloudnss
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/cloudnss/nss_servers
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/common
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devicegroups
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/devices
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_engines
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_exact_data_match_lite
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_global_options
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_icap_servers
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profile_lite
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_idm_profiles
@@ -152,11 +178,14 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlp_web_rules
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/dlp/dlpdictionaries
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/email_profiles
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/end_user_notification
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/endpoint_dlp/endpoint_dlp_rules
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/endpoint_dlp/outbound_email_dlp
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/filetypecontrol/custom_file_types
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewalldnscontrolpolicies
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/applicationservices
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/appservicegroups
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_application_groups
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/dns_gateways
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/filteringrules
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/firewallpolicies/ipdestinationgroups
@@ -171,6 +200,8 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_pol
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/proxy_gateways
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/forwarding_control_policy/zpa_gateways
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ftp_control_policy
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/http_header_control/http_header_action_profile
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/http_header_control/http_header_profile
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/intermediatecacertificates
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_policies
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/ips_control_policies/ips_signature_rules
@@ -181,6 +212,7 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/mobile_threat_settings
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/nat_control_policies
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/organization_details
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/pacfiles
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/partner_integrations
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/remote_assistance
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/rule_labels
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/saas_security_api
@@ -190,6 +222,8 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sandbox/sandbox_rules
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sandbox/sandbox_settings
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/secure_browsing
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/security_policy_settings
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/security_ueba_alerts/alert_definitions
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/smpc_instance
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/sslinspection
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/tenancy_restriction
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/time_intervals
@@ -207,11 +241,14 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/usermanagement/users
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_clusters
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/vzen_nodes
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/workloadgroups
-github.com/zscaler/zscaler-sdk-go/v3/zscaler/zid/services/common
-github.com/zscaler/zscaler-sdk-go/v3/zscaler/zid/services/groups
-github.com/zscaler/zscaler-sdk-go/v3/zscaler/zid/services/resource_servers
-github.com/zscaler/zscaler-sdk-go/v3/zscaler/zid/services/users
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ziam/services/api_clients
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ziam/services/common
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ziam/services/groups
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ziam/services/resource_servers
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/ziam/services/users
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/admin_sso_controller
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/administrator_controller
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorcontroller
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegment
@@ -221,6 +258,7 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegmentpra
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/branch_connector
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/c2c_ip_ranges
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/client_settings
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/clienttypes
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloud_connector_group
@@ -228,11 +266,22 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloudbrowserisolation/
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/cloudbrowserisolation/isolationprofile
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/common
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/config_override
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/custom_config_controller
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/customer_controller
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/customer_dr_tool
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/customerversionprofile
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/idpcontroller
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/machinegroup
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/managed_browser
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/microtenants
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/one_identity_controller
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/platforms
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/postureprofile
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/role_controller
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/samlattribute
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/scimattributeheader
+github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/scimgroup
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/segmentgroup
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgecontroller
@@ -264,7 +313,10 @@ github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/networ
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/policyresources/zparesources
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/provisioning/public_cloud_account
 github.com/zscaler/zscaler-sdk-go/v3/zscaler/ztw/services/workload_groups
-# golang.org/x/sys v0.44.0
+# golang.org/x/sync v0.20.0
+## explicit; go 1.25.0
+golang.org/x/sync/errgroup
+# golang.org/x/sys v0.45.0
 ## explicit; go 1.25.0
 golang.org/x/sys/unix
 golang.org/x/sys/windows

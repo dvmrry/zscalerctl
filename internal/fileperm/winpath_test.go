@@ -28,7 +28,6 @@ func TestIsUNCPath(t *testing.T) {
 		{`//server/share/config.yaml`, true},       // tolerated forward slashes
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.path, func(t *testing.T) {
 			t.Parallel()
 			if got := isUNCPath(tc.path); got != tc.want {
@@ -64,7 +63,6 @@ func TestVolumeRootFromFinalPath(t *testing.T) {
 		{`relative\path`, ``},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.path, func(t *testing.T) {
 			t.Parallel()
 			if got := volumeRootFromFinalPath(tc.path); got != tc.want {

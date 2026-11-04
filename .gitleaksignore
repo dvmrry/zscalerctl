@@ -1,0 +1,6 @@
+# Exact history fingerprints for superseded synthetic PEM fixtures. Current
+# HEAD constructs PEM-shaped test values at runtime and has no private-key
+# content/path allowlist; these entries cannot suppress a new finding.
+#
+# Each entry binds one immutable commit, path, rule, and detector fingerprint.
+b6e2569bfc53b61287cc6398055f44c363226627:internal/redact/redact_test.go:private-key:113

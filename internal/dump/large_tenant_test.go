@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dvmrry/zscalerctl/internal/redact"
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/redact"
+	"zscalerctl/internal/resources"
 )
 
 // largeTenantRecordCount is the synthetic record count for the large-tenant
@@ -160,7 +160,7 @@ func mib(bytes uint64) float64 {
 
 func synthesizeLargeTenantRecords(n int) []resources.SourceRecord {
 	records := make([]resources.SourceRecord, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		records = append(records, resources.NewSourceRecord(largeTenantRecordFields(i)))
 	}
 	return records
@@ -203,7 +203,7 @@ func largeTenantRecordFields(i int) map[string]any {
 // sentence) that varies per record so string backing is not shared.
 func largeTenantText(topic string, i, sentences int) string {
 	var b strings.Builder
-	for s := 0; s < sentences; s++ {
+	for s := range sentences {
 		fmt.Fprintf(&b, "%s entry %d segment %d records routine value-free operational context for capacity planning. ", topic, i, s)
 	}
 	return b.String()
@@ -272,7 +272,7 @@ func largeTenantSpec() resources.ResourceSpec {
 				},
 			},
 			freeText("changeSummary"),
-			{Name: "secretValue", Classification: resources.ClassSecret},
+			{Name: "secretValue", Classification: resources.ClassSecret, SecretReason: resources.SecretCredential},
 		},
 	}
 }

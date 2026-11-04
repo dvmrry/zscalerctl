@@ -2,7 +2,7 @@
 
 package tests
 
-import "github.com/dvmrry/zscalerctl/internal/resources"
+import "zscalerctl/internal/resources"
 
 func projectSafely(spec resources.ResourceSpec, record resources.SourceRecord) {
 	_, _, _ = resources.ProjectRecordAndVerify(spec, "", record)

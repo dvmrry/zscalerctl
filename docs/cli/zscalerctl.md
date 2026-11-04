@@ -1,0 +1,451 @@
+# zscalerctl CLI Reference
+
+This reference is generated from the live Cobra command tree.
+Do not edit by hand — run `go run ./scripts/gen-cli-docs.go` to regenerate.
+
+## Global Flags
+
+These flags are accepted by every command:
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--color` | `string` | `auto` | color output: auto, always, never |
+| `--config` | `string` | `—` | config file path |
+| `--count-by` | `string` | `—` | count list records by comma-separated fields instead of listing them; a path such as groups.id counts per list element |
+| `--fields` | `string` | `—` | comma-separated output fields to keep; a dotted path such as groups.id keeps only that key of each nested value (narrows the sanitized output) |
+| `--filter` | `stringArray` | `—` | narrow list results: key=value (exact) or key~value (substring); key may be a nested path such as groups.name; repeatable, all must match |
+| `--format` | `string` | `auto` | output format: auto, table, json, ndjson, pretty |
+| `--from-dump` | `string` | `—` | read resource data from a saved sanitized dump directory |
+| `--limit` | `int` | `0` | bound a list result to a JSON page of this many records |
+| `--log-level` | `string` | `off` | diagnostic logging to stderr: off, error, warn, info, debug |
+| `--no-cache` | `bool` | `false` | bypass API cache where supported |
+| `--no-color` | `bool` | `false` | disable color output |
+| `--offset` | `int` | `0` | skip this many records in a bounded JSON list page (requires --limit) |
+| `--output` | `string` | `—` | create or replace an output file; for dump, the directory to write |
+| `--profile` | `string` | `—` | profile name |
+| `--redaction` | `string` | `—` | redaction mode: standard, share, paranoid |
+| `--search` | `string` | `—` | narrow list results to records whose rendered values contain term (case-insensitive) |
+| `--timeout` | `duration` | `30s` | request timeout |
+
+## Commands
+
+### auth
+
+inspect authentication configuration
+
+```
+zscalerctl auth
+```
+
+#### auth status
+
+show authentication status for the active profile
+
+```
+zscalerctl auth status
+```
+
+### completion
+
+Generate the autocompletion script for the specified shell
+
+```
+zscalerctl completion
+```
+
+Generate the autocompletion script for zscalerctl for the specified shell.
+See each sub-command's help for details on how to use the generated script.
+
+
+#### completion bash
+
+Generate the autocompletion script for bash
+
+```
+zscalerctl completion bash
+```
+
+Generate the autocompletion script for the bash shell.
+
+This script depends on the 'bash-completion' package.
+If it is not installed already, you can install it via your OS's package manager.
+
+To load completions in your current shell session:
+
+	source <(zscalerctl completion bash)
+
+To load completions for every new session, execute once:
+
+#### Linux:
+
+	zscalerctl completion bash > /etc/bash_completion.d/zscalerctl
+
+#### macOS:
+
+	zscalerctl completion bash > $(brew --prefix)/etc/bash_completion.d/zscalerctl
+
+You will need to start a new shell for this setup to take effect.
+
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--no-descriptions` | `bool` | `false` | disable completion descriptions |
+
+#### completion fish
+
+Generate the autocompletion script for fish
+
+```
+zscalerctl completion fish
+```
+
+Generate the autocompletion script for the fish shell.
+
+To load completions in your current shell session:
+
+	zscalerctl completion fish | source
+
+To load completions for every new session, execute once:
+
+	zscalerctl completion fish > ~/.config/fish/completions/zscalerctl.fish
+
+You will need to start a new shell for this setup to take effect.
+
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--no-descriptions` | `bool` | `false` | disable completion descriptions |
+
+#### completion powershell
+
+Generate the autocompletion script for powershell
+
+```
+zscalerctl completion powershell
+```
+
+Generate the autocompletion script for powershell.
+
+To load completions in your current shell session:
+
+	zscalerctl completion powershell | Out-String | Invoke-Expression
+
+To load completions for every new session, add the output of the above command
+to your powershell profile.
+
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--no-descriptions` | `bool` | `false` | disable completion descriptions |
+
+#### completion zsh
+
+Generate the autocompletion script for zsh
+
+```
+zscalerctl completion zsh
+```
+
+Generate the autocompletion script for the zsh shell.
+
+If shell completion is not already enabled in your environment you will need
+to enable it.  You can execute the following once:
+
+	echo "autoload -U compinit; compinit" >> ~/.zshrc
+
+To load completions in your current shell session:
+
+	source <(zscalerctl completion zsh)
+
+To load completions for every new session, execute once:
+
+#### Linux:
+
+	zscalerctl completion zsh > "${fpath[1]}/_zscalerctl"
+
+#### macOS:
+
+	zscalerctl completion zsh > $(brew --prefix)/share/zsh/site-functions/_zscalerctl
+
+You will need to start a new shell for this setup to take effect.
+
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--no-descriptions` | `bool` | `false` | disable completion descriptions |
+
+### config
+
+manage zscalerctl configuration
+
+```
+zscalerctl config
+```
+
+#### config init
+
+write a starter config file with owner-only permissions
+
+```
+zscalerctl config init
+```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--force` | `bool` | `false` | overwrite an existing config file |
+
+#### config show
+
+show the active configuration (redacted)
+
+```
+zscalerctl config show
+```
+
+### diff
+
+compare two dump directories and report configuration drift
+
+```
+zscalerctl diff <old-dump-dir> <new-dump-dir>
+```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--allow-partial` | `bool` | `false` | compare partial dumps instead of rejecting them |
+| `--detail` | `bool` | `false` | include record-level table details |
+| `--fail-on-drift` | `bool` | `false` | exit 7 when drift is detected |
+| `--ignore-operational` | `bool` | `false` | ignore operational metadata on keyed and singleton resources |
+| `--products` | `string` | `—` | comma-separated products: zia,zpa,ztw,zcc,zidentity |
+| `--resources` | `string` | `—` | comma-separated resources: locations or zia/locations |
+
+### doctor
+
+check configuration, credentials, and connectivity
+
+```
+zscalerctl doctor
+```
+
+### dump
+
+write a full or filtered resource dump to a directory
+
+```
+zscalerctl dump
+```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--continue-on-error` | `bool` | `false` | write a partial dump when individual resources fail |
+| `--force` | `bool` | `false` | replace an existing zscalerctl dump directory |
+| `--products` | `string` | `—` | comma-separated products: zia,zpa,ztw,zcc,zidentity |
+| `--resources` | `string` | `—` | comma-separated resources: locations or zia/locations |
+
+### help
+
+Help about any command
+
+```
+zscalerctl help [command]
+```
+
+Help provides help for any command in the application.
+Simply type zscalerctl help [path to command] for full details.
+
+### introspect
+
+print a machine-readable map of all commands, flags, and resources (JSON)
+
+```
+zscalerctl introspect
+```
+
+### machine
+
+inspect machine-readable capability contracts
+
+```
+zscalerctl machine
+```
+
+#### machine manifest
+
+print the machine capability manifest
+
+```
+zscalerctl machine manifest
+```
+
+Print the catalog-derived machine capability manifest as JSON.
+
+This command is config-free and never contacts Zscaler.
+
+### refs
+
+find the records that reference an object, or referenced ids not found in what was read
+
+```
+zscalerctl refs
+```
+
+#### refs check
+
+list reference ids on <product> <resource> records that are not in the target lists as read
+
+```
+zscalerctl refs check <product> <resource>
+```
+
+#### refs to
+
+list the records whose reference fields hold <id> of <product> <resource>
+
+```
+zscalerctl refs to <product> <resource> <id>
+```
+
+### schema
+
+inspect the resource catalog schema
+
+```
+zscalerctl schema
+```
+
+#### schema describe
+
+describe reviewed field semantics for one resource (config-free pilot)
+
+```
+zscalerctl schema describe <product> <resource>
+```
+
+#### schema gaps
+
+list the Zscaler surfaces zscalerctl does not read, and why (config-free)
+
+```
+zscalerctl schema gaps [product]
+```
+
+#### schema list
+
+list all catalog resources and their supported operations
+
+```
+zscalerctl schema list
+```
+
+#### schema references
+
+list the fields that point at a resource, with the --filter path for its id (config-free)
+
+```
+zscalerctl schema references <product> <resource>
+```
+
+### version
+
+print version, commit, build date, and runtime info
+
+```
+zscalerctl version
+```
+
+### zcc
+
+read zcc resources
+
+```
+zscalerctl zcc
+```
+
+### zdx
+
+read zdx resources
+
+```
+zscalerctl zdx
+```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--department` | `intSlice` | `[]` | narrow a report to department ids (repeatable) |
+| `--from` | `string` | `—` | report window start (RFC 3339); requires --to |
+| `--location` | `intSlice` | `[]` | narrow a report to location ids (repeatable) |
+| `--since` | `string` | `2h` | report window ending now: a duration such as 2h, 90m or 7d |
+| `--to` | `string` | `—` | report window end (RFC 3339); requires --from |
+
+### zia
+
+read zia resources
+
+```
+zscalerctl zia
+```
+
+#### zia admin-audit-logs
+
+inspect administrator audit-log report status
+
+```
+zscalerctl zia admin-audit-logs
+```
+
+##### zia admin-audit-logs status
+
+show current administrator audit-log report status
+
+```
+zscalerctl zia admin-audit-logs status
+```
+
+#### zia url-lookup
+
+look up URL categories for one or more URLs
+
+```
+zscalerctl zia url-lookup <url> [url...]
+```
+
+### zidentity
+
+read zidentity resources
+
+```
+zscalerctl zidentity
+```
+
+### zpa
+
+read zpa resources
+
+```
+zscalerctl zpa
+```
+
+### ztw
+
+read ztw resources
+
+```
+zscalerctl ztw
+```
+

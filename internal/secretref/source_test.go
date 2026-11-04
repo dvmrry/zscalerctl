@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/secret"
+	"zscalerctl/internal/secret"
 )
 
 func TestResolvedSourceReturnsCapturedSecret(t *testing.T) {

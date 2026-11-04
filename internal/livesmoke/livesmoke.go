@@ -42,8 +42,7 @@ func (s *smoke) usage(format string, a ...any) int {
 }
 
 func (s *smoke) run() int {
-	// 1. Resolve the requested resource filter (explicit --resources, an explicit
-	// manifest, or default-manifest auto-discovery on a feature branch).
+	// 1. Resolve the requested resource filter (--resources and --manifest).
 	if len(s.opts.Resources) > 0 {
 		for _, entry := range s.opts.Resources {
 			norm, err := normalizeRequestedResource(entry)
@@ -53,21 +52,13 @@ func (s *smoke) run() int {
 			s.requested = append(s.requested, norm)
 		}
 	}
-	switch {
-	case s.opts.ManifestPath != "":
+	if s.opts.ManifestPath != "" {
 		entries, err := s.loadManifest(s.opts.ManifestPath)
 		if err != nil {
 			return s.usage("%v", err)
 		}
 		s.requested = append(s.requested, entries...)
 		s.rep.info("using live smoke manifest: %s", s.opts.ManifestPath)
-	case s.shouldUseDefaultManifest():
-		entries, err := s.loadManifest(defaultManifest)
-		if err != nil {
-			return s.usage("%v", err)
-		}
-		s.requested = append(s.requested, entries...)
-		s.rep.info("using live smoke manifest: %s", defaultManifest)
 	}
 
 	// 2. Credential preflight.
@@ -384,73 +375,14 @@ func sortedCopy(in []string) []string {
 	return out
 }
 
-const defaultManifest = "live-smoke.manifest"
-
 func (s *smoke) loadManifest(path string) ([]string, error) {
-	// #nosec G304 -- path is the operator-supplied --manifest/default manifest
-	// path for this dev tool, not external request input.
+	// #nosec G304 -- path is the operator-supplied --manifest path for this dev
+	// tool, not external request input.
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("live smoke manifest not found: %s", path)
 	}
 	return parseManifest(body)
-}
-
-// shouldUseDefaultManifest mirrors the shell auto-discovery: only on a feature
-// branch where live-smoke.manifest exists and differs from the base.
-func (s *smoke) shouldUseDefaultManifest() bool {
-	if s.opts.NoManifest || len(s.requested) > 0 {
-		return false
-	}
-	if _, err := os.Stat(defaultManifest); err != nil {
-		return false
-	}
-	branch := gitOutput("branch", "--show-current")
-	switch strings.TrimSpace(branch) {
-	case "", "main", "master":
-		return false
-	}
-	return manifestChangedFromBase()
-}
-
-// gitOutput runs a fixed git query (for default-manifest branch auto-discovery)
-// and returns its stdout, or "" on error.
-func gitOutput(args ...string) string {
-	// #nosec G204 -- fixed git subcommands for branch/diff discovery; args are
-	// constants from this file, not external input.
-	out, err := exec.Command("git", args...).Output()
-	if err != nil {
-		return ""
-	}
-	return string(out)
-}
-
-func manifestChangedFromBase() bool {
-	base := osEnv("LIVE_SMOKE_MANIFEST_BASE")
-	if base == "" {
-		base = "origin/main"
-	}
-	if gitFails("rev-parse", "--is-inside-work-tree") {
-		return true
-	}
-	if gitFails("rev-parse", "--verify", "-q", base) {
-		return true
-	}
-	if gitFails("diff", "--quiet", base+"...HEAD", "--", defaultManifest) {
-		return true
-	}
-	if gitFails("diff", "--quiet", "--", defaultManifest) {
-		return true
-	}
-	others := strings.TrimSpace(gitOutput("ls-files", "--others", "--exclude-standard", "--", defaultManifest))
-	return others != ""
-}
-
-// gitFails runs a fixed git command and reports whether it exited non-zero.
-func gitFails(args ...string) bool {
-	// #nosec G204 -- fixed git subcommands for default-manifest discovery; the
-	// only variable is a branch ref read from config/env, not request input.
-	return exec.Command("git", args...).Run() != nil
 }
 
 // fileMode returns the permission bits of path as a 3-digit octal string.

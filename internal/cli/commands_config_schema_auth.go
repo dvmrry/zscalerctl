@@ -1,0 +1,380 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"zscalerctl/internal/config"
+	"zscalerctl/internal/fileperm"
+	"zscalerctl/internal/machine"
+	"zscalerctl/internal/output"
+	machineruntime "zscalerctl/internal/runtime"
+)
+
+// newConfigCmd returns the Cobra "config" parent command with two subcommands:
+//   - init: config-FREE; writes a starter config; has a local --force flag
+//   - show: config-LAZY; renders the active config in redacted form
+//
+// The parent RunE returns UsageError (exit 2) for bare "config" or unknown
+// subcommands ("config bogus"), listing the real subcommands in the message.
+// This preserves the exit-2 contract for bare/invalid config invocations.
+func (a *App) newConfigCmd(opts globalOptions) *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "config",
+		Short: "manage zscalerctl configuration",
+		// RunE fires for bare "config" or any unrecognised subcommand.
+		// Return UsageError so exitCodeForError -> exit 2.
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return UsageError{Message: "usage: zscalerctl config <init|show>"}
+		},
+	}
+
+	parent.AddCommand(a.newConfigInitCmd(opts), a.newConfigShowCmd(opts))
+	return parent
+}
+
+// newConfigInitCmd returns the "config init" subcommand.
+//
+// Design notes:
+//   - config-FREE: intentionally runs before LoadConfig because the target
+//     file is expected not to exist yet.
+//   - --force is a LOCAL flag on this subcommand only (not inherited).
+//   - Format-agnostic: it writes text regardless of --format; ndjson is NOT
+//     rejected here — format-agnostic means any --format is accepted (exit 0).
+//   - stdout: the created path only (machine-parseable; --output f captures it).
+//   - stderr: human next-steps hints.
+//   - Arity: NArg()==0 enforced in RunE → UsageError (exit 2) for extra args.
+func (a *App) newConfigInitCmd(opts globalOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "write a starter config file with owner-only permissions",
+		// config init always creates a local file; --force first removes an
+		// existing config. Windows owner-only permission hardening invokes the
+		// fixed icacls system helper. These effects are local only—the CLI-wide
+		// read_only guarantee remains tenant-scoped.
+		Annotations: map[string]string{
+			effectsAnnotation: effectKindProcessExecution + "@" + effectWhenConfigurationDependent + "," +
+				effectKindLocalFilesystemWrite + "," +
+				effectKindLocalFilesystemDelete + "@force",
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Reject extra positional args before any filesystem work.
+			if cmd.Flags().NArg() != 0 {
+				return UsageError{Message: "usage: zscalerctl config init [--force]"}
+			}
+			force, _ := cmd.Flags().GetBool("force")
+			return a.runConfigInitWithForce(opts, force, a.out, a.err)
+		},
+	}
+	cmd.Flags().Bool("force", false, "overwrite an existing config file")
+	return cmd
+}
+
+// runConfigInitWithForce extracts the post-flag-parse logic from runConfigInit
+// so it can be called from the Cobra RunE with an already-resolved force value.
+//
+// Both out and errW are the raw App writers (a.out / a.err). config-init is
+// intentionally exempt from the Cobra-installed redacting writer for its path
+// output: filesystem paths appear on both stdout (the machine-parseable path)
+// and in the stderr hint ("Created owner-only config at …"), and the
+// high-entropy redactor false-positives on entropy-heavy OS temp directories,
+// producing "<REDACTED:SECRET>" instead of the real path. The config path is
+// never a credential, so bypassing the redactor here is safe. If this function
+// ever outputs anything credential-like it must be added to the redact package's
+// test corpus instead.
+func (a *App) runConfigInitWithForce(opts globalOptions, force bool, out, errW io.Writer) error {
+	return a.runConfigInitWithForceHook(opts, force, out, errW, nil)
+}
+
+func (a *App) runConfigInitWithForceHook(opts globalOptions, force bool, out, errW io.Writer, afterDestinationCheck func() error) error {
+	return a.runConfigInitWithForceLstat(opts, force, out, errW, afterDestinationCheck, nil)
+}
+
+func (a *App) runConfigInitWithForceLstat(opts globalOptions, force bool, out, errW io.Writer, afterDestinationCheck func() error, inspect func(string) (os.FileInfo, error)) error {
+	path, _ := config.ResolveConfigPath(a.env, config.LoadOptions{
+		Profile:    opts.profile,
+		ConfigPath: opts.configPath,
+	})
+
+	parent, name, err := splitDestinationPath(path)
+	if err != nil {
+		return UsageError{Message: fmt.Sprintf("config init: %v: %s", err, path)}
+	}
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return fmt.Errorf("create config directory %s: %w", parent, err)
+	}
+	root, err := os.OpenRoot(parent)
+	if err != nil && !errors.Is(err, fs.ErrPermission) {
+		return fmt.Errorf("open config directory %s: %w", parent, err)
+	}
+	// OpenRoot requires directory read permission; pathname writes can succeed
+	// with only write and search permission.
+	lstat := os.Lstat
+	remove := os.Remove
+	write := fileperm.WriteOwnerOnly
+	destination := path
+	if root != nil {
+		defer root.Close()
+		lstat = root.Lstat
+		remove = root.Remove
+		write = func(name string, data []byte) error {
+			return fileperm.WriteOwnerOnlyRoot(root, name, data)
+		}
+		destination = name
+	}
+	if inspect != nil {
+		lstat = inspect
+	}
+
+	_, statErr := lstat(destination)
+	if root != nil && statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+		// Preserve pathname inspection when opening the entry through root fails.
+		// Windows data access and sharing restrictions can block root.Lstat.
+		_, statErr = os.Lstat(path)
+	}
+	switch {
+	case statErr == nil:
+		if !force {
+			return UsageError{Message: fmt.Sprintf("config already exists at %s; pass --force to overwrite", path)}
+		}
+	case errors.Is(statErr, fs.ErrNotExist):
+		// Expected: nothing to overwrite.
+	default:
+		return fmt.Errorf("stat config path %s: %w", path, statErr)
+	}
+
+	if afterDestinationCheck != nil {
+		if err := afterDestinationCheck(); err != nil {
+			return err
+		}
+	}
+	if statErr == nil {
+		// Both owner-only writers are O_EXCL, so remove before re-creating.
+		if err := remove(destination); err != nil {
+			return fmt.Errorf("remove existing config %s: %w", path, err)
+		}
+	}
+	if err := write(destination, []byte(configInitTemplate)); err != nil {
+		return fmt.Errorf("write config %s: %w", path, err)
+	}
+
+	// Machine-first: the path goes to stdout (out = a.out, raw writer) so it
+	// can be captured by scripts without redactor interference. The human
+	// next-steps hints go to errW (a.err, the raw App writer) — config-init
+	// intentionally bypasses the Cobra-installed redacting writer for both
+	// streams (see the runConfigInitWithForce doc block above for rationale).
+	fmt.Fprintln(out, path)
+	fmt.Fprintf(errW, "Created owner-only config at %s\n", path)
+	fmt.Fprintln(errW, "Next: set a client secret — export ZSCALERCTL_CLIENT_SECRET, or uncomment a client_secret_ref in the file.")
+	fmt.Fprintln(errW, "Then run: zscalerctl doctor")
+	return nil
+}
+
+// newConfigShowCmd returns the "config show" subcommand (config-LAZY).
+//
+// Cobra routing guarantees the "show" verb was matched; we pass args directly
+// (normally empty for "zscalerctl config show") so runConfig receives only the
+// post-verb positional args and can enforce len(args)==0 cleanly.
+func (a *App) newConfigShowCmd(opts globalOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:         "show",
+		Short:       "show the active configuration (redacted)",
+		Annotations: map[string]string{effectsAnnotation: configReadEffects},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return UsageError{Message: "usage: zscalerctl config show"}
+			}
+			if err := cmd.Context().Err(); err != nil {
+				return machineruntime.StatusConfigError(machine.OperationConfigStatus, err)
+			}
+			cfg, err := a.loadConfig(opts)
+			if err != nil {
+				return machineruntime.StatusConfigError(machine.OperationConfigStatus, err)
+			}
+			return a.runConfig(cmd.Context(), cfg, opts, args)
+		},
+	}
+}
+
+// newSchemaCmd returns the Cobra "schema" parent command:
+//   - list: config-LAZY; enumerates the resource catalog
+//   - describe: config-free; describes reviewed resource semantics
+//   - references: config-free; lists the fields that point at a resource
+//   - gaps: config-free; lists the surfaces zscalerctl does not read
+//
+// The parent RunE returns UsageError (exit 2) for bare "schema" or unknown
+// subcommands, listing the real subcommand in the message.
+func (a *App) newSchemaCmd(opts globalOptions) *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "schema",
+		Short: "inspect the resource catalog schema",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return UsageError{Message: "usage: zscalerctl schema list | schema describe <product> <resource> | schema references <product> <resource> | schema gaps [product]"}
+		},
+	}
+	parent.AddCommand(a.newSchemaListCmd(opts))
+	parent.AddCommand(a.newSchemaDescribeCmd(opts))
+	parent.AddCommand(a.newSchemaReferencesCmd(opts))
+	parent.AddCommand(a.newSchemaGapsCmd(opts))
+	return parent
+}
+
+// newSchemaListCmd returns the "schema list" subcommand (config-LAZY).
+//
+// Cobra routing guarantees the "list" verb was matched; we pass args directly
+// (normally empty) so runSchema receives only the post-verb positional args.
+func (a *App) newSchemaListCmd(opts globalOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:         "list",
+		Short:       "list all catalog resources and their supported operations",
+		Annotations: map[string]string{effectsAnnotation: configReadEffects},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := a.loadConfig(opts)
+			if err != nil {
+				return err
+			}
+			return a.runSchema(cmd.Context(), cfg, opts, args)
+		},
+	}
+}
+
+// newAuthCmd returns the Cobra "auth" parent command with one subcommand:
+//   - status: config-LAZY; shows credential and auth-mode status
+//
+// The parent RunE returns UsageError (exit 2) for bare "auth" or unknown
+// subcommands, listing the real subcommand in the message.
+func (a *App) newAuthCmd(opts globalOptions) *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "auth",
+		Short: "inspect authentication configuration",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return UsageError{Message: "usage: zscalerctl auth status"}
+		},
+	}
+	parent.AddCommand(a.newAuthStatusCmd(opts))
+	return parent
+}
+
+// newAuthStatusCmd returns the "auth status" subcommand (config-LAZY).
+//
+// Cobra routing guarantees the "status" verb was matched; we pass args directly
+// (normally empty) so runAuth receives only the post-verb positional args.
+func (a *App) newAuthStatusCmd(opts globalOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:         "status",
+		Short:       "show authentication status for the active profile",
+		Annotations: map[string]string{effectsAnnotation: configReadEffects},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return UsageError{Message: "usage: zscalerctl auth status"}
+			}
+			if err := cmd.Context().Err(); err != nil {
+				return machineruntime.StatusConfigError(machine.OperationAuthStatus, err)
+			}
+			cfg, err := a.loadConfig(opts)
+			if err != nil {
+				return machineruntime.StatusConfigError(machine.OperationAuthStatus, err)
+			}
+			return a.runAuth(cmd.Context(), cfg, opts, args)
+		},
+	}
+}
+
+func (a *App) runAuth(ctx context.Context, cfg config.Config, opts globalOptions, args []string) error {
+	// args contains only the post-verb positional args; Cobra routing already
+	// ensured the "status" verb was present. Reject any unexpected extra args.
+	if len(args) != 0 {
+		return UsageError{Message: "usage: zscalerctl auth status"}
+	}
+	result, err := inspectRuntimeStatus(ctx, cfg, opts, machine.OperationAuthStatus)
+	if err != nil {
+		return err
+	}
+	status, ok := result.Auth()
+	if !ok {
+		return fmt.Errorf("auth status operation returned %q result", result.Operation())
+	}
+	if opts.format == output.FormatJSON {
+		return a.renderer(cfg, opts).WriteJSON(a.out, status)
+	}
+	if opts.format != output.FormatTable && opts.format != output.FormatPretty {
+		return rejectUnsupportedFormat("auth status", opts.format)
+	}
+	body := renderKeyValuesForFormat(authStatusRows(status), opts.format, a.style(opts))
+	return a.renderer(cfg, opts).WriteText(a.out, body)
+}
+
+func (a *App) runConfig(ctx context.Context, cfg config.Config, opts globalOptions, args []string) error {
+	// args contains only the post-verb positional args; Cobra routing already
+	// ensured the "show" verb was present. Reject any unexpected extra args.
+	if len(args) != 0 {
+		return UsageError{Message: "usage: zscalerctl config show"}
+	}
+	result, err := inspectRuntimeStatus(ctx, cfg, opts, machine.OperationConfigStatus)
+	if err != nil {
+		return err
+	}
+	safe, ok := result.Config()
+	if !ok {
+		return fmt.Errorf("config status operation returned %q result", result.Operation())
+	}
+	if opts.format == output.FormatJSON {
+		return a.renderer(cfg, opts).WriteJSON(a.out, safe)
+	}
+	if opts.format != output.FormatTable && opts.format != output.FormatPretty {
+		return rejectUnsupportedFormat("config show", opts.format)
+	}
+	rows := []output.KV{
+		{Key: "Profile", Value: safe.Profile},
+		{Key: "Config", Value: machineruntime.ConfigFileStatus(safe.ConfigFileSet)},
+		{Key: "Auth Mode", Value: safe.AuthMode},
+		{Key: "Vanity Domain", Value: machineruntime.SetStatus(safe.VanityDomainSet)},
+		{Key: "Cloud", Value: machineruntime.ValueOrUnset(safe.Cloud)},
+		{Key: "Client ID", Value: machineruntime.SetStatus(safe.Credentials.ClientIDSet)},
+		{Key: "Client Secret", Value: machineruntime.SecretSourceStatus(safe.Credentials.ClientSecretSet || safe.Credentials.ClientSecretFileSet, safe.Credentials.ClientSecretScheme)},
+		{Key: "ZPA Customer ID", Value: machineruntime.SetStatus(safe.ZPA.CustomerIDSet)},
+		{Key: "ZPA Microtenant ID", Value: machineruntime.SetStatus(safe.ZPA.MicrotenantIDSet)},
+		{Key: "ZIA Username", Value: machineruntime.SetStatus(safe.ZIALegacy.UsernameSet)},
+		{Key: "ZIA Password", Value: machineruntime.SecretSourceStatus(safe.ZIALegacy.PasswordSet || safe.ZIALegacy.PasswordFileSet, safe.ZIALegacy.PasswordScheme)},
+		{Key: "ZIA API Key", Value: machineruntime.SecretSourceStatus(safe.ZIALegacy.APIKeySet || safe.ZIALegacy.APIKeyFileSet, safe.ZIALegacy.APIKeyScheme)},
+		{Key: "ZIA Cloud", Value: machineruntime.SetStatus(safe.ZIALegacy.CloudSet)},
+		{Key: "Proxy", Value: machineruntime.ProxyStatus(cfg.Proxy)},
+		{Key: "Redaction", Value: safe.Defaults.Redaction},
+		{Key: "Cache", Value: machineruntime.CacheStatus(safe.Defaults.NoCache)},
+	}
+	body := renderKeyValuesForFormat(rows, opts.format, a.style(opts))
+	return a.renderer(cfg, opts).WriteText(a.out, body)
+}
+
+func (a *App) runSchema(ctx context.Context, cfg config.Config, opts globalOptions, args []string) error {
+	// args contains only the post-verb positional args; Cobra routing already
+	// ensured the "list" verb was present. Reject any unexpected extra args.
+	if len(args) != 0 {
+		return UsageError{Message: "usage: zscalerctl schema list"}
+	}
+	result, err := machineruntime.DiscoverCatalog(ctx, a.resourceCatalog())
+	if err != nil {
+		return err
+	}
+	catalog := result.Catalog()
+	if opts.format == output.FormatJSON {
+		return a.renderer(cfg, opts).WriteJSON(a.out, catalog)
+	}
+	if opts.format != output.FormatTable && opts.format != output.FormatPretty {
+		return rejectUnsupportedFormat("schema list", opts.format)
+	}
+	if len(catalog) == 0 {
+		return a.renderer(cfg, opts).WriteText(a.out, output.NewSafeText("no resources enabled yet\n"))
+	}
+	var body strings.Builder
+	for _, spec := range catalog {
+		fmt.Fprintf(&body, "%s\t%s\t%s\n", spec.Product, spec.Name, strings.Join(readOperationNames(spec), ","))
+	}
+	return a.renderer(cfg, opts).WriteText(a.out, output.NewSafeText(body.String()))
+}

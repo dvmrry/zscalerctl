@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/zscalerctl/internal/cli"
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/cli"
+	"zscalerctl/internal/resources"
 )
 
 // TestTableShowRendersKeyValues covers the table-format show path
@@ -38,7 +38,7 @@ func TestTableShowRendersKeyValues(t *testing.T) {
 
 	// Every populated field renders as a "key<whitespace>value" row.
 	rows := map[string]string{}
-	for _, line := range strings.Split(got, "\n") {
+	for line := range strings.SplitSeq(got, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
 			continue

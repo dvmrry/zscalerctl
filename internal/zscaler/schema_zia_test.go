@@ -3,7 +3,7 @@ package zscaler
 import (
 	"reflect"
 
-	"github.com/dvmrry/zscalerctl/internal/resources"
+	"zscalerctl/internal/resources"
 
 	activation "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/activation"
 	ziaadminusers "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/adminuserrolemgmt/admins"
@@ -100,7 +100,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "locationmanagement.Locations",
 			resource:     resources.ProductZIA,
 			resourceName: resourceLocations,
-			typ:          reflect.TypeOf(locationmanagement.Locations{}),
+			typ:          reflect.TypeFor[locationmanagement.Locations](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -174,7 +174,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "locationmanagement.VPNCredentials",
-			typ:  reflect.TypeOf(locationmanagement.VPNCredentials{}),
+			typ:  reflect.TypeFor[locationmanagement.VPNCredentials](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by secret vpnCredentials parent; nested credential payload is never emitted",
 				"id",
@@ -191,7 +191,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "locationgroups.LocationGroup",
 			resource:     resources.ProductZIA,
 			resourceName: resourceLocationGroups,
-			typ:          reflect.TypeOf(locationgroups.LocationGroup{}),
+			typ:          reflect.TypeFor[locationgroups.LocationGroup](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -209,7 +209,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "locationgroups.DynamicLocationGroupCriteria",
 			resource:     resources.ProductZIA,
 			resourceName: resourceLocationGroups,
-			typ:          reflect.TypeOf(locationgroups.DynamicLocationGroupCriteria{}),
+			typ:          reflect.TypeFor[locationgroups.DynamicLocationGroupCriteria](),
 			catalogFields: []string{
 				"name",
 				"countries",
@@ -228,7 +228,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "locationgroups.Name",
 			resource:     resources.ProductZIA,
 			resourceName: resourceLocationGroups,
-			typ:          reflect.TypeOf(locationgroups.Name{}),
+			typ:          reflect.TypeFor[locationgroups.Name](),
 			catalogFields: []string{
 				"matchString",
 				"matchType",
@@ -238,7 +238,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "locationgroups.City",
 			resource:     resources.ProductZIA,
 			resourceName: resourceLocationGroups,
-			typ:          reflect.TypeOf(locationgroups.City{}),
+			typ:          reflect.TypeFor[locationgroups.City](),
 			catalogFields: []string{
 				"matchString",
 				"matchType",
@@ -248,7 +248,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "locationgroups.ManagedBy",
 			resource:     resources.ProductZIA,
 			resourceName: resourceLocationGroups,
-			typ:          reflect.TypeOf(locationgroups.ManagedBy{}),
+			typ:          reflect.TypeFor[locationgroups.ManagedBy](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -257,7 +257,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "locationgroups.LastModUser",
-			typ:  reflect.TypeOf(locationgroups.LastModUser{}),
+			typ:  reflect.TypeFor[locationgroups.LastModUser](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by secret lastModUser parent; exposure is decided at the parent field",
 				"id",
@@ -269,7 +269,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "rulelabels.RuleLabels",
 			resource:     resources.ProductZIA,
 			resourceName: resourceRuleLabels,
-			typ:          reflect.TypeOf(rulelabels.RuleLabels{}),
+			typ:          reflect.TypeFor[rulelabels.RuleLabels](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -284,7 +284,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "authsettings.AuthenticationSettings",
 			resource:     resources.ProductZIA,
 			resourceName: resourceAuthSettings,
-			typ:          reflect.TypeOf(authsettings.AuthenticationSettings{}),
+			typ:          reflect.TypeFor[authsettings.AuthenticationSettings](),
 			catalogFields: []string{
 				"orgAuthType",
 				"oneTimeAuth",
@@ -305,7 +305,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "ziacommon.IDNameExtensions",
-			typ:  reflect.TypeOf(ziacommon.IDNameExtensions{}),
+			typ:  reflect.TypeFor[ziacommon.IDNameExtensions](),
 			ignoredFields: ignoredBecause(
 				"deliberate: used inside modeled and dropped reference parents; parent catalog fields decide whether id/name can render",
 				"id",
@@ -315,7 +315,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "ziacommon.IDCustom",
-			typ:  reflect.TypeOf(ziacommon.IDCustom{}),
+			typ:  reflect.TypeFor[ziacommon.IDCustom](),
 			ignoredFields: ignoredBecause(
 				"deliberate: used inside dropped or explicitly modeled custom ID references; parent catalog fields decide whether id/name can render",
 				"id",
@@ -324,7 +324,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "ziacommon.CommonNSS",
-			typ:  reflect.TypeOf(ziacommon.CommonNSS{}),
+			typ:  reflect.TypeFor[ziacommon.CommonNSS](),
 			ignoredFields: ignoredBecause(
 				"deliberate: used inside dropped or explicitly modeled NSS feed references; parent catalog fields decide whether nested fields can render",
 				"id",
@@ -339,7 +339,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "staticips.StaticIP",
 			resource:     resources.ProductZIA,
 			resourceName: resourceStaticIPs,
-			typ:          reflect.TypeOf(staticips.StaticIP{}),
+			typ:          reflect.TypeFor[staticips.StaticIP](),
 			catalogFields: []string{
 				"id",
 				"ipAddress",
@@ -356,7 +356,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "staticips.City",
-			typ:  reflect.TypeOf(staticips.City{}),
+			typ:  reflect.TypeFor[staticips.City](),
 			ignoredFields: ignoredBecause(
 				"deliberate: used inside the modeled city reference parent; parent catalog fields decide whether id/name can render",
 				"id",
@@ -365,7 +365,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "staticips.ManagedBy",
-			typ:  reflect.TypeOf(staticips.ManagedBy{}),
+			typ:  reflect.TypeFor[staticips.ManagedBy](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by secret managedBy parent; exposure is decided at the parent field",
 				"id",
@@ -375,7 +375,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "staticips.LastModifiedBy",
-			typ:  reflect.TypeOf(staticips.LastModifiedBy{}),
+			typ:  reflect.TypeFor[staticips.LastModifiedBy](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by secret lastModifiedBy parent; exposure is decided at the parent field",
 				"id",
@@ -387,7 +387,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "gretunnels.GreTunnels",
 			resource:     resources.ProductZIA,
 			resourceName: resourceGRETunnels,
-			typ:          reflect.TypeOf(gretunnels.GreTunnels{}),
+			typ:          reflect.TypeFor[gretunnels.GreTunnels](),
 			catalogFields: []string{
 				"id",
 				"sourceIp",
@@ -405,7 +405,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "gretunnels.ManagedBy",
-			typ:  reflect.TypeOf(gretunnels.ManagedBy{}),
+			typ:  reflect.TypeFor[gretunnels.ManagedBy](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by secret managedBy parent; exposure is decided at the parent field",
 				"id",
@@ -415,7 +415,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "gretunnels.LastModifiedBy",
-			typ:  reflect.TypeOf(gretunnels.LastModifiedBy{}),
+			typ:  reflect.TypeFor[gretunnels.LastModifiedBy](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by secret lastModifiedBy parent; exposure is decided at the parent field",
 				"id",
@@ -427,7 +427,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "gretunnels.PrimaryDestVip",
 			resource:     resources.ProductZIA,
 			resourceName: resourceGRETunnels,
-			typ:          reflect.TypeOf(gretunnels.PrimaryDestVip{}),
+			typ:          reflect.TypeFor[gretunnels.PrimaryDestVip](),
 			catalogFields: []string{
 				"id",
 				"virtualIp",
@@ -444,7 +444,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "gretunnels.SecondaryDestVip",
 			resource:     resources.ProductZIA,
 			resourceName: resourceGRETunnels,
-			typ:          reflect.TypeOf(gretunnels.SecondaryDestVip{}),
+			typ:          reflect.TypeFor[gretunnels.SecondaryDestVip](),
 			catalogFields: []string{
 				"id",
 				"virtualIp",
@@ -461,7 +461,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "locationmanagement.Locations/sublocations",
 			resource:     resources.ProductZIA,
 			resourceName: resourceSublocations,
-			typ:          reflect.TypeOf(locationmanagement.Locations{}),
+			typ:          reflect.TypeFor[locationmanagement.Locations](),
 			catalogFields: []string{
 				"id",
 				"parentId",
@@ -537,7 +537,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "sslinspection.SSLInspectionRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceSSLRules,
-			typ:          reflect.TypeOf(sslinspection.SSLInspectionRules{}),
+			typ:          reflect.TypeFor[sslinspection.SSLInspectionRules](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -572,36 +572,45 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"workloadGroups",
 				"accessControl",
 			},
+			ignoredFields: ignoredBecause(
+				"deliberate: endpoint application and group selectors carry application/file identifiers and nested version metadata; no reviewed endpoint resource projection exists, so they remain fail-closed",
+				"endPointApplications",
+				"endPointApplicationGroups",
+			),
 		},
 		{
 			name: "sslinspection.Action",
-			typ:  reflect.TypeOf(sslinspection.Action{}),
-			ignoredFields: ignoredBecause(
-				"deliberate: nested action fields are mapped so the parent action object can render its reviewed type while unmodeled sub-actions and certificate references drop",
-				"type",
-				"showEUN",
-				"showEUNATP",
-				"overrideDefaultCertificate",
-				"sslInterceptionCert",
-				"decryptSubActions",
-				"doNotDecryptSubActions",
+			typ:  reflect.TypeFor[sslinspection.Action](),
+			ignoredFields: mergeIgnoredFields(
+				ignoredBecause(
+					"deliberate: covered by zia/ssl-inspection-rules action nested catalog fields",
+					"type",
+					"showEUN",
+					"showEUNATP",
+					"overrideDefaultCertificate",
+					"sslInterceptionCert",
+					"decryptSubActions",
+					"doNotDecryptSubActions",
+				),
 			),
 		},
 		{
 			name: "sslinspection.SSLInterceptionCert",
-			typ:  reflect.TypeOf(sslinspection.SSLInterceptionCert{}),
-			ignoredFields: ignoredBecause(
-				"deliberate: covered by dropped action.sslInterceptionCert parent",
-				"id",
-				"name",
-				"defaultCertificate",
+			typ:  reflect.TypeFor[sslinspection.SSLInterceptionCert](),
+			ignoredFields: mergeIgnoredFields(
+				ignoredBecause(
+					"deliberate: covered by zia/ssl-inspection-rules action.sslInterceptionCert nested catalog fields",
+					"id",
+					"name",
+					"defaultCertificate",
+				),
 			),
 		},
 		{
 			name: "sslinspection.DecryptSubActions",
-			typ:  reflect.TypeOf(sslinspection.DecryptSubActions{}),
+			typ:  reflect.TypeFor[sslinspection.DecryptSubActions](),
 			ignoredFields: ignoredBecause(
-				"deliberate: covered by dropped action.decryptSubActions parent",
+				"deliberate: covered by zia/ssl-inspection-rules action.decryptSubActions nested catalog fields",
 				"serverCertificates",
 				"ocspCheck",
 				"blockSslTrafficWithNoSniEnabled",
@@ -613,9 +622,9 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "sslinspection.DoNotDecryptSubActions",
-			typ:  reflect.TypeOf(sslinspection.DoNotDecryptSubActions{}),
+			typ:  reflect.TypeFor[sslinspection.DoNotDecryptSubActions](),
 			ignoredFields: ignoredBecause(
-				"deliberate: covered by dropped action.doNotDecryptSubActions parent",
+				"deliberate: covered by zia/ssl-inspection-rules action.doNotDecryptSubActions nested catalog fields",
 				"bypassOtherPolicies",
 				"serverCertificates",
 				"ocspCheck",
@@ -627,7 +636,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "urlcategories.URLCategory",
 			resource:     resources.ProductZIA,
 			resourceName: resourceURLCategories,
-			typ:          reflect.TypeOf(urlcategories.URLCategory{}),
+			typ:          reflect.TypeFor[urlcategories.URLCategory](),
 			catalogFields: []string{
 				"id",
 				"configuredName",
@@ -660,7 +669,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "urlcategories.URLKeywordCounts",
-			typ:  reflect.TypeOf(urlcategories.URLKeywordCounts{}),
+			typ:  reflect.TypeFor[urlcategories.URLKeywordCounts](),
 			ignoredFields: ignoredBecause(
 				"deliberate: nested count fields are explicitly modeled in the url-categories catalog; this entry catches SDK additions",
 				"totalUrlCount",
@@ -673,7 +682,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "urlcategories.Scopes",
 			resource:     resources.ProductZIA,
 			resourceName: resourceURLCategories,
-			typ:          reflect.TypeOf(urlcategories.Scopes{}),
+			typ:          reflect.TypeFor[urlcategories.Scopes](),
 			catalogFields: []string{
 				"scopeGroupMemberEntities",
 				"Type",
@@ -684,7 +693,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "urlfilteringpolicies.URLFilteringRule",
 			resource:     resources.ProductZIA,
 			resourceName: resourceURLRules,
-			typ:          reflect.TypeOf(urlfilteringpolicies.URLFilteringRule{}),
+			typ:          reflect.TypeFor[urlfilteringpolicies.URLFilteringRule](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -727,6 +736,8 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"overrideGroups",
 				"workloadGroups",
 				"deviceTrustLevels",
+				"httpHeaderProfiles",
+				"httpHeaderActionProfiles",
 				"lastModifiedBy",
 			},
 		},
@@ -734,7 +745,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "filteringrules.FirewallFilteringRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceFirewallRules,
-			typ:          reflect.TypeOf(filteringrules.FirewallFilteringRules{}),
+			typ:          reflect.TypeFor[filteringrules.FirewallFilteringRules](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -775,13 +786,21 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"zpaAppSegments",
 				"workloadGroups",
 				"lastModifiedBy",
+				"excludeContextShieldEndPoint",
+				"isEunEnabled",
+				"eunTemplateId",
 			},
+			ignoredFields: ignoredBecause(
+				"deliberate: endpoint application and group selectors carry application/file identifiers and nested version metadata; no reviewed endpoint resource projection exists, so they remain fail-closed",
+				"endPointApplications",
+				"endPointApplicationGroups",
+			),
 		},
 		{
 			name:         "forwardingrules.ForwardingRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceForwardingRules,
-			typ:          reflect.TypeOf(forwardingrules.ForwardingRules{}),
+			typ:          reflect.TypeFor[forwardingrules.ForwardingRules](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -825,7 +844,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "ziacommon.CBIProfile",
-			typ:  reflect.TypeOf(ziacommon.CBIProfile{}),
+			typ:  reflect.TypeFor[ziacommon.CBIProfile](),
 			ignoredFields: ignoredBecause(
 				"deliberate: modeled explicitly under the url-filtering-rules cbiProfile catalog field; parent catalog sub-fields decide whether id/name/profileSeq can render and keep url secret",
 				"id",
@@ -836,7 +855,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "forwardingrules.ZPAApplicationSegments",
-			typ:  reflect.TypeOf(forwardingrules.ZPAApplicationSegments{}),
+			typ:  reflect.TypeFor[forwardingrules.ZPAApplicationSegments](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by zia/forwarding-rules zpaApplicationSegments nested field",
 				"id",
@@ -848,7 +867,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "forwardingrules.ZPAApplicationSegmentGroups",
-			typ:  reflect.TypeOf(forwardingrules.ZPAApplicationSegmentGroups{}),
+			typ:  reflect.TypeFor[forwardingrules.ZPAApplicationSegmentGroups](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by zia/forwarding-rules zpaApplicationSegmentGroups nested field",
 				"id",
@@ -860,7 +879,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "ziacommon.IDName",
-			typ:  reflect.TypeOf(ziacommon.IDName{}),
+			typ:  reflect.TypeFor[ziacommon.IDName](),
 			ignoredFields: ignoredBecause(
 				"deliberate: currently used only inside dropped or explicitly modeled nested references",
 				"id",
@@ -870,7 +889,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "ziacommon.ZPAAppSegments",
-			typ:  reflect.TypeOf(ziacommon.ZPAAppSegments{}),
+			typ:  reflect.TypeFor[ziacommon.ZPAAppSegments](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped zpaAppSegments parent",
 				"id",
@@ -882,7 +901,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ipsourcegroups.IPSourceGroups",
 			resource:     resources.ProductZIA,
 			resourceName: resourceIPSourceGroups,
-			typ:          reflect.TypeOf(ipsourcegroups.IPSourceGroups{}),
+			typ:          reflect.TypeFor[ipsourcegroups.IPSourceGroups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -895,7 +914,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ipdestinationgroups.IPDestinationGroups",
 			resource:     resources.ProductZIA,
 			resourceName: resourceIPDestGroups,
-			typ:          reflect.TypeOf(ipdestinationgroups.IPDestinationGroups{}),
+			typ:          reflect.TypeFor[ipdestinationgroups.IPDestinationGroups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -911,7 +930,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "networkservices.NetworkServices",
 			resource:     resources.ProductZIA,
 			resourceName: resourceNetworkServices,
-			typ:          reflect.TypeOf(networkservices.NetworkServices{}),
+			typ:          reflect.TypeFor[networkservices.NetworkServices](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -928,7 +947,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "networkservices.NetworkPorts",
-			typ:  reflect.TypeOf(networkservices.NetworkPorts{}),
+			typ:  reflect.TypeFor[networkservices.NetworkPorts](),
 			ignoredFields: ignoredBecause(
 				"deliberate: nested port ranges are explicitly modeled in network service catalog fields; this entry catches SDK additions",
 				"start",
@@ -939,7 +958,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "networkservicegroups.NetworkServiceGroups",
 			resource:     resources.ProductZIA,
 			resourceName: resourceNetworkSvcGroups,
-			typ:          reflect.TypeOf(networkservicegroups.NetworkServiceGroups{}),
+			typ:          reflect.TypeFor[networkservicegroups.NetworkServiceGroups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -949,7 +968,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "networkservicegroups.Services",
-			typ:  reflect.TypeOf(networkservicegroups.Services{}),
+			typ:  reflect.TypeFor[networkservicegroups.Services](),
 			ignoredFields: ignoredBecause(
 				"deliberate: ZIA network service groups render child services as id/name references only; query network-services for service details",
 				"id",
@@ -968,7 +987,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "networkapplications.NetworkApplications",
 			resource:     resources.ProductZIA,
 			resourceName: resourceNetworkApps,
-			typ:          reflect.TypeOf(networkapplications.NetworkApplications{}),
+			typ:          reflect.TypeFor[networkapplications.NetworkApplications](),
 			catalogFields: []string{
 				"id",
 				"parentCategory",
@@ -980,7 +999,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "applicationservices.ApplicationServicesLite",
 			resource:     resources.ProductZIA,
 			resourceName: resourceAppServices,
-			typ:          reflect.TypeOf(applicationservices.ApplicationServicesLite{}),
+			typ:          reflect.TypeFor[applicationservices.ApplicationServicesLite](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -991,7 +1010,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "appservicegroups.ApplicationServicesGroupLite",
 			resource:     resources.ProductZIA,
 			resourceName: resourceAppServiceGroups,
-			typ:          reflect.TypeOf(appservicegroups.ApplicationServicesGroupLite{}),
+			typ:          reflect.TypeFor[appservicegroups.ApplicationServicesGroupLite](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1002,7 +1021,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "networkapplicationgroups.NetworkApplicationGroups",
 			resource:     resources.ProductZIA,
 			resourceName: resourceNetworkAppGroups,
-			typ:          reflect.TypeOf(networkapplicationgroups.NetworkApplicationGroups{}),
+			typ:          reflect.TypeFor[networkapplicationgroups.NetworkApplicationGroups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1014,7 +1033,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "timewindow.TimeWindow",
 			resource:     resources.ProductZIA,
 			resourceName: resourceTimeWindows,
-			typ:          reflect.TypeOf(timewindow.TimeWindow{}),
+			typ:          reflect.TypeFor[timewindow.TimeWindow](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1027,7 +1046,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "proxies.Proxies",
 			resource:     resources.ProductZIA,
 			resourceName: resourceProxies,
-			typ:          reflect.TypeOf(proxies.Proxies{}),
+			typ:          reflect.TypeFor[proxies.Proxies](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1046,7 +1065,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "proxygateways.ProxyGateways",
 			resource:     resources.ProductZIA,
 			resourceName: resourceProxyGateways,
-			typ:          reflect.TypeOf(proxygateways.ProxyGateways{}),
+			typ:          reflect.TypeFor[proxygateways.ProxyGateways](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1063,7 +1082,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "proxies.DedicatedIPGateways",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDedicatedIPGWs,
-			typ:          reflect.TypeOf(proxies.DedicatedIPGateways{}),
+			typ:          reflect.TypeFor[proxies.DedicatedIPGateways](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1080,7 +1099,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "timeintervals.TimeInterval",
 			resource:     resources.ProductZIA,
 			resourceName: resourceTimeIntervals,
-			typ:          reflect.TypeOf(timeintervals.TimeInterval{}),
+			typ:          reflect.TypeFor[timeintervals.TimeInterval](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1093,7 +1112,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "bandwidthclasses.BandwidthClasses",
 			resource:     resources.ProductZIA,
 			resourceName: resourceBandwidthClasses,
-			typ:          reflect.TypeOf(bandwidthclasses.BandwidthClasses{}),
+			typ:          reflect.TypeFor[bandwidthclasses.BandwidthClasses](),
 			catalogFields: []string{
 				"id",
 				"isNameL10nTag",
@@ -1114,7 +1133,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "bandwidthcontrolrules.BandwidthControlRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceBandwidthRules,
-			typ:          reflect.TypeOf(bandwidthcontrolrules.BandwidthControlRules{}),
+			typ:          reflect.TypeFor[bandwidthcontrolrules.BandwidthControlRules](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1143,7 +1162,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dnsgateways.DNSGateways",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDNSGateways,
-			typ:          reflect.TypeOf(dnsgateways.DNSGateways{}),
+			typ:          reflect.TypeFor[dnsgateways.DNSGateways](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1165,7 +1184,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "natcontrol.NatControlPolicies",
 			resource:     resources.ProductZIA,
 			resourceName: resourceNATRules,
-			typ:          reflect.TypeOf(natcontrol.NatControlPolicies{}),
+			typ:          reflect.TypeFor[natcontrol.NatControlPolicies](),
 			catalogFields: []string{
 				"accessControl",
 				"id",
@@ -1209,7 +1228,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "usergroups.Groups",
 			resource:     resources.ProductZIA,
 			resourceName: resourceGroups,
-			typ:          reflect.TypeOf(usergroups.Groups{}),
+			typ:          reflect.TypeFor[usergroups.Groups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1222,7 +1241,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "userdepartments.Department",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDepartments,
-			typ:          reflect.TypeOf(userdepartments.Department{}),
+			typ:          reflect.TypeFor[userdepartments.Department](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1235,7 +1254,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ziausers.Users",
 			resource:     resources.ProductZIA,
 			resourceName: resourceUsers,
-			typ:          reflect.TypeOf(ziausers.Users{}),
+			typ:          reflect.TypeFor[ziausers.Users](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1255,7 +1274,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ziacommon.UserGroups (users)",
 			resource:     resources.ProductZIA,
 			resourceName: resourceUsers,
-			typ:          reflect.TypeOf(ziacommon.UserGroups{}),
+			typ:          reflect.TypeFor[ziacommon.UserGroups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1271,7 +1290,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ziacommon.UserDepartment (users)",
 			resource:     resources.ProductZIA,
 			resourceName: resourceUsers,
-			typ:          reflect.TypeOf(ziacommon.UserDepartment{}),
+			typ:          reflect.TypeFor[ziacommon.UserDepartment](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1287,7 +1306,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "devicegroups.DeviceGroups",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDeviceGroups,
-			typ:          reflect.TypeOf(devicegroups.DeviceGroups{}),
+			typ:          reflect.TypeFor[devicegroups.DeviceGroups](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1303,7 +1322,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "devicegroups.Devices",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDevices,
-			typ:          reflect.TypeOf(devicegroups.Devices{}),
+			typ:          reflect.TypeFor[devicegroups.Devices](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1321,7 +1340,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "workloadgroups.WorkloadGroup",
 			resource:     resources.ProductZIA,
 			resourceName: resourceWorkloadGroups,
-			typ:          reflect.TypeOf(workloadgroups.WorkloadGroup{}),
+			typ:          reflect.TypeFor[workloadgroups.WorkloadGroup](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1339,7 +1358,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "alerts.AlertSubscriptions",
 			resource:     resources.ProductZIA,
 			resourceName: resourceAlertSubs,
-			typ:          reflect.TypeOf(alerts.AlertSubscriptions{}),
+			typ:          reflect.TypeFor[alerts.AlertSubscriptions](),
 			catalogFields: []string{
 				"id",
 				"description",
@@ -1356,7 +1375,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "activation.Activation",
 			resource:     resources.ProductZIA,
 			resourceName: resourceActivationStatus,
-			typ:          reflect.TypeOf(activation.Activation{}),
+			typ:          reflect.TypeFor[activation.Activation](),
 			catalogFields: []string{
 				"status",
 			},
@@ -1365,7 +1384,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "activation.ZiaEusaStatus",
 			resource:     resources.ProductZIA,
 			resourceName: resourceEUSAStatus,
-			typ:          reflect.TypeOf(activation.ZiaEusaStatus{}),
+			typ:          reflect.TypeFor[activation.ZiaEusaStatus](),
 			catalogFields: []string{
 				"id",
 				"version",
@@ -1376,7 +1395,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "userauthsettings.ExemptedUrls",
 			resource:     resources.ProductZIA,
 			resourceName: resourceAuthExemptedURLs,
-			typ:          reflect.TypeOf(userauthsettings.ExemptedUrls{}),
+			typ:          reflect.TypeFor[userauthsettings.ExemptedUrls](),
 			catalogFields: []string{
 				"urls",
 			},
@@ -1385,7 +1404,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "intermediatecacertificates.IntermediateCACertificate",
 			resource:     resources.ProductZIA,
 			resourceName: resourceIntermediateCAs,
-			typ:          reflect.TypeOf(intermediatecacertificates.IntermediateCACertificate{}),
+			typ:          reflect.TypeFor[intermediatecacertificates.IntermediateCACertificate](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1408,7 +1427,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "cloudappinstances.CloudApplicationInstances",
 			resource:     resources.ProductZIA,
 			resourceName: resourceCloudAppInsts,
-			typ:          reflect.TypeOf(cloudappinstances.CloudApplicationInstances{}),
+			typ:          reflect.TypeFor[cloudappinstances.CloudApplicationInstances](),
 			catalogFields: []string{
 				"instanceId",
 				"instanceType",
@@ -1420,7 +1439,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "cloudappinstances.InstanceIdentifiers",
-			typ:  reflect.TypeOf(cloudappinstances.InstanceIdentifiers{}),
+			typ:  reflect.TypeFor[cloudappinstances.InstanceIdentifiers](),
 			ignoredFields: ignoredBecause(
 				"deliberate: covered by dropped instanceIdentifiers parent",
 				"instanceId",
@@ -1435,7 +1454,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "tenancyrestriction.TenancyRestrictionProfile",
 			resource:     resources.ProductZIA,
 			resourceName: resourceTenancyProfiles,
-			typ:          reflect.TypeOf(tenancyrestriction.TenancyRestrictionProfile{}),
+			typ:          reflect.TypeFor[tenancyrestriction.TenancyRestrictionProfile](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1459,7 +1478,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "vzenclusters.VZENClusters",
 			resource:     resources.ProductZIA,
 			resourceName: resourceVZENClusters,
-			typ:          reflect.TypeOf(vzenclusters.VZENClusters{}),
+			typ:          reflect.TypeFor[vzenclusters.VZENClusters](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1476,7 +1495,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "vzennodes.VZENNodes",
 			resource:     resources.ProductZIA,
 			resourceName: resourceVZENNodes,
-			typ:          reflect.TypeOf(vzennodes.VZENNodes{}),
+			typ:          reflect.TypeFor[vzennodes.VZENNodes](),
 			catalogFields: []string{
 				"id",
 				"zgatewayId",
@@ -1500,7 +1519,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dlpicapservers.DLPICAPServers",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDLPICAPServers,
-			typ:          reflect.TypeOf(dlpicapservers.DLPICAPServers{}),
+			typ:          reflect.TypeFor[dlpicapservers.DLPICAPServers](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1512,7 +1531,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dlpengines.DLPEngines",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDLPEngines,
-			typ:          reflect.TypeOf(dlpengines.DLPEngines{}),
+			typ:          reflect.TypeFor[dlpengines.DLPEngines](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1526,7 +1545,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dlpdictionaries.DlpDictionary",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDLPDictionaries,
-			typ:          reflect.TypeOf(dlpdictionaries.DlpDictionary{}),
+			typ:          reflect.TypeFor[dlpdictionaries.DlpDictionary](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1563,7 +1582,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dlpexactdatamatch.DLPEDMSchema",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDLPEDMSchemas,
-			typ:          reflect.TypeOf(dlpexactdatamatch.DLPEDMSchema{}),
+			typ:          reflect.TypeFor[dlpexactdatamatch.DLPEDMSchema](),
 			catalogFields: []string{
 				"schemaId",
 				"edmClient",
@@ -1585,10 +1604,37 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			},
 		},
 		{
+			name:         "ziaLiteLocation",
+			resource:     resources.ProductZIA,
+			resourceName: resourceLocationsLite,
+			typ:          reflect.TypeFor[ziaLiteLocation](),
+			catalogFields: []string{
+				"id",
+				"name",
+				"parentId",
+				"tz",
+				"ecLocation",
+				"otherSubLocation",
+				"aupBlockInternetUntilAccepted",
+				"aupEnabled",
+				"aupForceSslInspection",
+				"cautionEnabled",
+				"digestAuthEnabled",
+				"iotDiscoveryEnabled",
+				"ipsControl",
+				"kerberosAuth",
+				"ofwEnabled",
+				"surrogateIP",
+				"surrogateIPEnforcedForKnownBrowsers",
+				"xffForwardEnabled",
+				"zappSslScanEnabled",
+			},
+		},
+		{
 			name:         "browserisolation.CBIProfile",
 			resource:     resources.ProductZIA,
 			resourceName: resourceBrowserIsolation,
-			typ:          reflect.TypeOf(browserisolation.CBIProfile{}),
+			typ:          reflect.TypeFor[browserisolation.CBIProfile](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1600,7 +1646,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dlpedmlite.DLPEDMLite",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDLPEDMLite,
-			typ:          reflect.TypeOf(dlpedmlite.DLPEDMLite{}),
+			typ:          reflect.TypeFor[dlpedmlite.DLPEDMLite](),
 			catalogFields: []string{
 				"schema",
 				"tokenList",
@@ -1610,7 +1656,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dcexclusions.DCExclusions",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDCExclusions,
-			typ:          reflect.TypeOf(dcexclusions.DCExclusions{}),
+			typ:          reflect.TypeFor[dcexclusions.DCExclusions](),
 			catalogFields: []string{
 				"dcid",
 				"expired",
@@ -1624,7 +1670,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "subclouds.SubClouds",
 			resource:     resources.ProductZIA,
 			resourceName: resourceSubClouds,
-			typ:          reflect.TypeOf(subclouds.SubClouds{}),
+			typ:          reflect.TypeFor[subclouds.SubClouds](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1636,7 +1682,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ipv6config.IPv6Config",
 			resource:     resources.ProductZIA,
 			resourceName: resourceIPv6Config,
-			typ:          reflect.TypeOf(ipv6config.IPv6Config{}),
+			typ:          reflect.TypeFor[ipv6config.IPv6Config](),
 			catalogFields: []string{
 				"ipV6Enabled",
 				"natPrefixes",
@@ -1647,7 +1693,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ipv6config.IPv6ConfigPrefix (dns64)",
 			resource:     resources.ProductZIA,
 			resourceName: resourceIPv6DNS64Prefix,
-			typ:          reflect.TypeOf(ipv6config.IPv6ConfigPrefix{}),
+			typ:          reflect.TypeFor[ipv6config.IPv6ConfigPrefix](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1661,7 +1707,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ipv6config.IPv6ConfigPrefix (nat64)",
 			resource:     resources.ProductZIA,
 			resourceName: resourceIPv6NAT64Prefix,
-			typ:          reflect.TypeOf(ipv6config.IPv6ConfigPrefix{}),
+			typ:          reflect.TypeFor[ipv6config.IPv6ConfigPrefix](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1675,7 +1721,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "pacfiles.PACFileConfig",
 			resource:     resources.ProductZIA,
 			resourceName: resourcePACFiles,
-			typ:          reflect.TypeOf(pacfiles.PACFileConfig{}),
+			typ:          reflect.TypeFor[pacfiles.PACFileConfig](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1700,7 +1746,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "cloudappcontrol.WebApplicationRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceCloudAppControl,
-			typ:          reflect.TypeOf(cloudappcontrol.WebApplicationRules{}),
+			typ:          reflect.TypeFor[cloudappcontrol.WebApplicationRules](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1716,6 +1762,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"accessControl",
 				"applications",
 				"numberOfApplications",
+				"promptCaptureEnabled",
 				"eunEnabled",
 				"eunTemplateId",
 				"browserEunTemplateId",
@@ -1745,7 +1792,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "cloudappcontrol.CBIProfile",
-			typ:  reflect.TypeOf(cloudappcontrol.CBIProfile{}),
+			typ:  reflect.TypeFor[cloudappcontrol.CBIProfile](),
 			ignoredFields: ignoredBecause(
 				"deliberate: modeled explicitly under the cloud-app-control cbiProfile catalog field; parent catalog sub-fields decide whether id/name/profileSeq/defaultProfile/sandboxMode can render and keep url secret",
 				"id",
@@ -1758,7 +1805,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "cloudappcontrol.CloudAppInstances",
-			typ:  reflect.TypeOf(cloudappcontrol.CloudAppInstances{}),
+			typ:  reflect.TypeFor[cloudappcontrol.CloudAppInstances](),
 			ignoredFields: ignoredBecause(
 				"deliberate: modeled explicitly under the cloud-app-control cloudAppInstances catalog field; parent catalog sub-fields decide whether id/name/type can render",
 				"id",
@@ -1770,7 +1817,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "cloudapplications.CloudApplications (policy)",
 			resource:     resources.ProductZIA,
 			resourceName: resourceCloudAppPolicy,
-			typ:          reflect.TypeOf(cloudapplications.CloudApplications{}),
+			typ:          reflect.TypeFor[cloudapplications.CloudApplications](),
 			catalogFields: []string{
 				"app",
 				"appName",
@@ -1782,7 +1829,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "cloudapplications.CloudApplications (ssl policy)",
 			resource:     resources.ProductZIA,
 			resourceName: resourceCloudAppSSLPol,
-			typ:          reflect.TypeOf(cloudapplications.CloudApplications{}),
+			typ:          reflect.TypeFor[cloudapplications.CloudApplications](),
 			catalogFields: []string{
 				"app",
 				"appName",
@@ -1794,7 +1841,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "saassecurityapi.DomainProfiles",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDomainProfiles,
-			typ:          reflect.TypeOf(saassecurityapi.DomainProfiles{}),
+			typ:          reflect.TypeFor[saassecurityapi.DomainProfiles](),
 			catalogFields: []string{
 				"profileId",
 				"profileName",
@@ -1809,7 +1856,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "saassecurityapi.QuarantineTombstoneLite",
 			resource:     resources.ProductZIA,
 			resourceName: resourceCASBTombstones,
-			typ:          reflect.TypeOf(saassecurityapi.QuarantineTombstoneLite{}),
+			typ:          reflect.TypeFor[saassecurityapi.QuarantineTombstoneLite](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1820,7 +1867,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "saassecurityapi.CasbEmailLabel",
 			resource:     resources.ProductZIA,
 			resourceName: resourceCASBEmailLabels,
-			typ:          reflect.TypeOf(saassecurityapi.CasbEmailLabel{}),
+			typ:          reflect.TypeFor[saassecurityapi.CasbEmailLabel](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -1833,7 +1880,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "saassecurityapi.CasbTenants",
 			resource:     resources.ProductZIA,
 			resourceName: resourceCASBTenants,
-			typ:          reflect.TypeOf(saassecurityapi.CasbTenants{}),
+			typ:          reflect.TypeFor[saassecurityapi.CasbTenants](),
 			catalogFields: []string{
 				"tenantId",
 				"modifiedTime",
@@ -1853,7 +1900,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "casbdlprules.CasbDLPRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceCASBDLPRules,
-			typ:          reflect.TypeOf(casbdlprules.CasbDLPRules{}),
+			typ:          reflect.TypeFor[casbdlprules.CasbDLPRules](),
 			catalogFields: []string{
 				"type",
 				"id",
@@ -1914,7 +1961,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "casbmalwarerules.CasbMalwareRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceCASBMalwareRules,
-			typ:          reflect.TypeOf(casbmalwarerules.CasbMalwareRules{}),
+			typ:          reflect.TypeFor[casbmalwarerules.CasbMalwareRules](),
 			catalogFields: []string{
 				"type",
 				"id",
@@ -1940,7 +1987,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "browsercontrolsettings.BrowserControlSettings",
 			resource:     resources.ProductZIA,
 			resourceName: resourceBrowserControl,
-			typ:          reflect.TypeOf(browsercontrolsettings.BrowserControlSettings{}),
+			typ:          reflect.TypeFor[browsercontrolsettings.BrowserControlSettings](),
 			catalogFields: []string{
 				"pluginCheckFrequency",
 				"bypassPlugins",
@@ -1964,7 +2011,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "securebrowsing.SupportedBrowserVersion",
 			resource:     resources.ProductZIA,
 			resourceName: resourceSupportedBrowsers,
-			typ:          reflect.TypeOf(securebrowsing.SupportedBrowserVersion{}),
+			typ:          reflect.TypeFor[securebrowsing.SupportedBrowserVersion](),
 			catalogFields: []string{
 				"browserType",
 				"versions",
@@ -1975,7 +2022,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ftpcontrolpolicy.FTPControlPolicy",
 			resource:     resources.ProductZIA,
 			resourceName: resourceFTPControl,
-			typ:          reflect.TypeOf(ftpcontrolpolicy.FTPControlPolicy{}),
+			typ:          reflect.TypeFor[ftpcontrolpolicy.FTPControlPolicy](),
 			catalogFields: []string{
 				"ftpOverHttpEnabled",
 				"ftpEnabled",
@@ -1987,7 +2034,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "remoteassistance.RemoteAssistance",
 			resource:     resources.ProductZIA,
 			resourceName: resourceRemoteAssistance,
-			typ:          reflect.TypeOf(remoteassistance.RemoteAssistance{}),
+			typ:          reflect.TypeFor[remoteassistance.RemoteAssistance](),
 			catalogFields: []string{
 				"viewOnlyUntil",
 				"fullAccessUntil",
@@ -1999,7 +2046,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ziaadminusers.AdminUsers",
 			resource:     resources.ProductZIA,
 			resourceName: resourceAdminUsers,
-			typ:          reflect.TypeOf(ziaadminusers.AdminUsers{}),
+			typ:          reflect.TypeFor[ziaadminusers.AdminUsers](),
 			catalogFields: []string{
 				"id",
 				"loginName",
@@ -2028,7 +2075,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ziaadminroles.AdminRoles",
 			resource:     resources.ProductZIA,
 			resourceName: resourceAdminRoles,
-			typ:          reflect.TypeOf(ziaadminroles.AdminRoles{}),
+			typ:          reflect.TypeFor[ziaadminroles.AdminRoles](),
 			catalogFields: []string{
 				"id",
 				"rank",
@@ -2055,7 +2102,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dlpidmprofilelite.DLPIDMProfileLite",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDLPIDMLite,
-			typ:          reflect.TypeOf(dlpidmprofilelite.DLPIDMProfileLite{}),
+			typ:          reflect.TypeFor[dlpidmprofilelite.DLPIDMProfileLite](),
 			catalogFields: []string{
 				"profileId",
 				"templateName",
@@ -2069,7 +2116,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dlpidmprofiles.DLPIDMProfile",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDLPIDMProfiles,
-			typ:          reflect.TypeOf(dlpidmprofiles.DLPIDMProfile{}),
+			typ:          reflect.TypeFor[dlpidmprofiles.DLPIDMProfile](),
 			catalogFields: []string{
 				"profileId",
 				"profileName",
@@ -2098,7 +2145,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dlpwebrules.WebDLPRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDLPWebRules,
-			typ:          reflect.TypeOf(dlpwebrules.WebDLPRules{}),
+			typ:          reflect.TypeFor[dlpwebrules.WebDLPRules](),
 			catalogFields: []string{
 				"id",
 				"order",
@@ -2155,7 +2202,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dlpincidentreceivers.IncidentReceiverServers",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDLPIncidentRcvs,
-			typ:          reflect.TypeOf(dlpincidentreceivers.IncidentReceiverServers{}),
+			typ:          reflect.TypeFor[dlpincidentreceivers.IncidentReceiverServers](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -2168,7 +2215,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "dlpnotificationtemplates.DlpNotificationTemplates",
 			resource:     resources.ProductZIA,
 			resourceName: resourceDLPNotifyTmpls,
-			typ:          reflect.TypeOf(dlpnotificationtemplates.DlpNotificationTemplates{}),
+			typ:          reflect.TypeFor[dlpnotificationtemplates.DlpNotificationTemplates](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -2183,7 +2230,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "c2cincidentreceiver.C2CIncidentReceiver",
 			resource:     resources.ProductZIA,
 			resourceName: resourceC2CIncidentRcvs,
-			typ:          reflect.TypeOf(c2cincidentreceiver.C2CIncidentReceiver{}),
+			typ:          reflect.TypeFor[c2cincidentreceiver.C2CIncidentReceiver](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -2199,7 +2246,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "filetypecontrol.FileTypeRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceFileTypeRules,
-			typ:          reflect.TypeOf(filetypecontrol.FileTypeRules{}),
+			typ:          reflect.TypeFor[filetypecontrol.FileTypeRules](),
 			catalogFields: []string{
 				"accessControl",
 				"activeContent",
@@ -2242,7 +2289,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "sandboxrules.SandboxRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceSandboxRules,
-			typ:          reflect.TypeOf(sandboxrules.SandboxRules{}),
+			typ:          reflect.TypeFor[sandboxrules.SandboxRules](),
 			catalogFields: []string{
 				"accessControl",
 				"baPolicyCategories",
@@ -2279,7 +2326,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "firewalldnscontrolpolicies.FirewallDNSRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceFirewallDNSRules,
-			typ:          reflect.TypeOf(firewalldnscontrolpolicies.FirewallDNSRules{}),
+			typ:          reflect.TypeFor[firewalldnscontrolpolicies.FirewallDNSRules](),
 			catalogFields: []string{
 				"accessControl",
 				"action",
@@ -2301,9 +2348,12 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"dnsGateway",
 				"dnsRuleRequestTypes",
 				"ednsEcsObject",
+				"excludeContextShieldEndPoint",
 				"groups",
 				"id",
-				"isWebEunEnabled",
+				"isWebEUNEnabled",
+				"isEunEnabled",
+				"eunTemplateId",
 				"labels",
 				"lastModifiedBy",
 				"lastModifiedTime",
@@ -2325,16 +2375,20 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"users",
 				"zpaIpGroup",
 			},
+			ignoredFields: ignoredBecause(
+				"deliberate: endpoint application and group selectors carry application/file identifiers and nested version metadata; no reviewed endpoint resource projection exists, so they remain fail-closed",
+				"endPointApplications",
+				"endPointApplicationGroups",
+			),
 		},
 		{
 			name:         "ips_signature_rules.IPSSignatureRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceIPSSignatureRules,
-			typ:          reflect.TypeOf(ipssignaturerules.IPSSignatureRules{}),
+			typ:          reflect.TypeFor[ipssignaturerules.IPSSignatureRules](),
 			catalogFields: []string{
 				"id",
 				"name",
-				"ruleText",
 				"description",
 				"category",
 				"enabled",
@@ -2347,10 +2401,13 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 				"disabledFromZSCM",
 				"dynamicValRejectCode",
 			},
+			ignoredFields: map[string]string{
+				"ruleText": "deliberate: the Suricata/Snort signature body embeds tenant network indicators (IPs, hostnames, payload regexes); the reader never maps it",
+			},
 		},
 		{
 			name: "ips_signature_rules.IPSSignatureCategory",
-			typ:  reflect.TypeOf(ipssignaturerules.IPSSignatureCategory{}),
+			typ:  reflect.TypeFor[ipssignaturerules.IPSSignatureCategory](),
 			ignoredFields: ignoredBecause(
 				"deliberate: threat category sub-fields are explicitly modeled in the ips-signature-rules category catalog field; this entry catches SDK additions",
 				"id",
@@ -2362,7 +2419,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "ipspolicies.FirewallIPSRules",
 			resource:     resources.ProductZIA,
 			resourceName: resourceIPSPolicies,
-			typ:          reflect.TypeOf(ipspolicies.FirewallIPSRules{}),
+			typ:          reflect.TypeFor[ipspolicies.FirewallIPSRules](),
 			catalogFields: []string{
 				"accessControl",
 				"action",
@@ -2409,7 +2466,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "customfiletypes.CustomFileTypes",
 			resource:     resources.ProductZIA,
 			resourceName: resourceCustomFileTypes,
-			typ:          reflect.TypeOf(customfiletypes.CustomFileTypes{}),
+			typ:          reflect.TypeFor[customfiletypes.CustomFileTypes](),
 			catalogFields: []string{
 				"description",
 				"extension",
@@ -2422,7 +2479,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "riskprofiles.RiskProfiles",
 			resource:     resources.ProductZIA,
 			resourceName: resourceRiskProfiles,
-			typ:          reflect.TypeOf(riskprofiles.RiskProfiles{}),
+			typ:          reflect.TypeFor[riskprofiles.RiskProfiles](),
 			catalogFields: []string{
 				"adminAuditLogs",
 				"certifications",
@@ -2467,7 +2524,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "nssservers.NSSServers",
 			resource:     resources.ProductZIA,
 			resourceName: resourceNSSServers,
-			typ:          reflect.TypeOf(nssservers.NSSServers{}),
+			typ:          reflect.TypeFor[nssservers.NSSServers](),
 			catalogFields: []string{
 				"icapSvrId",
 				"id",
@@ -2481,7 +2538,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "cloudnss.NSSFeed",
 			resource:     resources.ProductZIA,
 			resourceName: resourceNSSFeeds,
-			typ:          reflect.TypeOf(cloudnss.NSSFeed{}),
+			typ:          reflect.TypeFor[cloudnss.NSSFeed](),
 			catalogFields: []string{
 				"actionFilter",
 				"activity",
@@ -2615,7 +2672,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "zpagateways.ZPAGateways",
 			resource:     resources.ProductZIA,
 			resourceName: resourceZPAGateways,
-			typ:          reflect.TypeOf(zpagateways.ZPAGateways{}),
+			typ:          reflect.TypeFor[zpagateways.ZPAGateways](),
 			catalogFields: []string{
 				"description",
 				"id",
@@ -2630,7 +2687,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "zpagateways.ZPAServerGroup",
-			typ:  reflect.TypeOf(zpagateways.ZPAServerGroup{}),
+			typ:  reflect.TypeFor[zpagateways.ZPAServerGroup](),
 			ignoredFields: ignoredBecause(
 				"deliberate: nested ZPA server-group references are explicitly modeled in the zpa-gateways catalog; this entry catches SDK additions",
 				"id",
@@ -2641,7 +2698,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 		},
 		{
 			name: "zpagateways.ZPAAppSegments",
-			typ:  reflect.TypeOf(zpagateways.ZPAAppSegments{}),
+			typ:  reflect.TypeFor[zpagateways.ZPAAppSegments](),
 			ignoredFields: ignoredBecause(
 				"deliberate: nested ZPA application-segment references are explicitly modeled in the zpa-gateways catalog; this entry catches SDK additions",
 				"id",
@@ -2654,7 +2711,7 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:         "emailprofiles.EmailProfiles",
 			resource:     resources.ProductZIA,
 			resourceName: resourceEmailProfiles,
-			typ:          reflect.TypeOf(emailprofiles.EmailProfiles{}),
+			typ:          reflect.TypeFor[emailprofiles.EmailProfiles](),
 			catalogFields: []string{
 				"id",
 				"name",
@@ -2666,98 +2723,98 @@ func reviewedSDKShapesZIA() []sdkShapeReview {
 			name:          "advancedsettings.AdvancedSettings",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceAdvancedSettings,
-			typ:           reflect.TypeOf(advancedsettings.AdvancedSettings{}),
+			typ:           reflect.TypeFor[advancedsettings.AdvancedSettings](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceAdvancedSettings),
 		},
 		{
 			name:          "advancedthreatsettings.AdvancedThreatSettings",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceAdvancedThreatSettings,
-			typ:           reflect.TypeOf(advancedthreatsettings.AdvancedThreatSettings{}),
+			typ:           reflect.TypeFor[advancedthreatsettings.AdvancedThreatSettings](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceAdvancedThreatSettings),
 		},
 		{
 			name:          "mobilethreatsettings.MobileAdvanceThreatSettings",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceMobileThreatSettings,
-			typ:           reflect.TypeOf(mobilethreatsettings.MobileAdvanceThreatSettings{}),
+			typ:           reflect.TypeFor[mobilethreatsettings.MobileAdvanceThreatSettings](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceMobileThreatSettings),
 		},
 		{
 			name:          "sandboxsettings.BaAdvancedSettings",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceSandboxSettings,
-			typ:           reflect.TypeOf(sandboxsettings.BaAdvancedSettings{}),
+			typ:           reflect.TypeFor[sandboxsettings.BaAdvancedSettings](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceSandboxSettings),
 		},
 		{
 			name:          "endusernotification.UserNotificationSettings",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceEndUserNotification,
-			typ:           reflect.TypeOf(endusernotification.UserNotificationSettings{}),
+			typ:           reflect.TypeFor[endusernotification.UserNotificationSettings](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceEndUserNotification),
 		},
 		{
 			name:          "organizationdetails.Organization",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceOrgInformation,
-			typ:           reflect.TypeOf(organizationdetails.Organization{}),
+			typ:           reflect.TypeFor[organizationdetails.Organization](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceOrgInformation),
 		},
 		{
 			name:          "malwareprotection.MalwarePolicy",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceATPMalwarePolicy,
-			typ:           reflect.TypeOf(malwareprotection.MalwarePolicy{}),
+			typ:           reflect.TypeFor[malwareprotection.MalwarePolicy](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceATPMalwarePolicy),
 		},
 		{
 			name:          "malwareprotection.MalwareSettings",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceATPMalwareSettings,
-			typ:           reflect.TypeOf(malwareprotection.MalwareSettings{}),
+			typ:           reflect.TypeFor[malwareprotection.MalwareSettings](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceATPMalwareSettings),
 		},
 		{
 			name:          "malwareprotection.ATPMalwareInspection",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceATPMalwareInspection,
-			typ:           reflect.TypeOf(malwareprotection.ATPMalwareInspection{}),
+			typ:           reflect.TypeFor[malwareprotection.ATPMalwareInspection](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceATPMalwareInspection),
 		},
 		{
 			name:          "malwareprotection.ATPMalwareProtocols",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceATPMalwareProtocols,
-			typ:           reflect.TypeOf(malwareprotection.ATPMalwareProtocols{}),
+			typ:           reflect.TypeFor[malwareprotection.ATPMalwareProtocols](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceATPMalwareProtocols),
 		},
 		{
 			name:          "advancedthreatsettings.MaliciousURLs",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceMaliciousURLs,
-			typ:           reflect.TypeOf(advancedthreatsettings.MaliciousURLs{}),
+			typ:           reflect.TypeFor[advancedthreatsettings.MaliciousURLs](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceMaliciousURLs),
 		},
 		{
 			name:          "advancedthreatsettings.SecurityExceptions",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceSecurityExceptions,
-			typ:           reflect.TypeOf(advancedthreatsettings.SecurityExceptions{}),
+			typ:           reflect.TypeFor[advancedthreatsettings.SecurityExceptions](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceSecurityExceptions),
 		},
 		{
 			name:          "securitypolicysettings.ListUrls/allow",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceSecurityPolicyURLAllowlist,
-			typ:           reflect.TypeOf(securitypolicysettings.ListUrls{}),
+			typ:           reflect.TypeFor[securitypolicysettings.ListUrls](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceSecurityPolicyURLAllowlist),
 		},
 		{
 			name:          "securitypolicysettings.ListUrls/deny",
 			resource:      resources.ProductZIA,
 			resourceName:  resourceSecurityPolicyURLDenylist,
-			typ:           reflect.TypeOf(securitypolicysettings.ListUrls{}),
+			typ:           reflect.TypeFor[securitypolicysettings.ListUrls](),
 			catalogFields: catalogFieldsFor(resources.ProductZIA, resourceSecurityPolicyURLDenylist),
 		},
 	}

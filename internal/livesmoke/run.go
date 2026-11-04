@@ -2,6 +2,7 @@ package livesmoke
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -13,7 +14,6 @@ type Options struct {
 	Bin                 string // empty -> "go run -mod=vendor ./cmd/zscalerctl"
 	Resources           []string
 	ManifestPath        string
-	NoManifest          bool
 	RequireCredentials  bool
 	RequireNonempty     bool
 	StrictCounts        bool
@@ -21,7 +21,7 @@ type Options struct {
 }
 
 // Runner executes the zscalerctl CLI under test. Read commands return stdout;
-// dump writes files under its --out directory and returns its notice on stdout.
+// dump writes files under its --output directory and returns its notice on stdout.
 // A real run execs the binary; tests inject a fake runner.
 type Runner interface {
 	Run(args ...string) (stdout, stderr []byte, exitCode int)
@@ -62,7 +62,7 @@ func (r *execRunner) Run(args ...string) (stdout, stderr []byte, exitCode int) {
 	err := cmd.Run()
 	code := 0
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			code = exitErr.ExitCode()
 		} else {
 			code = 1

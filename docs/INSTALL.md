@@ -1,26 +1,49 @@
 # Installation
 
-`zscalerctl` ships as a single Go CLI binary. The canonical command name is
-`zscalerctl`; short local aliases such as `zctl` are intentionally left to the
-operator's shell.
+`zscalerctl` ships as a single Go CLI binary. Install it from a signed release
+archive or build it from a clone; it is not a fetchable Go module, so
+`go install …@latest` does not apply. The command name is `zscalerctl`; short
+aliases such as `zctl` are left to the operator's shell.
 
 ## Supported Platforms
 
 Release artifacts are published for macOS and Linux on amd64 and arm64, and for
 Windows on amd64.
 
-File-backed secrets are supported when the secret file is owner-only. On macOS
-and Linux, that means no group/world access. On Windows, `zscalerctl` validates
-the file DACL and accepts access for the current user, the file owner, `SYSTEM`,
-and `Administrators`; broad principals such as `Everyone`, `Users`,
-`Authenticated Users`, and `Domain Users` are rejected.
+File-backed secrets are supported when the secret file is owner-only. On Linux,
+that means no group/world access. On macOS, the file must also have no extended
+ACL: mode `0600` is rejected when an ACL grants or otherwise defines additional
+access. On Windows, `zscalerctl` validates the file DACL and accepts access for
+the current user, the file owner, `SYSTEM`, and `Administrators`; broad
+principals such as `Everyone`, `Users`, `Authenticated Users`, and
+`Domain Users` are rejected.
 
 Relatedly, `dump` creates its output directory and files with owner-only
-permissions on macOS and Linux, but that enforcement does not apply on Windows:
-the underlying `os.Chmod` has no ACL effect there, so the mode bits are not
-honored. On Windows, write dumps into a directory that is already restricted to
-your account (for example under your user profile), since the dump's own
-permission tightening is a no-op.
+permissions on macOS and Linux. Its immediate output parent must already be
+owned by the current user and must not be group- or world-writable; writable
+ancestors are accepted only when sticky-directory rules protect the next
+user-owned component. This keeps atomic publication and cleanup inside a
+namespace another local principal cannot rewrite. On macOS, permit or unknown
+extended-ACL entries on the resolved ancestry are rejected; deny-only ACLs are
+accepted because they do not widen access.
+
+That enforcement does not apply on Windows: the underlying `os.Chmod` has no
+ACL effect there, so the mode bits are not honored. On Windows, write dumps into
+a directory that is already restricted to your account (for example under your
+user profile), since the dump's own permission tightening is a no-op.
+The same Windows ACL limitation applies to individual files created with
+`--output`: mode `0600` does not restrict their inherited ACLs, so select an
+already restricted destination directory.
+
+On Linux, `dump`, `dump --force`, and `diff --from-dump` need `/proc` mounted:
+they open dump directories through `/proc/self/fd` so a FIFO substituted for a
+directory cannot hang them. Without it they fail closed with an error naming
+the unavailable descriptor directory. macOS uses `/dev/fd`.
+
+Windows can atomically publish a dump when the requested destination does not
+exist. Replacing an existing directory (including `dump --force`) fails closed:
+Windows does not provide the directory-exchange primitive needed to avoid a
+crash window in which the canonical destination is absent.
 
 ## Verify Release Artifacts
 
@@ -58,12 +81,23 @@ gh attestation verify ./zscalerctl_<version>_<goos>_<goarch>.tar.gz \
   --signer-workflow github.com/dvmrry/zscalerctl/.github/workflows/release.yml
 ```
 
-## Build From A Checkout
+Each archive holds the `zscalerctl` binary, this guide, the CLI reference,
+the man page (`man/zscalerctl.1`) and the agent skill
+(`skills/zscalerctl/`). Put the binary on your `PATH`.
+
+## Build From Source
+
+Source builds require Go 1.26.10 or newer; the module rejects older patch
+releases so the binary cannot be built with a standard library that is
+missing required security fixes. Dependencies are vendored, so the build
+needs no module downloads.
 
 ```sh
+git clone https://github.com/dvmrry/zscalerctl.git
+cd zscalerctl
 go install ./cmd/zscalerctl
-zscalerctl doctor
 zscalerctl version
+zscalerctl doctor
 ```
 
 ## Configure Credentials
@@ -94,6 +128,26 @@ provide protected environment variables, but file-based secret delivery is safer
 for interactive shells. `ZSCALERCTL_ZPA_CUSTOMER_ID` is required only when
 reading ZPA resources; ZIA, ZTW, and Zidentity resources use the standard
 OneAPI credential set without an extra product customer ID.
+
+`ZSCALERCTL_CLOUD` names the OneAPI gateway, not the cloud a tenant's products
+run on. Tenants on zscalertwo, zscalerthree, ZPATWO and the other ZIA and ZPA
+product clouds authenticate and read every product through the production
+gateway, so they use `PRODUCTION`. The accepted values (any case) are
+`PRODUCTION` (the default when unset), `ALPHA`, `BETA`, `GOV` and `GOVUS`.
+Any other value is rejected before the client secret is resolved, because the
+SDK would derive the token host that receives it from the value; for product
+cloud names no such host exists. A read fails with kind `invalid_config`
+(exit 2), and `auth status` and `doctor` report `invalid settings` with the
+reason, through the same check the reader runs. An invalid
+`ZSCALERCTL_VANITY_DOMAIN` (it must be a single DNS label) or legacy
+`ZSCALERCTL_ZIA_CLOUD` is reported the same way.
+
+Zidentity reads on OneAPI clouds `gov` and `govus` are explicitly unsupported.
+Since SDK v3.8.49 Zidentity is served through the OneAPI gateway under
+`/ziam`; this project has not verified that prefix on the government gateways.
+The CLI rejects those product/cloud combinations before OAuth or API requests
+instead of guessing a route. Other products retain their SDK government
+routing.
 
 Product API access is granted per product on the OneAPI OAuth client, not by
 extra environment variables. ZCC and ZTW resources use the same
@@ -164,7 +218,13 @@ reviewed wrapper script and point `argv` at that script. Set
 
 **Source/profile selection:** `--config` (or `ZSCALERCTL_CONFIG`) chooses which
 config file to load; `--profile` (or `ZSCALERCTL_PROFILE`) chooses which named
-profile within that file to use.
+profile within that file to use. Without either, the file's `default_profile`
+(or a profile named `default`) is used. When the file defines more than one
+profile and the choice came from that default, a command that reads a tenant
+and succeeds prints one line to stderr naming the profile, for example
+`zscalerctl: using profile "prod" (default_profile; 2 profiles configured); pass --profile to choose`.
+Stdout is unchanged, and a failing command's stderr is still only its error
+envelope. Pass `--profile` to make the choice explicit.
 
 **Per-field value precedence (highest to lowest):** flag > `ZSCALERCTL_*`
 environment variable > profile value > built-in default. A field set as a flag
@@ -279,6 +339,13 @@ export ZSCALERCTL_ZIA_API_KEY_FILE=/path/to/owner-only/api-key-file
 export ZSCALERCTL_ZIA_CLOUD=<zia-cloud-name>
 ```
 
+Supported legacy ZIA cloud names are `zscaler`, `zscalerone`, `zscalertwo`,
+`zscalerthree`, `zscloud`, `zscalerbeta`, `zscalergov`, `zscalerten`, and
+`zspreview`. Each name resolves to a fixed Zscaler API origin; unknown values
+are rejected before secret providers are resolved or credentials are sent.
+The legacy credential client also refuses HTTP redirects so a 307/308 response
+cannot replay its authentication body to another origin.
+
 Inline `ZSCALERCTL_ZIA_PASSWORD` and `ZSCALERCTL_ZIA_API_KEY` are supported for
 short-lived local smoke tests, but file-based secret delivery is preferred.
 
@@ -289,7 +356,7 @@ collect one dump, collect a later dump, then compare the two directories.
 
 ```sh
 today="$(date -u +%Y%m%dT%H%M%SZ)"
-zscalerctl dump --products zia,zpa,ztw,zcc,zidentity --out "$HOME/zscaler-dumps/$today"
+zscalerctl dump --products zia,zpa,ztw,zcc,zidentity --output "$HOME/zscaler-dumps/$today"
 zscalerctl --format json diff "$HOME/zscaler-dumps/previous" "$HOME/zscaler-dumps/$today" \
   --fail-on-drift --output "$HOME/zscaler-dumps/$today.diff.json"
 ```
@@ -309,7 +376,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - run: zscalerctl dump --products zia --out ./current
+      - run: zscalerctl dump --products zia --output ./current
       - run: zscalerctl --format json diff ./baseline ./current --fail-on-drift --output ./drift.json
 ```
 
@@ -337,6 +404,12 @@ export ZSCALERCTL_PROXY_URL=http://proxy.example.invalid:8080
 
 `ZSCALERCTL_PROXY_URL` and `ZSCALERCTL_PROXY_FROM_ENV` are mutually exclusive.
 Status commands report only whether a proxy is configured, never the proxy URL.
+When `HTTPS_PROXY` is set but neither setting is, `doctor` reports the proxy as
+`direct (HTTPS_PROXY is set but not used; ...)`: on a network that reaches the
+API only through the proxy, a dropped connect waits out `--timeout` (30
+seconds by default; possibly more than once, as the SDK retries) and fails as
+`timeout`; a refused one fails at once as a network error. Such a timeout or
+network error then ends with the same `HTTPS_PROXY is set but not used` hint.
 
 ## Shell Completions
 
