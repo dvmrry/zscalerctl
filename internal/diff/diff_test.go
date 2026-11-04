@@ -428,6 +428,60 @@ func TestCompareAllowPartialDoesNotTreatFailedCollectionAsEmpty(t *testing.T) {
 	}
 }
 
+// The report says which side was partial, so a reader can tell missing
+// collections from real drift.
+func TestCompareReportsEachSidesPartialStatus(t *testing.T) {
+	keyed := testKeyedSpec()
+	catalog := resources.ResourceCatalog{keyed}
+	complete := writeTestDump(t, catalog, dumpFixture{
+		entries: []dumpEntryFixture{{spec: keyed, payload: `[{"id":"1","name":"HQ"}]`}},
+	})
+	partial := writeTestDump(t, catalog, dumpFixture{status: "partial"})
+	for _, tt := range []struct {
+		name                   string
+		oldDir, newDir         string
+		oldPartial, newPartial bool
+	}{
+		{name: "old partial", oldDir: partial, newDir: complete, oldPartial: true},
+		{name: "new partial", oldDir: complete, newDir: partial, newPartial: true},
+		{name: "both partial", oldDir: partial, newDir: partial, oldPartial: true, newPartial: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			report, err := Compare(tt.oldDir, tt.newDir, Options{Catalog: catalog, AllowPartial: true})
+			if err != nil {
+				t.Fatalf("Compare(%s) error = %v, want nil", tt.name, err)
+			}
+			if report.Old.Partial != tt.oldPartial || report.New.Partial != tt.newPartial {
+				t.Errorf("Compare(%s) partial = old %v, new %v; want old %v, new %v", tt.name, report.Old.Partial, report.New.Partial, tt.oldPartial, tt.newPartial)
+			}
+		})
+	}
+}
+
+func TestCompareRejectsSingletonWithMultipleRecords(t *testing.T) {
+	singleton := testSingletonSpec()
+	catalog := resources.ResourceCatalog{singleton}
+	good := writeTestDump(t, catalog, dumpFixture{
+		entries: []dumpEntryFixture{{spec: singleton, payload: `{"enabled":true}`}},
+	})
+	bad := writeTestDump(t, catalog, dumpFixture{
+		entries: []dumpEntryFixture{{spec: singleton, payload: `[{"enabled":true},{"enabled":false}]`}},
+	})
+	for _, tt := range []struct{ name, oldDir, newDir string }{
+		{name: "old", oldDir: bad, newDir: good},
+		{name: "new", oldDir: good, newDir: bad},
+	} {
+		_, err := Compare(tt.oldDir, tt.newDir, Options{Catalog: catalog})
+		if !errors.Is(err, ErrInvalidDump) || !strings.Contains(err.Error(), "singleton resource zia/advanced-settings has multiple records") {
+			t.Errorf("Compare(two-record singleton as %s) error = %v, want ErrInvalidDump naming the singleton", tt.name, err)
+		}
+	}
+	// --from-dump reads load the same file through LoadCollection.
+	if _, err := LoadCollection(context.Background(), bad, catalog); !errors.Is(err, ErrInvalidDump) || !strings.Contains(err.Error(), "singleton resource has multiple records") {
+		t.Errorf("LoadCollection(two-record singleton) error = %v, want ErrInvalidDump for the singleton", err)
+	}
+}
+
 func TestCompareRejectsMissingRedactionReport(t *testing.T) {
 	catalog := resources.ResourceCatalog{testKeyedSpec()}
 	oldDir := writeTestDump(t, catalog, dumpFixture{})
