@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 allowlist="${ZSCALERCTL_DEADCODE_ALLOWLIST:-scripts/deadcode-allowlist.txt}"
-deadcode_version="${DEADCODE_VERSION:-v0.38.0}"
+deadcode_version="${DEADCODE_VERSION:-v0.52.0}"
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT

@@ -1,11 +1,11 @@
 SHELL := bash
 .SHELLFLAGS := -euo pipefail -c
 
-STATICCHECK_VERSION ?= v0.7.0
-GOVULNCHECK_VERSION ?= v1.3.0
+STATICCHECK_VERSION ?= v0.8.2
+GOVULNCHECK_VERSION ?= v1.9.0
 SEMGREP_VERSION ?= 1.179.0
 GITLEAKS_VERSION ?= v8.30.1
-DEADCODE_VERSION ?= v0.38.0
+DEADCODE_VERSION ?= v0.52.0
 FUZZTIME ?= 5s
 LIVE_SMOKE_OUT ?=
 LIVE_SMOKE_FLAGS ?= --require-credentials
@@ -13,8 +13,11 @@ LIVE_SMOKE_MANIFEST ?=
 
 .PHONY: fmt-check test race vet vuln vuln-root vuln-tools staticcheck docs-check docs-cli-check gen-cli-docs semgrep-check secret-scan verify-gitleaks-allowlist verify-go-toolchain verify-ci-jobs vendor verify-vendor verify-licenses verify-sdk-boundary verify-core-boundaries verify-machine-contract verify-ci-no-live-creds verify-actions-pinned verify-surface-changes-manifest verify-pty-escape-clean verify-release-automation verify-release-artifacts verify-catalog-draft verify-resource-scaffold verify-sdk-surface-inventory verify-sdk-ledger verify-script-registry verify-deadcode scaffold-resource field-coverage field-types resources-doc live-smoke fuzz-smoke heavy-check check release-check
 
+# gofmt's layout can change between Go releases, so check with the gofmt of the
+# toolchain go.mod selects rather than whichever gofmt is first on PATH.
 fmt-check:
-	@files="$$(git ls-files -co --exclude-standard '*.go' ':!:vendor/**' | xargs gofmt -l)"; \
+	@gofmt="$$(go env GOROOT)/bin/gofmt"; \
+	files="$$(git ls-files -co --exclude-standard '*.go' ':!:vendor/**' | xargs "$$gofmt" -l)"; \
 	if [ -n "$$files" ]; then echo "$$files"; exit 1; fi
 
 test:

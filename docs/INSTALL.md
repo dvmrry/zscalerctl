@@ -8,7 +8,8 @@ aliases such as `zctl` are left to the operator's shell.
 ## Supported Platforms
 
 Release artifacts are published for macOS and Linux on amd64 and arm64, and for
-Windows on amd64.
+Windows on amd64. The macOS builds need macOS 13 Ventura or later; the Linux
+builds are static and run on kernel 3.2 or later, so RHEL 7 and later work.
 
 File-backed secrets are supported when the secret file is owner-only. On Linux,
 that means no group/world access. On macOS, the file must also have no extended
@@ -87,7 +88,7 @@ the man page (`man/zscalerctl.1`) and the agent skill
 
 ## Build From Source
 
-Source builds require Go 1.26.10 or newer; the module rejects older patch
+Source builds require Go 1.27.3 or newer; the module rejects older patch
 releases so the binary cannot be built with a standard library that is
 missing required security fixes. Dependencies are vendored, so the build
 needs no module downloads.
@@ -379,6 +380,16 @@ jobs:
       - run: zscalerctl dump --products zia --output ./current
       - run: zscalerctl --format json diff ./baseline ./current --fail-on-drift --output ./drift.json
 ```
+
+## TLS Inspection
+
+Live reads trust the system certificate store, so a TLS-inspection root CA
+installed in the macOS Keychain, the Windows certificate store or the Linux CA
+bundle is trusted as usual. On macOS and Windows, setting `SSL_CERT_FILE` or
+`SSL_CERT_DIR` replaces the system store: only the roots in those files are
+trusted. Keep public roots in that bundle alongside any inspection root, or
+unset the variables for `zscalerctl`. `GODEBUG=x509sslcertoverrideplatform=0`
+restores the system store while they stay set.
 
 ## Configure A Proxy
 

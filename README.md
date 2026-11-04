@@ -40,7 +40,7 @@ lists every field and the modes that render it.
 ## Install
 
 Download a release archive for macOS, Linux (amd64, arm64) or Windows (amd64)
-and verify it, or build from a clone with Go 1.26.10 or newer:
+and verify it, or build from a clone with Go 1.27.3 or newer:
 
 ```sh
 git clone https://github.com/dvmrry/zscalerctl.git
