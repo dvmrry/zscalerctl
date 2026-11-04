@@ -19,6 +19,9 @@ jobs:
   # gate: its pull request's CI already passed the same tree, and rerunning
   # make check on each merge cost more minutes than the PR itself.
   version:
+    # Releases come only from the public repo. A private copy merges the public
+    # notes files when it syncs, and must not publish them again as its own.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     outputs:
       release: ${{ steps.version.outputs.release }}

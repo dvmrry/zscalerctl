@@ -17,6 +17,9 @@ permissions:
 
 jobs:
   verify:
+    # Releases come only from the public repo; a private copy's tags and notes
+    # files are not a release line, so its pull requests skip the check.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
