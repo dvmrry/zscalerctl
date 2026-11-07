@@ -72,9 +72,10 @@ func validateOpenFile(file *os.File) error {
 	path := file.Name()
 	handle := windows.Handle(file.Fd())
 
-	// Run the volume restriction BEFORE the DACL check so a network/removable/
-	// non-NTFS/UNC file produces the clear remediation message instead of a
-	// cryptic SID error (DAV-38: NFS/SMB/FAT files surface as opaque SIDs).
+	// Run the volume restriction BEFORE the DACL check so a network, removable
+	// or UNC file, or one on another filesystem, produces the clear remediation
+	// message instead of a cryptic SID error (NFS/SMB/FAT files surface as
+	// opaque SIDs).
 	if err := validateLocalFixedNTFS(handle, path); err != nil {
 		return err
 	}
@@ -173,8 +174,8 @@ func writeOwnerOnly(path string, data []byte) error {
 }
 
 // lockDownToCurrentUser breaks DACL inheritance on path and grants full control
-// to only the current user, via the absolute icacls path with no shell. This is
-// the verified A9 recipe: `icacls <path> /inheritance:r /grant:r <user>:F`.
+// to only the current user, via the absolute icacls path with no shell:
+// `icacls <path> /inheritance:r /grant:r <user>:F`.
 func lockDownToCurrentUser(path string) error {
 	user, err := currentUserName()
 	if err != nil {
@@ -231,9 +232,8 @@ func currentUserName() (string, error) {
 }
 
 // rejectSID builds a value-free rejection error that names both the friendly
-// principal and its raw SID, and appends the verified icacls remediation
-// (DAV-38 A9). It carries only the path, the principal, and a fixed command —
-// never a secret value.
+// principal and its raw SID, and appends the icacls remediation. It carries
+// only the path, the principal, and a fixed command — never a secret value.
 func rejectSID(path string, sid *windows.SID) error {
 	return fmt.Errorf("%w: %s is accessible by %s (%s); make it owner-only:  icacls %q /inheritance:r /grant:r \"%%USERNAME%%:F\"",
 		ErrInsecurePermissions, path, friendlyName(sid), sid.String(), path)
@@ -257,10 +257,10 @@ func friendlyName(sid *windows.SID) string {
 }
 
 // validateLocalFixedNTFS rejects config/secret files that do not live on a
-// local, fixed, NTFS volume. DAV-38 confirmed the NTFS-DACL read cannot see
-// SMB share permissions (false-ACCEPT risk) and mis-maps remote/NFS/removable
-// identities (false-REJECT). We restrict to DRIVE_FIXED + NTFS + non-UNC so
-// the user gets one clear message instead of an opaque SID error.
+// local, fixed, NTFS or ReFS volume. The NTFS-DACL read cannot see SMB share
+// permissions (false-ACCEPT risk) and mis-maps remote/NFS/removable identities
+// (false-REJECT). We restrict to DRIVE_FIXED + NTFS or ReFS + non-UNC so the
+// user gets one clear message instead of an opaque SID error.
 //
 // Everything is handle-based (TOCTOU-safe): the file is already open.
 func validateLocalFixedNTFS(handle windows.Handle, path string) error {

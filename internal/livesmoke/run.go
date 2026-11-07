@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Options configures a live smoke run, mirroring scripts/live-smoke.sh flags.
+// Options configures a live smoke run, mirroring the scripts/live-smoke.go flags.
 type Options struct {
 	OutDir              string
 	Bin                 string // empty -> "go run -mod=vendor ./cmd/zscalerctl"
@@ -77,8 +77,7 @@ func (r *execRunner) Run(args ...string) (stdout, stderr []byte, exitCode int) {
 func isSet(env Env, key string) bool { return strings.TrimSpace(env(key)) != "" }
 
 // credentialFamily reports the configured live credential family ("OneAPI" or
-// "ZIA legacy"), or "" when no supported family is fully configured. Mirrors the
-// shell credential_family.
+// "ZIA legacy"), or "" when no supported family is fully configured.
 func credentialFamily(env Env) string {
 	oneapi := isSet(env, "ZSCALERCTL_CLIENT_ID") &&
 		(isSet(env, "ZSCALERCTL_CLIENT_SECRET") || isSet(env, "ZSCALERCTL_CLIENT_SECRET_FILE")) &&

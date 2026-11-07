@@ -129,7 +129,7 @@ func TestWindowsDACLRejectsUnsupportedAllowACE(t *testing.T) {
 // directly and bypass validateLocalFixedNTFS/validateOpenFile; this exercises
 // the full stack — volume gate (local fixed NTFS/ReFS on the CI/host runner)
 // PLUS the DACL check — against a normal local owner-only file, and asserts it
-// is accepted. It MUST run on the DAV-38 Windows host.
+// is accepted. It MUST run on a Windows host.
 func TestOpenOwnerOnlyAcceptsLocalOwnerOnlyFile(t *testing.T) {
 	dir := t.TempDir() // local fixed NTFS on the host / CI runner
 	file := filepath.Join(dir, "config.yaml")

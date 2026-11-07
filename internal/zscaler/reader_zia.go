@@ -526,15 +526,15 @@ func getZIALocationGroupsAllPages(ctx context.Context, service *zsdk.Service) ([
 }
 
 // getZIAURLFilteringRulesAllPages reads /zia/api/v1/urlFilteringRules with an
-// explicit bounded page walk. The vendored SDK's GetAll uses ReadAllPages, which
-// has no page ceiling and requests 1,000 records a page, stopping at the first
-// shorter page. The endpoint's maximum page size is neither documented nor
-// measured, so a cap below 1,000 would end that walk on page 1 without an error.
-// When GetAll was still one bare Read with no paging parameters, a downstream
-// report saw exactly 100 rules while the admin console showed more.
+// explicit bounded page walk. A read with no paging parameters gets only the
+// API's 100-record default page, which truncated rule lists in live use (100
+// returned, more in the console).
 // Keeping the explicit page size at 100 matches Zscaler's published
 // pagination example and the observed default boundary. It also avoids relying
 // on a larger, endpoint-specific maximum that the API reference does not state.
+// The vendored SDK's GetAll now pages too, but asks for 1,000 records a page,
+// has no page ceiling, and stops at the first shorter page, so it depends on
+// the server honoring that size.
 func getZIAURLFilteringRulesAllPages(ctx context.Context, service *zsdk.Service) ([]urlfilteringpolicies.URLFilteringRule, error) {
 	const pageSize = 100
 	return ziaPaginate(ctx, pageSize, func(ctx context.Context, page, size int) ([]urlfilteringpolicies.URLFilteringRule, error) {

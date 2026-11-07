@@ -75,38 +75,38 @@ func TestScannersRedactGenericLabeledCredentials(t *testing.T) {
 		{"POC key: key=" + "550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440000"},
 		{"POC key: v2.token=A7b9C2d4E6f8G1h3J5k7", "A7b9C2d4E6f8G1h3J5k7"},
 		{escapedFixture(`POC key: "A7b9C2d^u0034E6f8G1h^u0033J5k7L9m^u0032N4p6Q8r^u0030S2t4U6v"`), "J5k7L9m"},
-		// Round 4: a label-shaped suffix inside the key, whitespace inside an
+		// A label-shaped suffix inside the key, whitespace inside an
 		// escaped quoted value, and a separator hidden by an escape.
 		{"POC key: " + "A7b9G2d4E6f_keY=", "A7b9G2d4E6f"},
 		{"POC key: " + "A7b9G2d4E6f8_key=Zx81", "A7b9G2d4E6f8"},
 		{escapedFixture(`POC key: " A7b9C2d^u0034E6f8J5k7 "`), "E6f8J5k7"},
 		{escapedFixture(`POC key: "key^u003d550e8400-e29b-41d4-a716-446655440000"`), "41d4-a716-446655440000"},
-		// Round 5: typographic quotes from email/docs, and a wrapped UUID as
+		// Typographic quotes from email/docs, and a wrapped UUID as
 		// Go's JSON encoder writes it (< and > escaped).
 		{"POC key: \xe2\x80\x9cA7b9C2d4E6f8J5k7\xe2\x80\x9d", "A7b9C2d4E6f8J5k7"},
 		{"POC key: \xe2\x80\x98A7b9C2d4E6f8J5k7\xe2\x80\x99", "A7b9C2d4E6f8J5k7"},
 		{"POC key: \xc2\xabA7b9C2d4E6f8J5k7\xc2\xbb", "A7b9C2d4E6f8J5k7"},
 		{"POC key: <550e8400-e29b-41d4-a716-446655440000>", "550e8400-e29b-41d4-a716-446655440000"},
 		{escapedFixture(`{"key":"^u003c550e8400-e29b-41d4-a716-446655440000^u003e"}`), "550e8400-e29b-41d4-a716-446655440000"},
-		// Round 6: typographic quotes around the label too, and whitespace
+		// Typographic quotes around the label too, and whitespace
 		// inside a JSON-encoded wrapper.
 		{"POC \xe2\x80\x9ckey\xe2\x80\x9d: \xe2\x80\x9cA7b9C2d4E6f8J5k7\xe2\x80\x9d", "A7b9C2d4E6f8J5k7"},
 		{"POC \xe2\x80\x98key\xe2\x80\x99: \xe2\x80\x98A7b9C2d4E6f8J5k7\xe2\x80\x99", "A7b9C2d4E6f8J5k7"},
 		{"POC key: < 550e8400-e29b-41d4-a716-446655440000 >", "550e8400-e29b-41d4-a716-446655440000"},
 		{escapedFixture(`{"key":"^u003c 550e8400-e29b-41d4-a716-446655440000 ^u003e"}`), "550e8400-e29b-41d4-a716-446655440000"},
-		// Round 7: Markdown backticks and German quotes around the label, and
+		// Markdown backticks and German quotes around the label, and
 		// a letters-only key.
 		{"POC `key`: `A7b9C2d4E6f8J5k7`", "A7b9C2d4E6f8J5k7"},
 		{"POC \xe2\x80\x9ekey\xe2\x80\x9c: \xe2\x80\x9eA7b9C2d4E6f8J5k7\xe2\x80\x9c", "A7b9C2d4E6f8J5k7"},
 		{"POC key: QzWpRtYuHsDfGjKlXcVb", "QzWpRtYuHsDfGjKlXcVb"},
-		// Round 8: padded base64 letters-only key, and Markdown emphasis
+		// Padded base64 letters-only key, and Markdown emphasis
 		// around the label.
 		{"POC key: " + "QzWpRtYuHsDfGjKlXcVbZg==", "QzWpRtYuHsDfGjKlXcVbZg"},
 		{`{"key":"` + `QzWpRtYuHsDfGjKlXcVbZg=="}`, "QzWpRtYuHsDfGjKlXcVbZg"},
 		{"POC **key**: A7b9C2d4E6f8J5k7", "A7b9C2d4E6f8J5k7"},
 		{"POC __key__: " + "A7b9C2d4E6f8J5k7", "A7b9C2d4E6f8J5k7"},
 		{"POC *key*: **A7b9C2d4E6f8J5k7**", "A7b9C2d4E6f8J5k7"},
-		// Round 9: Markdown underscores around a UUID.
+		// Markdown underscores around a UUID.
 		{"POC key: " + "_550e8400-e29b-41d4-a716-446655440000_", "550e8400-e29b-41d4-a716-446655440000"},
 		{"POC key: " + "__550e8400-e29b-41d4-a716-446655440000__", "550e8400-e29b-41d4-a716-446655440000"},
 		{`{"key":"` + `_550e8400-e29b-41d4-a716-446655440000_"}`, "550e8400-e29b-41d4-a716-446655440000"},
@@ -126,7 +126,7 @@ func TestScannersRedactGenericLabeledCredentials(t *testing.T) {
 		{"pasted xo" + "xb-180294756318-492716380541-aW3zS7xC by accident", "xo" + "xb-180294756318-492716380541-aW3zS7xC"},
 		{"maps key AIzaSyD4mQ8vN2pR6tX1cB5hJ9kL3wF7gA0", "AIzaSyD4mQ8vN2pR6tX1cB5hJ9kL3wF7gA0"},
 		{"stripe sk_" + "live_51Na4Qz8Yr2Mw6Xp9Dv3K", "sk_" + "live_51Na4Qz8Yr2Mw6Xp9Dv3K"},
-		// Round 10: an assignment label with a backtick-wrapped value, as
+		// An assignment label with a backtick-wrapped value, as
 		// main already redacted it.
 		{"psk: `A7b9C2d4E6f8J5k7`", "A7b9C2d4E6f8J5k7"},
 		{"client_secret: " + "`A7b9C2d4E6f8J5k7`", "A7b9C2d4E6f8J5k7"},

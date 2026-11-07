@@ -76,8 +76,8 @@ func (a *App) newConfigInitCmd(opts globalOptions) *cobra.Command {
 	return cmd
 }
 
-// runConfigInitWithForce extracts the post-flag-parse logic from runConfigInit
-// so it can be called from the Cobra RunE with an already-resolved force value.
+// runConfigInitWithForce runs config init after flag parsing, called from the
+// Cobra RunE with an already-resolved force value.
 //
 // Both out and errW are the raw App writers (a.out / a.err). config-init is
 // intentionally exempt from the Cobra-installed redacting writer for its path

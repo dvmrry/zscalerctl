@@ -16,7 +16,7 @@ const maxSecretFileBytes = 64 * 1024
 
 // ReadOwnerOnlySecretFile opens the file, checks permissions on the open
 // handle (eliminating the TOCTOU race between a separate stat and read), reads
-// the contents, and returns the trimmed secret value.
+// the contents, and returns them as the secret with any trailing CR/LF removed.
 //
 // This is the only supported way to consume an owner-only credential file.
 // Do not add a path-based "validate then read later" helper: checking

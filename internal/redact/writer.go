@@ -32,7 +32,8 @@ func NewWriter(dst io.Writer, mode Mode) io.WriteCloser {
 	}
 }
 
-// Write appends p to the internal buffer. It never returns an error.
+// Write appends p to the internal buffer. It returns io.ErrClosedPipe after
+// Close and never fails otherwise.
 func (w *writer) Write(p []byte) (int, error) {
 	if w.closed {
 		return 0, io.ErrClosedPipe

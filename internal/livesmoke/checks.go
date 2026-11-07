@@ -1,10 +1,9 @@
 // Package livesmoke is a read-only live smoke validator for zscalerctl. It runs
 // the CLI against configured credentials and checks that output is well-formed,
 // leaks no denied field keys, stays within the catalog allow-list, and that
-// dumps are correctly redacted — the security checks that previously lived in
-// scripts/live-smoke.sh. The validation logic is pure (operates on parsed JSON
-// and an injectable command runner) so it is exercised by go test without live
-// credentials; the live path is the same code with a real runner.
+// dumps are correctly redacted. The validation logic is pure (operates on
+// parsed JSON and an injectable command runner) so it is exercised by go test
+// without live credentials; the live path is the same code with a real runner.
 package livesmoke
 
 import (
@@ -14,9 +13,8 @@ import (
 	"strings"
 )
 
-// Security configuration, ported verbatim from scripts/live-smoke.sh. These are
-// the field keys a sanitized output must never contain, the per-resource
-// exceptions, and the per-resource reviewed allowances.
+// Security configuration: the field keys a sanitized output must never contain,
+// the per-resource exceptions, and the per-resource reviewed allowances.
 var (
 	deniedExactKeys = []string{
 		"preSharedKey", "vpnCredentials", "createdBy", "lastModifiedBy",
@@ -60,8 +58,7 @@ const manifestWarning = "sanitized dumps remain confidential operational data"
 // data (recursively, every nested object), for the given resource. A key is
 // denied when its exact path is not in the resource's reviewed allow-list AND
 // it is either an exact denied key (global or per-resource) or matches the
-// denied-key pattern. Array indices are omitted from paths. Mirrors the jq
-// `.. | objects | keys` recursive scan while keeping exceptions path-scoped.
+// denied-key pattern. Array indices are omitted from paths.
 func findDeniedKeys(resource string, data any) []string {
 	exact := map[string]bool{}
 	for _, k := range deniedExactKeys {
@@ -103,8 +100,7 @@ func findDeniedKeys(resource string, data any) []string {
 // findNonCatalogKeys returns the sorted, unique set of TOP-LEVEL object keys not
 // present in the resource's standard-mode catalog field set. For an array, each
 // element object is checked; for an object, the object itself. Returns a single
-// "<missing schema resource>" sentinel when the spec is absent. Mirrors the jq
-// catalog-subset check (top-level only, not recursive).
+// "<missing schema resource>" sentinel when the spec is absent.
 func findNonCatalogKeys(product, resource string, data any, specs []ResourceSpec) []string {
 	spec := findSpec(specs, product, resource)
 	if spec == nil {
@@ -144,8 +140,7 @@ func findNonCatalogKeys(product, resource string, data any, specs []ResourceSpec
 
 // redactionMarkerPaths returns the sorted, unique field paths whose string value
 // contains a redaction marker ("<REDACTED:"). Paths render array indices as "[]"
-// and join object keys with ".", e.g. "[].description". Mirrors the jq
-// paths(strings) fieldpath formatting.
+// and join object keys with ".", e.g. "[].description".
 func redactionMarkerPaths(data any) []string {
 	found := map[string]bool{}
 	var walk func(v any, path string)

@@ -187,7 +187,7 @@ func TestCredentialMetadataAndValuesStayDistinct(t *testing.T) {
 	}
 
 	// An Azure resource ID after a credential label is not key material.
-	// Free-text scanners keep main's entropy decision for its segments.
+	// Free-text scanners keep the entropy decision for its segments.
 	azure := "Secret rotation target: /subscriptions/" + uuid + "/resourceGroups/rg-identity-prod"
 	if got, report := redact.New(redact.ModeStandard).ScanString(azure); got != azure || !report.Empty() {
 		t.Errorf("ScanString(%q) = %q (report %v), want unchanged", azure, got, report.Counts)

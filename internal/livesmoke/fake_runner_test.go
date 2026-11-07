@@ -7,15 +7,13 @@ import (
 	"strings"
 )
 
-// fakeRunner reproduces scripts/test-live-smoke.sh's fake zscalerctl: it answers
-// schema list, per-resource list/show, and dump, varying behavior by mode so the
-// same fixtures that exercised the shell validator exercise the Go one.
+// fakeRunner is a fake zscalerctl: it answers schema list, per-resource
+// list/show, and dump, varying behavior by mode.
 type fakeRunner struct {
 	mode string
 }
 
-// fakeResources is the catalog the fake schema advertises, in the same order as
-// the shell fixture.
+// fakeResources is the catalog the fake schema advertises.
 var fakeResources = []string{
 	"zia/advanced-settings", "zia/atp-malware-policy", "zia/gre-tunnels", "zia/intermediate-ca-certificates",
 	"zia/location-groups", "zia/locations", "zia/mobile-threat-settings", "zia/org-information",

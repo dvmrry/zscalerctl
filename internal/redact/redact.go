@@ -302,8 +302,8 @@ type jsonStringToken struct {
 // named by its member key ({"_id": <ObjectId>}, {"sha256": <digest>},
 // {"commit": <revision>}), the JSON form of the context isContextualPublicValue
 // reads in prose. Only values below the 32-character long-entropy floor are
-// considered, so the exemption reaches the branch's short free-text rule but
-// never changes main's long-entropy decision.
+// considered, so the exemption reaches only the short free-text rule and
+// never changes the long-entropy decision.
 func publicMemberValue(token jsonStringToken) bool {
 	if token.memberKey == "" || len(token.memberKey) > publicValueContextWindow || len(token.value) >= 32 {
 		return false
@@ -1199,10 +1199,12 @@ func (r Redactor) scanEntropy(out string, report Report, context highEntropyCont
 
 // Free text is where admins paste PoC keys, and many API keys are 20-31
 // characters, below the general 32-character floor. In free text only, a
-// single unseparated alphanumeric run of 24-31 characters that mixes upper,
-// lower and digits and has high entropy is treated as key material. The
-// stricter character and entropy conditions keep ticket numbers, circuit IDs
-// and CamelCase product names intact.
+// single unseparated alphanumeric run of 24-31 characters is treated as key
+// material when it has a letter and a digit, has entropy of at least 3.7, and
+// does not read as words, a word with a number, a name with numbers or a dotted
+// name segment. Standard mode also keeps recognized public identifiers. These
+// conditions keep ticket numbers, circuit IDs and CamelCase product names
+// intact.
 const (
 	shortFreeTextTokenEntropy = 3.7
 )
@@ -1524,7 +1526,8 @@ var ksuidContextRE = regexp.MustCompile(`(?i)\bksuid\s*[:=]?\s*$`)
 
 // digestContextRE requires a digest noun. Algorithm names alone (MD5, SHA256)
 // are not digest context: they describe HMAC keys as often as checksums
-// ("HMAC key (SHA256): <hex>"), so such values keep main's entropy decision.
+// ("HMAC key (SHA256): <hex>"), so such values stay subject to the entropy
+// check.
 var digestContextRE = regexp.MustCompile(`(?i)\b(?:fingerprint|thumbprint|checksum|digest)\b[^\n]{0,40}$`)
 
 // credentialAfterDigestRE matches a credential word between a digest noun and
@@ -2703,10 +2706,12 @@ func isASCII(text string) bool {
 	return true
 }
 
-// shouldRedactHighEntropyToken keeps main's decision for tokens of 32 or more
-// characters, adding only recognized public identifiers in standard mode. It
-// deliberately has no word, path or label exemption: a word-built name of 32
-// or more characters cannot be told apart from a word-built password here.
+// shouldRedactHighEntropyToken decides tokens of 32 or more characters. Canonical
+// UUIDs pass, as do git SHAs named by their context and, in standard mode,
+// recognized public identifiers and structured compact UUIDs or hex fingerprints;
+// the rest go to the entropy check. It deliberately has no word, path or label
+// exemption: a word-built name of 32 or more characters cannot be told apart from
+// a word-built password here.
 func shouldRedactHighEntropyToken(text string, start, end int, context highEntropyContext, mode Mode) bool {
 	token := text[start:end]
 	if canonicalUUIDRE.MatchString(token) {
