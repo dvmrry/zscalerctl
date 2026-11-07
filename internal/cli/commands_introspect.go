@@ -10,10 +10,11 @@ import (
 // newIntrospectCmd returns the Cobra "introspect" subcommand. It is config-free:
 // it does NOT call LoadConfig, build a reader, or touch the network. The output
 // is the static CLI surface map (commands, flags, catalog, exit codes) as JSON
-// by default, or as a human-readable indented tree with --format table/pretty.
+// or as a human-readable indented tree.
 //
-// FormatAuto resolves to JSON here (machine-first by default). Only explicit
-// --format table/--format pretty produces the human tree renderer.
+// FormatAuto resolves before RunE: JSON when stdout is not a terminal or
+// --output is set, the human tree on a terminal. --format table/pretty always
+// give the tree, and --format json always gives JSON.
 // --format ndjson is rejected: introspect is a single document, not a stream.
 func (a *App) newIntrospectCmd(opts globalOptions) *cobra.Command {
 	return &cobra.Command{

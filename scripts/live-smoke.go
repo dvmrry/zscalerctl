@@ -1,8 +1,8 @@
 //go:build ignore
 
 // Command live-smoke runs a read-only live smoke against the configured
-// zscalerctl credentials. It is the Go port of scripts/live-smoke.sh; the
-// validation logic lives in internal/livesmoke and is covered by go test.
+// zscalerctl credentials. The validation logic lives in internal/livesmoke and
+// is covered by go test.
 //
 // Usage:
 //

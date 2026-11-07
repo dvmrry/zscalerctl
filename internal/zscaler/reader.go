@@ -1334,7 +1334,7 @@ func jsonSourceRecord[T any](item T) resources.SourceRecord {
 		// A marshal failure here is a programming error (e.g. an unserializable
 		// type in the SDK struct).  Log it so it shows up in diagnostic output;
 		// the caller cannot observe an error because the function signature is
-		// fixed by the 50+ registration sites in reader_zpa.go.
+		// fixed by its many registration sites in the ZPA readers.
 		// Log the item type and error type only — never the raw error value,
 		// which could embed tenant data via a custom MarshalJSON implementation.
 		slog.Error("jsonSourceRecord: marshal failed",

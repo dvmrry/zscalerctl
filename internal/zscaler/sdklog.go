@@ -132,11 +132,11 @@ func sdkRetryAfterHTTPDate(value string) bool {
 //
 // The first three are the SDK's full request/response dumps (Authorization
 // headers, bodies). The rest cover auth-FAILURE notices whose %v error embeds
-// the raw auth-endpoint response body — e.g. oneapiclient.go:286
-// ("...got http status: %d, response body: %s"), :359 ("auth error: %v"), and
-// zia/v2_client.go:211-217 ("HTTP 401 Unauthorized: %s") propagating into
-// oneapiconfig.go:118 ("Failed to renew OAuth2 token: %v") and
-// zia/v2_client.go:297 ("Failed to refresh session: %v"). On an auth failure
+// the raw auth-endpoint response body — e.g. oneapiclient.go
+// ("...got http status: %d, response body: %s", "auth error: %v") and
+// zia/v2_client.go ("HTTP 401 Unauthorized: %s") propagating into
+// oneapiconfig.go ("Failed to renew OAuth2 token: %v") and
+// zia/v2_client.go ("Failed to refresh session: %v"). On an auth failure
 // that body can carry token material, so it must never reach a log; the failure
 // still surfaces to the operator through the normal redacted error path.
 var sdkLogDenyMarkers = []string{

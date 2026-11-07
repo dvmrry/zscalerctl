@@ -1142,7 +1142,7 @@ func TestParseErrorsExitTwo(t *testing.T) {
 			alsoGolden: false,
 		},
 
-		// ── L-4: diff arity errors ─────────────────────────────────────────────
+		// ── diff arity errors ──────────────────────────────────────────────────
 		// diff with 0 positionals → exit 2 (requires exactly 2 dirs).
 		{
 			name:       "diff-no-args",
@@ -1158,7 +1158,7 @@ func TestParseErrorsExitTwo(t *testing.T) {
 			alsoGolden: false,
 		},
 
-		// ── L-5/N-3: --format ndjson completion bash → exit 2 ─────────────────
+		// ── --format ndjson completion bash → exit 2 ──────────────────────────
 		// completion bash does not accept ndjson (shell script, not JSON).
 		{
 			name:       "ndjson-completion-bash",
@@ -1167,7 +1167,7 @@ func TestParseErrorsExitTwo(t *testing.T) {
 			alsoGolden: false,
 		},
 
-		// ── N-1: unknown-resource coverage in product commands ────────────────
+		// ── unknown-resource coverage in product commands ─────────────────────
 		// "zia bogus-resource bogus-op" reaches the product RunE which does not
 		// recognise the resource and emits a UsageError (the resource list) →
 		// exit 2. (An unknown *resource* resolved before the operation is checked,

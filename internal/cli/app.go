@@ -272,8 +272,8 @@ func (a *App) runParsed(ctx context.Context, opts globalOptions, rest []string) 
 	//   - No command (empty rest) renders root help or the machine error path.
 	//   - Unknown command with --help keeps the resource-aware usage hint.
 	//   - Recognized command with --help routes straight to execCobra BEFORE the
-	//     narrowing/format gates below. This matches the legacy short-circuit where
-	//     opts.help fired before any flag validation, so combinations such as
+	//     narrowing/format gates below. opts.help fires before any flag validation,
+	//     so combinations such as
 	//     "--filter name=x version --help", "--fields id zia locations --help", and
 	//     "--format ndjson completion --help" all show help (exit 0) rather than
 	//     hitting the narrowing/format gates (exit 2).
@@ -292,8 +292,8 @@ func (a *App) runParsed(ctx context.Context, opts globalOptions, rest []string) 
 			return nil
 		}
 		// A --help request on a recognized command is a meta-request: route it to
-		// Cobra's help before the narrowing/format gates, matching the legacy
-		// behaviour where opts.help short-circuited prior to flag validation.
+		// Cobra's help before the narrowing/format gates, so opts.help
+		// short-circuits flag validation.
 		return a.execCobra(ctx, opts, rest)
 	}
 	if len(rest) == 0 {
@@ -778,7 +778,7 @@ func BuildCommandTree(a *App) *cobra.Command {
 // execCobra builds a transient Cobra root and dispatches rest through it.
 // All recognized commands reach here after the pre-Cobra guards in runParsed.
 //
-// --help re-insertion (v2.1 fix): parseGlobal strips --help into opts.help.
+// --help re-insertion: parseGlobal strips --help into opts.help.
 // If the caller had "version --help", rest is ["version"] and opts.help is true.
 // We re-append "--help" so Cobra renders the subcommand help rather than running
 // the command.
@@ -799,7 +799,7 @@ func (a *App) execCobra(ctx context.Context, opts globalOptions, rest []string) 
 
 	args := rest
 	// Re-insert --help only for non-completion args: injecting --help into the
-	// __complete stream would corrupt the completion output (L-15).
+	// __complete stream would corrupt the completion output.
 	// If a "--" terminator was present, --help must be inserted before the
 	// terminator position so Cobra still sees it as a flag, not as a positional.
 	if opts.help && !isCompletionArgs(rest) {

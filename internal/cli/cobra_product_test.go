@@ -85,7 +85,7 @@ func newProductApp(t *testing.T, reader cli.ResourceReader) (*cli.App, *bytes.Bu
 // TestProductCmd_List_JSON verifies that "zia locations list --format json" via
 // the Cobra path produces projected, redacted JSON output identical to the legacy
 // path: secret fields dropped, unknown fields stripped, array wrapper.
-// Also asserts M-5: the reader receives the correct (product, resource) routing.
+// Also asserts that the reader receives the correct (product, resource) routing.
 func TestProductCmd_List_JSON(t *testing.T) {
 	t.Parallel()
 
@@ -130,7 +130,7 @@ func TestProductCmd_List_JSON(t *testing.T) {
 	if errBuf.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", errBuf.String())
 	}
-	// M-5: assert routing correctness — reader must have received (zia, locations).
+	// Assert routing correctness — reader must have received (zia, locations).
 	if len(reader.calls) != 1 {
 		t.Fatalf("reader.calls = %d, want 1", len(reader.calls))
 	}
@@ -177,7 +177,7 @@ func TestProductCmd_List_NDJSON(t *testing.T) {
 
 // TestProductCmd_Get_JSON verifies that "zia locations get <id> --format json"
 // via the Cobra path produces a single projected record (not an array).
-// Also asserts M-5: the reader receives the correct (product, resource) routing.
+// Also asserts that the reader receives the correct (product, resource) routing.
 func TestProductCmd_Get_JSON(t *testing.T) {
 	t.Parallel()
 
@@ -205,7 +205,7 @@ func TestProductCmd_Get_JSON(t *testing.T) {
 	if errBuf.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", errBuf.String())
 	}
-	// M-5: assert routing correctness — reader must have received (zia, locations).
+	// Assert routing correctness — reader must have received (zia, locations).
 	if len(reader.calls) != 1 {
 		t.Fatalf("reader.calls = %d, want 1", len(reader.calls))
 	}
@@ -274,7 +274,7 @@ func TestProductCmd_Get_NDJSON(t *testing.T) {
 
 // TestProductCmd_Show_JSON verifies that "zia advanced-settings show" via the
 // Cobra path produces a projected record. advanced-settings has only ShowOperation.
-// Also asserts M-5: the reader receives the correct (product, resource) routing.
+// Also asserts that the reader receives the correct (product, resource) routing.
 func TestProductCmd_Show_JSON(t *testing.T) {
 	t.Parallel()
 
@@ -297,7 +297,7 @@ func TestProductCmd_Show_JSON(t *testing.T) {
 	if errBuf.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", errBuf.String())
 	}
-	// M-5: assert routing correctness — reader must have received (zia, advanced-settings).
+	// Assert routing correctness — reader must have received (zia, advanced-settings).
 	if len(reader.calls) != 1 {
 		t.Fatalf("reader.calls = %d, want 1", len(reader.calls))
 	}

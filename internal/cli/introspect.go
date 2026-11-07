@@ -306,7 +306,7 @@ func buildExitCodes() []ExitCodeDoc {
 // (zia, zpa, etc.) are handled separately by the caller; this function is
 // only called for real leaf/branch commands that should appear as-is.
 func buildSingleCommandDoc(cmd *cobra.Command, path string) CommandDoc {
-	// Fix #3: completion subcommand Long prose triggers the redactor (it
+	// Completion subcommand Long prose triggers the redactor (it
 	// contains "source <(..." which matches the secret-assignment pattern).
 	// The shell-setup instructions are not useful to agents; suppress Long for
 	// any command whose path starts with "completion".
@@ -315,7 +315,7 @@ func buildSingleCommandDoc(cmd *cobra.Command, path string) CommandDoc {
 		longText = ""
 	}
 
-	// Fix #8: populate OutputFields for commands that annotate their fields.
+	// Populate OutputFields for commands that annotate their fields.
 	var outputFields []string
 	if ann, ok := cmd.Annotations["introspect/output-fields"]; ok && ann != "" {
 		outputFields = strings.Split(ann, ",")

@@ -151,7 +151,7 @@ func TestSpinnerActive(t *testing.T) {
 			env:       []string{"TERM=dumb"},
 			want:      true,
 		},
-		// Fix #1 regression gate: --color always must NOT activate the spinner when
+		// Regression gate: --color always must NOT activate the spinner when
 		// stderr is not a TTY. ShouldColor(ColorAlways, ...) returns true regardless
 		// of the isTTY arg, so without the explicit a.stderrTTY guard this case
 		// would incorrectly return true and write braille bytes to non-TTY stderr.

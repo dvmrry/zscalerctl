@@ -361,7 +361,7 @@ func TestScannersPreserveOrdinaryPasteCredentialText(t *testing.T) {
 	}
 }
 
-// Word-built passwords of 32 or more characters keep main's long-entropy
+// Word-built passwords of 32 or more characters keep the long-entropy
 // decision in every phrasing and wrapper; only recognized public identifiers
 // are exempt on that path, never words, paths or label phrasing.
 func TestWordBuiltLongPasswordsKeepEntropyDecision(t *testing.T) {
@@ -381,7 +381,7 @@ func TestWordBuiltLongPasswordsKeepEntropyDecision(t *testing.T) {
 		{"The password for the trial account is CorrectHorseBatteryStaple/Ultra2024", "CorrectHorseBatteryStaple/Ultra2024"},
 		{"Rollout ring " + value + " approved.", value},
 		// Deliberate: a word-built name of 32 or more characters in free text
-		// keeps main's entropy decision and is redacted, because it cannot be
+		// keeps the entropy decision and is redacted, because it cannot be
 		// told apart from a word-built password of the same shape.
 		{"UserMustChangePasswordAtNextLogon2024", "UserMustChangePasswordAtNextLogon2024"},
 		{"Policy BlockO365GuestAccessForContractors applies.", "BlockO365GuestAccessForContractors"},

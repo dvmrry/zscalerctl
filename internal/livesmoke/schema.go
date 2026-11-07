@@ -105,8 +105,8 @@ func resourceName(qualified string) string {
 	return qualified
 }
 
-// normalizeRequestedResource applies the same rules as the shell: bare names
-// become zia/<name>; qualified names must use a known product prefix.
+// normalizeRequestedResource resolves a requested name: bare names become
+// zia/<name>; qualified names must use a known product prefix.
 func normalizeRequestedResource(entry string) (string, error) {
 	resource := strings.TrimSpace(entry)
 	if resource == "" {
