@@ -998,10 +998,10 @@ func TestGetZIAUsersAllPagesPreservesSDKSortDefaults(t *testing.T) {
 	}
 }
 
-// urlCategoryPageServer fakes /zia/api/v1/urlCategories the way the live API
-// behaves: whatever page size is requested, it returns at most 20 records per
-// page, and pages past the inventory are empty. With ignorePage it returns the
-// first page for every request instead.
+// urlCategoryPageServer fakes /zia/api/v1/urlCategories. By default it behaves
+// like the live tenant that clamped: whatever page size is requested, it returns
+// at most 20 records per page, and pages past the inventory are empty. The paging
+// argument selects another behavior.
 // urlCategoryPaging selects how the fake urlCategories endpoint pages.
 type urlCategoryPaging int
 
@@ -1012,7 +1012,7 @@ const (
 	// serves page 1: no client can read past the cap.
 	urlCategoriesCappedIgnoringPage
 	// urlCategoriesUnpaged ignores page and pageSize and returns every record,
-	// as live tenants were observed to do.
+	// as a different live tenant was observed to do.
 	urlCategoriesUnpaged
 )
 
@@ -1133,9 +1133,10 @@ func TestGetZIANetworkServicesSendsNoPageSize(t *testing.T) {
 	}
 }
 
-// TestGetZIAURLCategoriesAllRequestsAllCategoryTypes covers the live 20-record
-// clamp: a 5,000-record request returns 20 categories, so the reader must keep
-// walking until a short page instead of accepting the first page as complete.
+// TestGetZIAURLCategoriesAllRequestsAllCategoryTypes covers the 20-record clamp
+// one live tenant showed: a 5,000-record request returns 20 categories, so the
+// reader must keep walking until a short page instead of accepting the first
+// page as complete.
 func TestGetZIAURLCategoriesAllRequestsAllCategoryTypes(t *testing.T) {
 	service, productRequests := urlCategoryPageServer(t, 47)
 
@@ -1926,10 +1927,10 @@ func TestGetZIAURLCategoriesAllFailsClosedWhenPageIsIgnored(t *testing.T) {
 	}
 }
 
-// TestGetZIAURLCategoriesAllReadsAnUnpagedEndpoint covers the live behavior:
-// the endpoint ignores page and pageSize and returns every category on each
-// request. Page 2 repeats page 1 and the smaller-size probe still returns
-// everything, so page 1 is the complete collection.
+// TestGetZIAURLCategoriesAllReadsAnUnpagedEndpoint covers what a different live
+// tenant did: the endpoint ignores page and pageSize and returns every category
+// on each request. Page 2 repeats page 1 and the smaller-size probe still
+// returns everything, so page 1 is the complete collection.
 func TestGetZIAURLCategoriesAllReadsAnUnpagedEndpoint(t *testing.T) {
 	service, requests := urlCategoryPageServer(t, 47, urlCategoriesUnpaged)
 
