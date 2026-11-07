@@ -138,11 +138,12 @@ func paginationFailure(format string, args ...any) error {
 }
 
 // ziaWalkPages walks a ZIA list endpoint while enforcing the
-// ziaMaxPages ceiling the vendored ReadAllPages lacks. Some ZIA endpoints
-// silently clamp a requested page size (observed at 20 records), so a short
-// first page does not prove completion. The first nonempty response establishes
-// the effective page width; a later short page completes the walk. Repeated
-// pages, repeated record identities, and width growth fail closed because each
+// ziaMaxPages ceiling the vendored ReadAllPages lacks. A ZIA endpoint can
+// silently clamp a requested page size (urlCategories returned 20 records for a
+// 5,000-record request on one tenant), so a short first page does not prove
+// completion. The first nonempty response establishes the effective page width;
+// a later short page completes the walk. Repeated pages, repeated record
+// identities, and width growth fail closed because each
 // can indicate that the server ignored pagination or changed its pagination
 // contract mid-read. One repeat can be resolved instead. When page 1 was
 // shorter than requested and page 2 returns the same records, in any order and
@@ -151,10 +152,11 @@ func paginationFailure(format string, args ...any) error {
 // that caps each response (min(pageSize, cap)) and ignores the page would look
 // the same. So the walker asks for page 1 again with a page size one smaller:
 // an endpoint that still returns every record ignores paging entirely, and
-// page 1 is everything it will return (observed live for urlCategories, about
-// 25 ZIA list endpoints in all); one that returns fewer honors sizes and may
-// be capping, so the walk fails closed. A fixed window that ignores both page
-// and size is indistinguishable and accepted; no client can read past it.
+// page 1 is everything it will return (observed live on a different tenant for
+// urlCategories, about 25 ZIA list endpoints in all); one that returns fewer
+// honors sizes and may be capping, so the walk fails closed. A fixed window
+// that ignores both page and size is indistinguishable and accepted; no client
+// can read past it.
 // Records must match field for field, so a tenant change between requests
 // still fails closed. visitPage may
 // stop the walk after inspecting a validated page; point lookups use that path
@@ -524,9 +526,13 @@ func getZIALocationGroupsAllPages(ctx context.Context, service *zsdk.Service) ([
 }
 
 // getZIAURLFilteringRulesAllPages reads /zia/api/v1/urlFilteringRules with an
-// explicit bounded page walk. The vendored SDK's GetAll performs one bare Read,
-// so tenants with more than the API's 100-record default page are silently
-// truncated. Keeping the explicit page size at 100 matches Zscaler's published
+// explicit bounded page walk. The vendored SDK's GetAll uses ReadAllPages, which
+// has no page ceiling and requests 1,000 records a page, stopping at the first
+// shorter page. The endpoint's maximum page size is neither documented nor
+// measured, so a cap below 1,000 would end that walk on page 1 without an error.
+// When GetAll was still one bare Read with no paging parameters, a downstream
+// report saw exactly 100 rules while the admin console showed more.
+// Keeping the explicit page size at 100 matches Zscaler's published
 // pagination example and the observed default boundary. It also avoids relying
 // on a larger, endpoint-specific maximum that the API reference does not state.
 func getZIAURLFilteringRulesAllPages(ctx context.Context, service *zsdk.Service) ([]urlfilteringpolicies.URLFilteringRule, error) {
@@ -593,13 +599,17 @@ func getZIAURLFilteringRule(
 }
 
 // getZIAURLCategoriesAll reads every /zia/api/v1/urlCategories page. The SDK's
-// GetAll issues a single Read, and the API silently clamps a much larger
-// requested page size to 20 records (observed live), so a single read with a
-// ceiling check cannot detect truncation. The adaptive bounded paginator learns
-// the response width and continues. includeOnlyUrlKeywordCounts=true preserves
-// the prior GetAll(customOnly=false, includeOnlyUrlKeywordCounts=true) payload
-// shape. type=ALL is required to include TLD_CATEGORY records; omitting the
-// type returns only predefined and custom URL_CATEGORY records.
+// GetAll issues a single Read, which is complete only on some tenants. One
+// tenant returned 20 records for a 5,000-record request (2026-07-29), and a
+// single read with a ceiling check cannot detect that truncation. Another
+// returned the whole collection on every request, whatever page and pageSize
+// said (2026-10-14). What decides which a tenant does is not known, so the
+// adaptive bounded paginator learns the response width and continues, and
+// ziaWalkPages resolves the ignored-paging case.
+// includeOnlyUrlKeywordCounts=true preserves the prior GetAll(customOnly=false,
+// includeOnlyUrlKeywordCounts=true) payload shape. type=ALL is required to
+// include TLD_CATEGORY records; omitting the type returns only predefined and
+// custom URL_CATEGORY records.
 func getZIAURLCategoriesAll(ctx context.Context, service *zsdk.Service) ([]urlcategories.URLCategory, error) {
 	const requestedPageSize = 5000
 	return ziaPaginate(ctx, requestedPageSize, func(ctx context.Context, page, size int) ([]urlcategories.URLCategory, error) {
